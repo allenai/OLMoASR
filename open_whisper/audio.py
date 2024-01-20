@@ -31,8 +31,7 @@ def download_audio_transcript(video_id, lang_code, output_dir):
 
 
 def read_vtt(file_path):
-    vtt = webvtt.read(file_path)
-    text = []
-    for caption in vtt:
-        text.append(caption.text)
-    return vtt
+    captions = webvtt.read(file_path)
+    text = ' '.join([caption.text.strip().replace('\n', ' ') for caption in captions])
+
+    return text
