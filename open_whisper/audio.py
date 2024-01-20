@@ -9,6 +9,7 @@ import os
 import subprocess
 import webvtt
 
+
 def download_audio_transcript(video_id, lang_code, output_dir):
     if lang_code == "unknown":
         lang_code = "en"
@@ -28,9 +29,10 @@ def download_audio_transcript(video_id, lang_code, output_dir):
     ]
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+
 def read_vtt(file_path):
     vtt = webvtt.read(file_path)
     text = []
     for caption in vtt:
         text.append(caption.text)
-    return text
+    return vtt
