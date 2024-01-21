@@ -29,12 +29,13 @@ def download_transcript(video_id, lang_code, output_dir):
     ]
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+
 def download_audio(video_id, output_dir):
     command = [
         "yt-dlp",
         f"https://www.youtube.com/watch?v={video_id}",
         "-f",
-        "bestaudio[asr=16000][ext=wav]",
+        "bestaudio",
         "-o",
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
