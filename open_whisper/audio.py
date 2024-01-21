@@ -10,6 +10,7 @@ import subprocess
 import webvtt
 import numpy as np
 from typing import Dict, Tuple
+from datetime import datetime, timedelta
 
 
 def download_transcript(video_id: str, lang_code: str, output_dir: str) -> None:
@@ -55,6 +56,20 @@ def calculate_difference(timestamp1: str, timestamp2: str) -> int:
     return abs(time2 - time1)
 
 
+def adjust_timestamp(timestamp: str, seconds: int) -> str:
+    # Convert the HH:MM:SS.mmm format to a datetime object
+    original_time = datetime.strptime(timestamp, "%H:%M:%S.%f")
+
+    # Adjust the time by the specified number of seconds
+    # Use timedelta(seconds=seconds) to add or timedelta(seconds=-seconds) to subtract
+    adjusted_time = original_time + timedelta(seconds=seconds)
+
+    # Convert back to the HH:MM:SS.mmm string format
+    return adjusted_time.strftime("%H:%M:%S.%f")[
+        :-3
+    ]  # Truncate microseconds to milliseconds
+
+
 def read_vtt(file_path: str) -> Tuple[Dict, str, str]:
     transcript = {}
     captions = webvtt.read(file_path)
@@ -69,7 +84,12 @@ def read_vtt(file_path: str) -> Tuple[Dict, str, str]:
     return transcript, transcript_start, transcript_end
 
 
-def trim_audio(audio_file: str, start: str, end: str, output_dir: str) -> None:
+def trim_audio(
+    audio_file: str, start: str, end: str, window: int, output_dir: str
+) -> None:
+    start = adjust_timestamp(start, -window)
+    end = adjust_timestamp(end, window)
+
     command = [
         "ffmpeg",
         "-i",
