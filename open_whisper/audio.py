@@ -93,6 +93,7 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
     end_ms = convert_to_milliseconds(end)
     init_diff = calculate_difference(start_ms, end_ms)
     text = transcript[(start, end)]
+    added_silence = False
 
     while a < len(transcript):
         if init_diff < 30000:
@@ -104,7 +105,10 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
                     convert_to_milliseconds(timestamps[b][0]),
                     convert_to_milliseconds(timestamps[a][1]),
                 )
+                added_silence = True
                 continue
+
+            added_silence = False
             start = timestamps[b][0]
             end = timestamps[b][1]
             start_ms = convert_to_milliseconds(start)
@@ -117,7 +121,11 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
         else:
             # don't know what to do here yet so slay
             if init_diff >= 31000:
-                a = b
+                if added_silence:
+                    a = b
+                else:
+                    # depending on how many words are in that time segment, we may need to remove some words
+                    text = text[: -len(transcript[(start, end)])]
             else:
                 b += 1
                 a = b
@@ -130,4 +138,3 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
             start_ms = convert_to_milliseconds(start)
             end_ms = convert_to_milliseconds(end)
             init_diff = calculate_difference(start_ms, end_ms)
-
