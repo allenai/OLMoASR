@@ -66,6 +66,23 @@ def read_vtt(file_path: str) -> dict:
     return transcript
 
 
+def trim_audio(audio_file: str, start: str, end: str, output_dir: str) -> None:
+    command = [
+        "ffmpeg",
+        "-i",
+        audio_file,
+        "-ss",
+        start,
+        "-to",
+        end,
+        "-c",
+        "copy",
+        f"{output_dir}/{audio_file.split('/')[-2]}_trimmed.m4a",
+    ]
+
+    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def chunk_audio(audio_file: str, output_dir: str) -> None:
     command = [
         "ffmpeg",
@@ -77,7 +94,7 @@ def chunk_audio(audio_file: str, output_dir: str) -> None:
         "30",
         "-c",
         "copy",
-        f"{output_dir}/%(id)s/%(id)s_%03d.m4a",
+        f"{output_dir}/%03d.m4a",
     ]
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
