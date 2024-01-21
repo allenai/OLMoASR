@@ -128,7 +128,7 @@ def chunk_audio(audio_file: str, output_dir: str) -> None:
 def chunk_transcript(transcript_file: str, output_dir: str) -> None: 
     output_dir = os.makedirs(output_dir + "/segments", exist_ok=True)
 
-    transcript = read_vtt(transcript_file)
+    transcript, *_ = read_vtt(transcript_file)
     a = 0
     b = 0
     timestamps = transcript.keys()
