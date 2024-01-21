@@ -107,6 +107,8 @@ def trim_audio(
 
 
 def chunk_audio(audio_file: str, output_dir: str) -> None:
+    output_dir = os.makedirs(output_dir + "/segments", exist_ok=True)
+
     command = [
         "ffmpeg",
         "-i",
@@ -117,13 +119,15 @@ def chunk_audio(audio_file: str, output_dir: str) -> None:
         "30",
         "-c",
         "copy",
-        f"{output_dir}/%03d.m4a",
+        f"{output_dir}/%08d.m4a",
     ]
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def chunk_transcript(transcript_file: str, output_dir: str) -> None:
+def chunk_transcript(transcript_file: str, output_dir: str) -> None: 
+    output_dir = os.makedirs(output_dir + "/segments", exist_ok=True)
+
     transcript = read_vtt(transcript_file)
     a = 0
     b = 0
