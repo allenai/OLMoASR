@@ -55,7 +55,7 @@ def calculate_difference(timestamp1: str, timestamp2: str) -> int:
     return abs(time2 - time1)
 
 
-def read_vtt(file_path: str) -> Tuple[Dict]:
+def read_vtt(file_path: str) -> Tuple[Dict, str, str]:
     transcript = {}
     captions = webvtt.read(file_path)
     transcript_start = captions[0].start
