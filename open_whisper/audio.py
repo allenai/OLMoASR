@@ -9,6 +9,7 @@ import os
 import subprocess
 import webvtt
 import numpy as np
+from typing import Dict, Tuple
 
 
 def download_transcript(video_id: str, lang_code: str, output_dir: str) -> None:
@@ -54,16 +55,18 @@ def calculate_difference(timestamp1: str, timestamp2: str) -> int:
     return abs(time2 - time1)
 
 
-def read_vtt(file_path: str) -> dict:
+def read_vtt(file_path: str) -> Tuple(Dict):
     transcript = {}
     captions = webvtt.read(file_path)
+    transcript_start = captions[0].start
+    transcript_end = captions[-1].end
     for caption in captions:
         start = caption.start
         end = caption.end
         text = caption.text
         transcript[(start, end)] = text
 
-    return transcript
+    return transcript, transcript_start, transcript_end
 
 
 def trim_audio(audio_file: str, start: str, end: str, output_dir: str) -> None:
