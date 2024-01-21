@@ -125,13 +125,13 @@ def chunk_audio(audio_file: str, output_dir: str) -> None:
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def chunk_transcript(transcript_file: str, output_dir: str) -> None: 
+def chunk_transcript(transcript_file: str, output_dir: str) -> None:
     output_dir = os.makedirs(output_dir + "/segments", exist_ok=True)
 
     transcript, *_ = read_vtt(transcript_file)
     a = 0
     b = 0
-    timestamps = transcript.keys()
+    timestamps = list(transcript.keys())
     start = timestamps[a][0]
     end = timestamps[b][1]
     start_ms = convert_to_milliseconds(start)
