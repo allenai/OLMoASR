@@ -16,9 +16,11 @@ def download_audio_transcript(video_id, lang_code, output_dir):
 
     command = [
         "yt-dlp",
+        "-f",
+        "bestaudio",
         "--write-subs",
         "--no-write-auto-subs",
-        "--skip-download",
+        # "--skip-download",
         "--sub-format",
         "vtt",
         "--sub-langs",
@@ -32,6 +34,6 @@ def download_audio_transcript(video_id, lang_code, output_dir):
 
 def read_vtt(file_path):
     captions = webvtt.read(file_path)
-    text = ' '.join([caption.text.strip().replace('\n', ' ') for caption in captions])
+    text = " ".join([caption.text.strip().replace("\n", " ") for caption in captions])
 
     return text
