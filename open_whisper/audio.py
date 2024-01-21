@@ -8,6 +8,7 @@ import yt_dlp
 import os
 import subprocess
 import webvtt
+import numpy as np
 
 
 def download_transcript(video_id: str, lang_code: str, output_dir: str) -> None:
@@ -119,13 +120,29 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
 
             text += transcript[(start, end)]
         else:
-            # don't know what to do here yet so slay
             if init_diff >= 31000:
                 if added_silence:
                     a = b
                 else:
-                    # depending on how many words are in that time segment, we may need to remove some words
-                    text = text[: -len(transcript[(start, end)])]
+                    if (init_diff - 30000) // 1000 > len(
+                        transcript[(start, end)].split(" ")
+                    ):
+                        keep_len = int(
+                            np.ceil(
+                                ((init_diff - 30000) // 1000)
+                                / len(transcript[(start, end)].split(" "))
+                                * 1.0
+                            )
+                        )
+                        tokens = text.split(" ")
+                        tokens = tokens[: -(len(transcript[(start, end)]) - keep_len)]
+                        text = " ".join(tokens)
+                        remain_text = transcript[(start, end)][keep_len:] + " "
+                    else:  # < or ==
+                        tokens = text.split(" ")
+                        tokens = tokens[: -len(transcript[(start, end)]) + 1]
+                        text = " ".join(tokens)
+                        remain_text = transcript[(start, end)][1:] + " "
             else:
                 b += 1
                 a = b
@@ -133,6 +150,7 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
             transcript_file = open(f"{output_dir}/{start}_{end}.txt", "w")
             transcript_file.write(text)
             transcript_file.close()
+            text = remain_text
             start = timestamps[a][0]
             end = timestamps[b][1]
             start_ms = convert_to_milliseconds(start)
