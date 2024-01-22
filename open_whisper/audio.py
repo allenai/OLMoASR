@@ -38,7 +38,7 @@ def download_audio(video_id: str, output_dir: str) -> None:
         "yt-dlp",
         f"https://www.youtube.com/watch?v={video_id}",
         "-f",
-        "bestaudio[ext=m4a]",
+        "bestaudio[acodec=wav]",
         "-o",
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
@@ -107,7 +107,8 @@ def trim_audio(
 
 
 def chunk_audio(audio_file: str, output_dir: str) -> None:
-    output_dir = os.makedirs(output_dir + "/segments", exist_ok=True)
+    output_dir = output_dir + "/segments"
+    os.makedirs(output_dir, exist_ok=True)
 
     command = [
         "ffmpeg",
@@ -126,7 +127,8 @@ def chunk_audio(audio_file: str, output_dir: str) -> None:
 
 
 def chunk_transcript(transcript_file: str, output_dir: str) -> None:
-    output_dir = os.makedirs(output_dir + "/segments", exist_ok=True)
+    output_dir = output_dir + "/segments"
+    os.makedirs(output_dir, exist_ok=True)
 
     transcript, *_ = read_vtt(transcript_file)
     a = 0
@@ -134,33 +136,31 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
     timestamps = list(transcript.keys())
     start = timestamps[a][0]
     end = timestamps[b][1]
-    start_ms = convert_to_milliseconds(start)
-    end_ms = convert_to_milliseconds(end)
-    init_diff = calculate_difference(start_ms, end_ms)
+    init_diff = calculate_difference(start, end)
     text = transcript[(start, end)]
     added_silence = False
+    remain_text = ""
 
     while a < len(transcript):
         if init_diff < 30000:
             b += 1
-            if convert_to_milliseconds(timestamps[b][0]) > convert_to_milliseconds(
-                timestamps[a][1]
-            ):
+            if convert_to_milliseconds(timestamps[b][0]) > convert_to_milliseconds(end):
                 init_diff += calculate_difference(
-                    convert_to_milliseconds(timestamps[b][0]),
-                    convert_to_milliseconds(timestamps[a][1]),
+                    timestamps[b][0],
+                    end,
                 )
                 added_silence = True
+            else:
+                added_silence = False
+
+            if added_silence and init_diff >= 30000:
                 continue
 
-            added_silence = False
             start = timestamps[b][0]
             end = timestamps[b][1]
-            start_ms = convert_to_milliseconds(start)
-            end_ms = convert_to_milliseconds(end)
-
-            diff = calculate_difference(start_ms, end_ms)
+            diff = calculate_difference(start, end)
             init_diff += diff
+            added_silence = False
 
             text += transcript[(start, end)]
         else:
@@ -179,14 +179,20 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
                             )
                         )
                         tokens = text.split(" ")
-                        tokens = tokens[: -(len(transcript[(start, end)]) - keep_len)]
+                        tokens = tokens[
+                            : -(len(transcript[(start, end)].split(" ")) - keep_len)
+                        ]
                         text = " ".join(tokens)
-                        remain_text = transcript[(start, end)][keep_len:] + " "
+                        remain_text = transcript[(start, end)][keep_len:]
                     else:  # < or ==
                         tokens = text.split(" ")
-                        tokens = tokens[: -len(transcript[(start, end)]) + 1]
-                        text = " ".join(tokens)
-                        remain_text = transcript[(start, end)][1:] + " "
+                        text = " ".join(
+                            tokens[: -len(transcript[(start, end)].split(" ")) + 1]
+                        )
+                        remain_text = transcript[(start, end)].split(" ")[1:]
+
+                    b += 1
+                    a = b
             else:
                 b += 1
                 a = b
@@ -197,6 +203,12 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
             text = remain_text
             start = timestamps[a][0]
             end = timestamps[b][1]
-            start_ms = convert_to_milliseconds(start)
-            end_ms = convert_to_milliseconds(end)
-            init_diff = calculate_difference(start_ms, end_ms)
+            init_diff = calculate_difference(start, end)
+            text += transcript[(start, end)]
+
+
+if __name__ == "__main__":
+    video_id = "-t-J098gF10"
+    transcript_file = "data/transcripts/-t-J098gF10/-t-J098gF10.en-uYU-mmqFLq8.vtt"
+    output_dir = "data/transcripts/-t-J098gF10"
+    chunk_transcript(transcript_file, output_dir)
