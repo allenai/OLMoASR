@@ -125,7 +125,7 @@ def chunk_audio(audio_file: str, output_dir: str) -> None:
         "30",
         "-c",
         "copy",
-        f"{output_dir}/%08d.m4a",
+        f"{output_dir}/%08d.{audio_file.split('.')[-1]}",
     ]
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
