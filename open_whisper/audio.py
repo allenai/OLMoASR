@@ -105,7 +105,7 @@ def trim_audio(
         end,
         "-c",
         "copy",
-        f"{output_dir}/{audio_file.split('/')[-2]}_trimmed.m4a",
+        f"{output_dir}/{audio_file.split('/')[-2]}_trimmed.{audio_file.split('.')[-1]}",
     ]
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
