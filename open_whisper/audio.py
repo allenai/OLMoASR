@@ -38,7 +38,12 @@ def download_audio(video_id: str, output_dir: str) -> None:
         "yt-dlp",
         f"https://www.youtube.com/watch?v={video_id}",
         "-f",
-        "bestaudio[acodec=wav]",
+        "bestaudio",
+        "--extract-audio",
+        "--audio-format",
+        "wav",
+        "--audio-quality",
+        "0",
         "-o",
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
