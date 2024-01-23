@@ -111,7 +111,7 @@ def trim_audio(
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def chunk_audio(audio_file: str, output_dir: str) -> None:
+def chunk_audio(audio_file: str, output_dir: str, transcript_start: str) -> None:
     output_dir = output_dir + "/segments"
     os.makedirs(output_dir, exist_ok=True)
 
@@ -125,10 +125,20 @@ def chunk_audio(audio_file: str, output_dir: str) -> None:
         "30",
         "-c",
         "copy",
-        f"{output_dir}/%08d.{audio_file.split('.')[-1]}",
+        f"{output_dir}/.{audio_file.split('.')[-1]}",
     ]
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    for file in sorted(os.listdir(output_dir), key=lambda x: int(x.split(".")[0])):
+        new_time = adjust_timestamp(transcript_start, 30)
+        os.rename(
+            os.path.join(output_dir, file),
+            os.path.join(
+                output_dir, f"{transcript_start}_{new_time}.{file.split('.')[-1]}"
+            ),
+        )
+        transcript_start = new_time
 
 
 def chunk_transcript(transcript_file: str, output_dir: str) -> None:
