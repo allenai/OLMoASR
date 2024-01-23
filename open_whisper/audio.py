@@ -179,6 +179,7 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
 
             text += transcript[(start, end)]
         else:
+            output_file = f"{output_dir}/{timestamps[a][0]}_{end}.txt"
             if init_diff >= 31000:
                 if added_silence:
                     a = b
@@ -212,7 +213,7 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
                 b += 1
                 a = b
 
-            transcript_file = open(f"{output_dir}/{start}_{end}.txt", "w")
+            transcript_file = open(output_file, "w")
             transcript_file.write(text)
             transcript_file.close()
             text = remain_text
