@@ -150,77 +150,104 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
     b = 0
     timestamps = list(transcript.keys())
     start = timestamps[a][0]
-    end = timestamps[b][1]
-    init_diff = calculate_difference(start, end)
-    text = transcript[(start, end)]
+    # end = timestamps[b][1]
+    # text = transcript[(start, end)]
+    init_diff = 0
+    text = ""
     added_silence = False
     remain_text = ""
 
-    while a < len(transcript):
+    while a < len(transcript) + 1:
         if init_diff < 30000:
-            b += 1
-            if convert_to_milliseconds(timestamps[b][0]) > convert_to_milliseconds(end):
-                init_diff += calculate_difference(
-                    timestamps[b][0],
-                    end,
-                )
-                added_silence = True
+            if init_diff == 0 and convert_to_milliseconds(
+                adjust_timestamp(start, 30)
+            ) < convert_to_milliseconds(timestamps[a][0]):
+                init_diff = 30000
+            elif a == len(transcript) - 1:x
+                text += transcript[(timestamps[a][0], timestamps[a][1])]
+                init_diff = 30000
+                a += 1
             else:
-                added_silence = False
-
-            if added_silence and init_diff >= 30000:
-                continue
-
-            start = timestamps[b][0]
-            end = timestamps[b][1]
-            diff = calculate_difference(start, end)
-            init_diff += diff
-            added_silence = False
-
-            text += transcript[(start, end)]
+                init_diff = calculate_difference(start, timestamps[b][1])
+                text += transcript[(timestamps[a][0], timestamps[a][1])]
+                b += 1
+                if convert_to_milliseconds(timestamps[b][0]) > convert_to_milliseconds(
+                    timestamps[a][1]
+                ):
+                    init_diff += calculate_difference(
+                        timestamps[b][0],
+                        timestamps[a][1],
+                    )
+                    added_silence = True
+                a += 1
         else:
-            output_file = f"{output_dir}/{timestamps[a][0]}_{end}.txt"
+            new_start = adjust_timestamp(start, 30)
+            output_file = f"{output_dir}/{start}_{new_start}.txt"
+            remain_text = ""
             if init_diff >= 31000:
-                if added_silence:
-                    a = b
-                else:
+                if not added_silence:
                     if (init_diff - 30000) // 1000 > len(
-                        transcript[(start, end)].split(" ")
+                        transcript[(timestamps[a - 1][0], timestamps[a - 1][1])].split(
+                            " "
+                        )
                     ):
                         keep_len = int(
                             np.ceil(
                                 ((init_diff - 30000) // 1000)
-                                / len(transcript[(start, end)].split(" "))
+                                / len(
+                                    transcript[
+                                        (timestamps[a - 1][0], timestamps[a - 1][1])
+                                    ].split(" ")
+                                )
                                 * 1.0
                             )
                         )
                         tokens = text.split(" ")
                         tokens = tokens[
-                            : -(len(transcript[(start, end)].split(" ")) - keep_len)
+                            : -(
+                                len(
+                                    transcript[
+                                        (timestamps[a - 1][0], timestamps[a - 1][1])
+                                    ].split(" ")
+                                )
+                                - keep_len
+                            )
                         ]
                         text = " ".join(tokens)
-                        remain_text = transcript[(start, end)][keep_len:]
+                        remain_text = transcript[
+                            (timestamps[a - 1][0], timestamps[a - 1][1])
+                        ][keep_len:]
                     else:  # < or ==
                         tokens = text.split(" ")
                         text = " ".join(
-                            tokens[: -len(transcript[(start, end)].split(" ")) + 1]
+                            tokens[
+                                : -len(
+                                    transcript[
+                                        (timestamps[a - 1][0], timestamps[a - 1][1])
+                                    ].split(" ")
+                                )
+                                + 1
+                            ]
                         )
-                        remain_text = transcript[(start, end)].split(" ")[1:]
+                        remain_text = " ".join(
+                            transcript[
+                                (timestamps[a - 1][0], timestamps[a - 1][1])
+                            ].split(" ")[1:]
+                        )
 
-                    b += 1
-                    a = b
-            else:
-                b += 1
-                a = b
+                    a -= 1
+                    b -= 1
 
             transcript_file = open(output_file, "w")
             transcript_file.write(text)
             transcript_file.close()
+
+            if a == len(transcript):
+                break
+
+            init_diff = 0
             text = remain_text
-            start = timestamps[a][0]
-            end = timestamps[b][1]
-            init_diff = calculate_difference(start, end)
-            text += transcript[(start, end)]
+            start = new_start
 
 
 if __name__ == "__main__":
