@@ -163,7 +163,7 @@ def chunk_transcript(transcript_file: str, output_dir: str) -> None:
                 adjust_timestamp(start, 30)
             ) < convert_to_milliseconds(timestamps[a][0]):
                 init_diff = 30000
-            elif a == len(transcript) - 1:x
+            elif a == len(transcript) - 1:
                 text += transcript[(timestamps[a][0], timestamps[a][1])]
                 init_diff = 30000
                 a += 1
