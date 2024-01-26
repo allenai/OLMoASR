@@ -9,8 +9,14 @@ import os
 import subprocess
 import webvtt
 import numpy as np
+import pandas as pd
+import multiprocessing
+from tqdm import tqdm
+from itertools import repeat
 from typing import Dict, Tuple
 from datetime import datetime, timedelta
+from pydub import AudioSegment
+from pydub.playback import play
 
 
 def download_transcript(video_id: str, lang_code: str, output_dir: str) -> None:
@@ -31,6 +37,11 @@ def download_transcript(video_id: str, lang_code: str, output_dir: str) -> None:
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return
+
+
+def parallel_download_transcript(args) -> None:
+    download_transcript(*args)
 
 
 def download_audio(video_id: str, output_dir: str) -> None:
@@ -48,6 +59,10 @@ def download_audio(video_id: str, output_dir: str) -> None:
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def parallel_download_audio(args) -> None:
+    download_audio(*args)
 
 
 def convert_to_milliseconds(timestamp: str) -> int:
@@ -90,7 +105,12 @@ def read_vtt(file_path: str) -> Tuple[Dict, str, str]:
 
 
 def trim_audio(
-    audio_file: str, start: str, end: str, start_window: int, end_window: int, output_dir: str
+    audio_file: str,
+    start: str,
+    end: str,
+    start_window: int,
+    end_window: int,
+    output_dir: str,
 ) -> None:
     adjusted_start = adjust_timestamp(start, start_window)
     adjusted_end = adjust_timestamp(end, end_window)
@@ -111,34 +131,34 @@ def trim_audio(
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def chunk_audio(audio_file: str, output_dir: str, transcript_start: str) -> None:
-    output_dir = output_dir + "/segments"
-    os.makedirs(output_dir, exist_ok=True)
+# def chunk_audio(audio_file: str, output_dir: str, transcript_start: str) -> None:
+#     output_dir = output_dir + "/segments"
+#     os.makedirs(output_dir, exist_ok=True)
 
-    command = [
-        "ffmpeg",
-        "-i",
-        audio_file,
-        "-f",
-        "segment",
-        "-segment_time",
-        "30",
-        "-c",
-        "copy",
-        f"{output_dir}/.{audio_file.split('.')[-1]}",
-    ]
+#     command = [
+#         "ffmpeg",
+#         "-i",
+#         audio_file,
+#         "-f",
+#         "segment",
+#         "-segment_time",
+#         "30",
+#         "-c",
+#         "copy",
+#         f"{output_dir}/.{audio_file.split('.')[-1]}",
+#     ]
 
-    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+#     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    for file in sorted(os.listdir(output_dir), key=lambda x: int(x.split(".")[0])):
-        new_time = adjust_timestamp(transcript_start, 30)
-        os.rename(
-            os.path.join(output_dir, file),
-            os.path.join(
-                output_dir, f"{transcript_start}_{new_time}.{file.split('.')[-1]}"
-            ),
-        )
-        transcript_start = new_time
+#     for file in sorted(os.listdir(output_dir), key=lambda x: int(x.split(".")[0])):
+#         new_time = adjust_timestamp(transcript_start, 30)
+#         os.rename(
+#             os.path.join(output_dir, file),
+#             os.path.join(
+#                 output_dir, f"{transcript_start}_{new_time}.{file.split('.')[-1]}"
+#             ),
+#         )
+#         transcript_start = new_time
 
 
 def chunk_audio_transcript(
@@ -180,7 +200,12 @@ def chunk_audio_transcript(
             end_window = 0
 
             trim_audio(
-                audio_file, timestamps[a][0], timestamps[b - 1][1], start_window, end_window, a_output_dir
+                audio_file,
+                timestamps[a][0],
+                timestamps[b - 1][1],
+                start_window,
+                end_window,
+                a_output_dir,
             )
             text = ""
             init_diff = 0
@@ -200,6 +225,18 @@ def chunk_audio_transcript(
             )
 
             break
+
+
+def parallel_chunk_audio_transcript(args) -> None:
+    chunk_audio_transcript(*args)
+
+
+def play_audio(file_path):
+    # Load the audio file
+    audio = AudioSegment.from_file(file_path)
+
+    # Play the audio
+    play(audio)
 
 
 # def chunk_transcript(transcript_file: str, output_dir: str) -> None:
@@ -312,10 +349,72 @@ def chunk_audio_transcript(
 
 
 if __name__ == "__main__":
-    video_id = "-t-J098gF10"
-    transcript_file = "data/transcripts/-t-J098gF10/-t-J098gF10.en-uYU-mmqFLq8.vtt"
-    audio_file = "data/audio/-t-J098gF10/-t-J098gF10.wav"
-    t_output_dir = "data/transcripts/-t-J098gF10"
-    a_output_dir = "data/audio/-t-J098gF10"
+    # video_id = "-t-J098gF10"
+    # transcript_file = "data/transcripts/-t-J098gF10/-t-J098gF10.en-uYU-mmqFLq8.vtt"
+    # audio_file = "data/audio/-t-J098gF10/-t-J098gF10.wav"
+    # t_output_dir = "data/transcripts/-t-J098gF10"
+    # a_output_dir = "data/audio/-t-J098gF10"
     # chunk_transcript(transcript_file, output_dir)
-    chunk_audio_transcript(transcript_file, audio_file, t_output_dir, a_output_dir)
+    # chunk_audio_transcript(transcript_file, audio_file, t_output_dir, a_output_dir)
+
+    df = pd.read_parquet("data/metadata/data.parquet")
+    en_df = df[
+        (df["manual_caption_languages"].str.contains("en"))
+        & (df["automatic_caption_orig_language"].str.contains("en"))
+    ]
+    
+    rng = np.random.default_rng(42)
+    sample = rng.choice(en_df[["id", "manual_caption_languages"]], 36, replace=False)
+    for i, (id, langs) in enumerate(sample):
+        if "," in langs:
+            for lang in langs.split(","):
+                if "en" in lang:
+                    sample[i][1] = lang
+                    break
+
+    sample_id, sample_lang = [row[0] for row in sample], [row[1] for row in sample]
+    audio_sample_output_dirs = [f"data/audio/{id}" for id in sample_id]
+    transcript_sample_output_dirs = [f"data/transcripts/{id}" for id in sample_id]
+
+    with multiprocessing.Pool() as pool:
+        out = list(
+            tqdm(
+                pool.imap_unordered(
+                    parallel_download_audio, zip(sample_id, audio_sample_output_dirs)
+                ),
+                total=len(sample),
+            )
+        )
+
+    with multiprocessing.Pool() as pool:
+        out = list(
+            tqdm(
+                pool.imap_unordered(
+                    parallel_download_transcript,
+                    zip(sample_id, sample_lang, transcript_sample_output_dirs),
+                ),
+                total=len(sample),
+            )
+        )
+
+    transcript_file_paths = [
+        f"data/transcripts/{sample_id[i]}/{sample_id[i]}.{sample_lang[i]}.vtt"
+        for i in range(len(sample_id))
+    ]
+    audio_file_paths = [f"data/audio/{id}/{id}.wav" for id in sample_id]
+
+    with multiprocessing.Pool() as pool:
+        out = list(
+            tqdm(
+                pool.imap_unordered(
+                    parallel_chunk_audio_transcript,
+                    zip(
+                        transcript_file_paths,
+                        audio_file_paths,
+                        transcript_sample_output_dirs,
+                        audio_sample_output_dirs,
+                    ),
+                ),
+                total=len(sample),
+            )
+        )
