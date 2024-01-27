@@ -4,7 +4,6 @@
 # mel spectrogram is a spectrogram that is generated using the Mel scale, a perceptual scale of pitches judged by listeners to be equal in distance from one another
 # 80-channel mel spectrogram is a mel spectrogram represented by 80 mel bins (frequency channels)
 # feature normalization: globally scale input to be between [-1, 1] with approximate mean 0 across pre-training dataset
-import yt_dlp
 import os
 import subprocess
 import webvtt
@@ -13,7 +12,7 @@ import pandas as pd
 import multiprocessing
 from tqdm import tqdm
 from itertools import repeat
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Union
 from datetime import datetime, timedelta
 from pydub import AudioSegment
 from pydub.playback import play
@@ -90,9 +89,13 @@ def adjust_timestamp(timestamp: str, seconds: int) -> str:
     ]  # Truncate microseconds to milliseconds
 
 
-def read_vtt(file_path: str) -> Tuple[Dict, str, str]:
+def read_vtt(file_path: str) -> Union[None, Tuple[Dict, str, str]]:
     transcript = {}
     captions = webvtt.read(file_path)
+
+    if captions == []:
+        return transcript, "", ""
+    
     transcript_start = captions[0].start
     transcript_end = captions[-1].end
     for caption in captions:
@@ -161,15 +164,30 @@ def trim_audio(
 #         transcript_start = new_time
 
 
-def chunk_audio_transcript(
-    transcript_file: str, audio_file: str, t_output_dir: str, a_output_dir: str
-):
-    t_output_dir = t_output_dir + "/segments"
-    a_output_dir = a_output_dir + "/segments"
+def chunk_audio_transcript(transcript_file: str, audio_file: str):
+    # if transcript or audio files doesn't exist
+    if not os.path.exists(transcript_file):
+        with open(f"logs/failed_download_t.txt", "a") as f:
+            f.write(f"{transcript_file}\n")
+        if not os.path.exists(audio_file):
+            with open(f"logs/failed_download_a.txt", "a") as f:
+                f.write(f"{audio_file}\n")
+
+        return None
+
+    t_output_dir = "/".join(transcript_file.split("/")[:3]) + "/segments"
+    a_output_dir = "/".join(audio_file.split("/")[:3]) + "/segments"
     os.makedirs(t_output_dir, exist_ok=True)
     os.makedirs(a_output_dir, exist_ok=True)
 
     transcript, *_ = read_vtt(transcript_file)
+
+    # if transcript file is empty
+    if transcript == {}:
+        with open(f"logs/empty_transcript.txt", "a") as f:
+            f.write(f"{transcript_file}\n")
+        return None
+    
     a = 0
     b = 0
 
@@ -182,6 +200,10 @@ def chunk_audio_transcript(
         init_diff = calculate_difference(timestamps[a][0], timestamps[b][1])
         if init_diff < 30000:
             diff = init_diff
+            if text != "":
+                if text[-1] != " ":
+                    text += " "
+
             text += transcript[(timestamps[b][0], timestamps[b][1])]
             b += 1
         else:
@@ -357,14 +379,19 @@ if __name__ == "__main__":
     # chunk_transcript(transcript_file, output_dir)
     # chunk_audio_transcript(transcript_file, audio_file, t_output_dir, a_output_dir)
 
+    # reading in metadata
     df = pd.read_parquet("data/metadata/data.parquet")
+    # only getting english data (that's less than 5 minutes long)
     en_df = df[
         (df["manual_caption_languages"].str.contains("en"))
         & (df["automatic_caption_orig_language"].str.contains("en"))
+        & (df["duration"] <= 300)
     ]
-    
+
+    # randomly sampling 36 videos
     rng = np.random.default_rng(42)
-    sample = rng.choice(en_df[["id", "manual_caption_languages"]], 36, replace=False)
+    sample = rng.choice(en_df[["id", "manual_caption_languages"]], 50, replace=False)
+    # ensuring that language codes are english only
     for i, (id, langs) in enumerate(sample):
         if "," in langs:
             for lang in langs.split(","):
@@ -372,37 +399,44 @@ if __name__ == "__main__":
                     sample[i][1] = lang
                     break
 
+    # breaking up the sample list (2 columns) into 2 lists                
     sample_id, sample_lang = [row[0] for row in sample], [row[1] for row in sample]
-    audio_sample_output_dirs = [f"data/audio/{id}" for id in sample_id]
-    transcript_sample_output_dirs = [f"data/transcripts/{id}" for id in sample_id]
 
+    # downloading audio
     with multiprocessing.Pool() as pool:
         out = list(
             tqdm(
                 pool.imap_unordered(
-                    parallel_download_audio, zip(sample_id, audio_sample_output_dirs)
+                    parallel_download_audio, zip(sample_id, repeat("data/audio"))
                 ),
                 total=len(sample),
             )
         )
 
+    # downloading transcripts
     with multiprocessing.Pool() as pool:
         out = list(
             tqdm(
                 pool.imap_unordered(
                     parallel_download_transcript,
-                    zip(sample_id, sample_lang, transcript_sample_output_dirs),
+                    zip(sample_id, sample_lang, repeat("data/transcripts")),
                 ),
                 total=len(sample),
             )
         )
 
+    # transcript and audio file paths for reference when chunking
     transcript_file_paths = [
         f"data/transcripts/{sample_id[i]}/{sample_id[i]}.{sample_lang[i]}.vtt"
         for i in range(len(sample_id))
     ]
     audio_file_paths = [f"data/audio/{id}/{id}.wav" for id in sample_id]
 
+    # for i in range(len(sample_id)):
+    #     print(f"Processing {sample_id[i]}")
+    #     chunk_audio_transcript(transcript_file_paths[i], audio_file_paths[i])
+
+    # chunking audios and transcripts
     with multiprocessing.Pool() as pool:
         out = list(
             tqdm(
@@ -411,8 +445,6 @@ if __name__ == "__main__":
                     zip(
                         transcript_file_paths,
                         audio_file_paths,
-                        transcript_sample_output_dirs,
-                        audio_sample_output_dirs,
                     ),
                 ),
                 total=len(sample),
