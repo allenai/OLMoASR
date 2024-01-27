@@ -385,12 +385,14 @@ if __name__ == "__main__":
     en_df = df[
         (df["manual_caption_languages"].str.contains("en"))
         & (df["automatic_caption_orig_language"].str.contains("en"))
-        & (df["duration"] <= 300)
+
     ]
 
     # randomly sampling 36 videos
-    rng = np.random.default_rng(42)
-    sample = rng.choice(en_df[["id", "manual_caption_languages"]], 50, replace=False)
+    # rng = np.random.default_rng(42)
+    # sample = rng.choice(en_df[["id", "manual_caption_languages"]], 50, replace=False)
+
+    sample = en_df[en_df["categories"] == "Education"][["id", "manual_caption_languages"]].to_numpy()
     # ensuring that language codes are english only
     for i, (id, langs) in enumerate(sample):
         if "," in langs:
