@@ -89,13 +89,29 @@ def adjust_timestamp(timestamp: str, seconds: int) -> str:
     ]  # Truncate microseconds to milliseconds
 
 
+def clean_transcript(file_path) -> Union[None, bool]:
+    with open(file_path, "r", encoding="utf-8") as file:
+        content = file.read()
+
+    if content == "":
+        return None
+
+    # Replace &nbsp; with a space or an empty string
+    modified_content = content.replace("&nbsp;", " ")
+
+    with open(file_path, "w", encoding="utf-8") as file:
+        file.write(modified_content)
+
+    return True
+
+
 def read_vtt(file_path: str) -> Union[None, Tuple[Dict, str, str]]:
     transcript = {}
     captions = webvtt.read(file_path)
 
     if captions == []:
         return transcript, "", ""
-    
+
     transcript_start = captions[0].start
     transcript_end = captions[-1].end
     for caption in captions:
@@ -180,14 +196,20 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str):
     os.makedirs(t_output_dir, exist_ok=True)
     os.makedirs(a_output_dir, exist_ok=True)
 
-    transcript, *_ = read_vtt(transcript_file)
-
-    # if transcript file is empty
-    if transcript == {}:
+    cleaned_transcript = clean_transcript(transcript_file)
+    if cleaned_transcript is None:
         with open(f"logs/empty_transcript.txt", "a") as f:
             f.write(f"{transcript_file}\n")
         return None
-    
+
+    transcript, *_ = read_vtt(transcript_file)
+
+    # if transcript file is empty
+    # if transcript == {}:
+    #     with open(f"logs/empty_transcript.txt", "a") as f:
+    #         f.write(f"{transcript_file}\n")
+    #     return None
+
     a = 0
     b = 0
 
@@ -214,19 +236,20 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str):
             transcript_file.write(text)
             transcript_file.close()
 
-            if a == 0:
-                start_window = -2
-            else:
-                start_window = 0
+            # don't know what to do with this, if this was uncommented, we wouldn't get the first segment of audio - b/c cut before audio starts.
+            # if a == 0:
+            #     start_window = -2
+            # else:
+            #     start_window = 0
 
-            end_window = 0
+            # end_window = 0
 
             trim_audio(
                 audio_file,
                 timestamps[a][0],
                 timestamps[b - 1][1],
-                start_window,
-                end_window,
+                0,
+                1,
                 a_output_dir,
             )
             text = ""
@@ -385,14 +408,15 @@ if __name__ == "__main__":
     en_df = df[
         (df["manual_caption_languages"].str.contains("en"))
         & (df["automatic_caption_orig_language"].str.contains("en"))
-
     ]
 
     # randomly sampling 36 videos
     # rng = np.random.default_rng(42)
     # sample = rng.choice(en_df[["id", "manual_caption_languages"]], 50, replace=False)
 
-    sample = en_df[en_df["categories"] == "Education"][["id", "manual_caption_languages"]].to_numpy()
+    sample = en_df[en_df["categories"] == "Education"][
+        ["id", "manual_caption_languages"]
+    ].to_numpy()[:10]
     # ensuring that language codes are english only
     for i, (id, langs) in enumerate(sample):
         if "," in langs:
@@ -401,7 +425,7 @@ if __name__ == "__main__":
                     sample[i][1] = lang
                     break
 
-    # breaking up the sample list (2 columns) into 2 lists                
+    # breaking up the sample list (2 columns) into 2 lists
     sample_id, sample_lang = [row[0] for row in sample], [row[1] for row in sample]
 
     # downloading audio
