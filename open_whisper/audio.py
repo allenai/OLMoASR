@@ -7,7 +7,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .utils import exact_div
+
+def exact_div(x, y):
+    assert x % y == 0
+    return x // y
+
 
 # hard-coded audio hyperparameters
 SAMPLE_RATE = 16000
