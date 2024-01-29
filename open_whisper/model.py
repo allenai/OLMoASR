@@ -219,18 +219,18 @@ class Whisper(nn.Module):
         super().__init__()
         self.dims = dims
         self.encoder = AudioEncoder(
-            self.dims.n_mels,
-            self.dims.n_audio_ctx,
-            self.dims.n_audio_state,
-            self.dims.n_audio_head,
-            self.dims.n_audio_layer,
+            self.dims.n_mels, # mel channels
+            self.dims.n_audio_ctx, # context length of audio embedding
+            self.dims.n_audio_state, # dimension of audio embedding
+            self.dims.n_audio_head, # number of heads in encoder
+            self.dims.n_audio_layer, # number of layers in encoder
         )
         self.decoder = TextDecoder(
-            self.dims.n_vocab,
-            self.dims.n_text_ctx,
-            self.dims.n_text_state,
-            self.dims.n_text_head,
-            self.dims.n_text_layer,
+            self.dims.n_vocab, # vocab size
+            self.dims.n_text_ctx, # context length of text embedding
+            self.dims.n_text_state, # dimension of text embedding
+            self.dims.n_text_head, # number of heads in decoder
+            self.dims.n_text_layer, # number of layers in decoder
         )
 
     def embed_audio(self, mel: torch.Tensor):
