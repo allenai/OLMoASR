@@ -1,6 +1,9 @@
-from open_whisper import audio, tokenizer, preprocess
+from open_whisper import audio, tokenizer, preprocess, model
 import torch
 import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+import os
+from dataclasses import dataclass
 
 AUDIO_FILE = "data/audio/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.wav"
 TRANSCRIPT_FILE = "data/transcripts/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.txt"
@@ -32,6 +35,81 @@ mel_spec = audio.log_mel_spectrogram(audio_arr, device=DEVICE)
 mel_spec_normalized = (mel_spec - mel_spec.mean()) / mel_spec.std()
 mel_spec_scaled = mel_spec_normalized / (mel_spec_normalized.abs().max())
 
+
+class AudioDataset(Dataset):
+    def __init__(self, audio_dir):
+        self.audio_files = [
+            os.path.join(audio_dir, audio_file) for audio_file in os.listdir(audio_dir)
+        ]
+
+    def __len__(self):
+        return len(self.audio_files)
+
+    def __getitem__(self, index):
+        return self.preprocess_audio(self.audio_files[index])
+
+    def preprocess_audio(self, audio_file):
+        audio_arr = audio.load_audio(audio_file, sr=16000)
+        audio_arr = audio.pad_or_trim(audio_arr)
+        mel_spec = audio.log_mel_spectrogram(audio_arr, device=DEVICE)
+        mel_spec_normalized = (mel_spec - mel_spec.mean()) / mel_spec.std()
+        mel_spec_scaled = mel_spec_normalized / (mel_spec_normalized.abs().max())
+        return mel_spec_scaled
+
+
+audio_dataset = AudioDataset(audio_dir="data/audio/eh77AUKedyM/segments")
+audio_dataloader = DataLoader(audio_dataset, batch_size=1, shuffle=True)
+
+class TextDataset(Dataset):
+    def __init__(self, transcript_dir, tokenizer):
+        self.transcript_files = [
+            os.path.join(transcript_dir, transcript_file) for transcript_file in os.listdir(transcript_dir)
+        ]
+        self.tokenizer = tokenizer
+
+    def __len__(self):
+        return len(self.transcript_files)
+    
+    def __getitem__(self, index):
+
+@dataclass
+class ModelDimensions:
+    n_mels: int
+    n_audio_ctx: int
+    n_audio_state: int
+    n_audio_head: int
+    n_audio_layer: int
+    n_vocab: int
+    n_text_ctx: int
+    n_text_state: int
+    n_text_head: int
+    n_text_layer: int
+
+
+model_dims = ModelDimensions(
+    n_mels=80,
+    n_audio_ctx=1500,
+    n_audio_state=384,
+    n_audio_head=6,
+    n_audio_layer=4,
+    n_vocab=51864,
+    n_text_ctx=448,
+    n_text_state=384,
+    n_text_head=6,
+    n_text_layer=4,
+)
+
+
+model = model.Whisper(dims=model_dims).to(DEVICE)
+for batch_idx, batch in enumerate(audio_dataloader):
+    mel_spec = batch
+    mel_spec = mel_spec.to(DEVICE)
+    audio_features = model.embed_audio(mel_spec)
+
+
+
+
+
 # Load transcript file
 with open(file=TRANSCRIPT_FILE, mode="r") as f:
     transcript = f.read().strip()
@@ -52,5 +130,3 @@ text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=DEVICE)
 text_tokens = F.pad(
     text_tokens, pad=(0, n_text_ctx - len(text_tokens)), mode="constant", value=0
 )
-
-

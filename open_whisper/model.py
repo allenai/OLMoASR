@@ -45,7 +45,7 @@ class Conv1d(nn.Conv1d):
             x, weight.to(x.dtype), None if bias is None else bias.to(x.dtype)
         )
 
-
+# don't really understand the positional embeddings and the intuition behind it
 def sinusoids(length, channels, max_timescale=10000):
     """Returns sinusoids for positional embedding"""
     assert channels % 2 == 0
@@ -59,10 +59,10 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, n_state: int, n_head: int):
         super().__init__()
         self.n_head = n_head
-        self.query = Linear(n_state, n_state)
-        self.key = Linear(n_state, n_state, bias=False)
-        self.value = Linear(n_state, n_state)
-        self.out = Linear(n_state, n_state)
+        self.query = Linear(n_state, n_state) # W_q
+        self.key = Linear(n_state, n_state, bias=False) # W_k
+        self.value = Linear(n_state, n_state) # W_v
+        self.out = Linear(n_state, n_state) # W_o
 
     def forward(
         self,
@@ -71,8 +71,8 @@ class MultiHeadAttention(nn.Module):
         mask: Optional[Tensor] = None,
         kv_cache: Optional[dict] = None,
     ):
-        q = self.query(x)
-
+        q = self.query(x) # W_q * x
+        # not sure when which branch is taken
         if kv_cache is None or xa is None or self.key not in kv_cache:
             # hooks, if installed (i.e. kv_cache is not None), will prepend the cached kv tensors;
             # otherwise, perform key/value projections for self- or cross-attention as usual.
@@ -185,7 +185,7 @@ class TextDecoder(nn.Module):
             ]
         )
         self.ln = LayerNorm(n_state)
-
+        # causal mask to prevent attention to future tokens
         mask = torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1)
         self.register_buffer("mask", mask, persistent=False)
 
