@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import os
 from dataclasses import dataclass
+import numpy as np
 
 AUDIO_FILE = "data/audio/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.wav"
 TRANSCRIPT_FILE = "data/transcripts/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.txt"
@@ -57,20 +58,106 @@ class AudioDataset(Dataset):
         return mel_spec_scaled
 
 
-audio_dataset = AudioDataset(audio_dir="data/audio/eh77AUKedyM/segments")
-audio_dataloader = DataLoader(audio_dataset, batch_size=1, shuffle=True)
-
 class TextDataset(Dataset):
-    def __init__(self, transcript_dir, tokenizer):
+    def __init__(self, transcript_dir, tokenizer, n_text_ctx):
         self.transcript_files = [
-            os.path.join(transcript_dir, transcript_file) for transcript_file in os.listdir(transcript_dir)
+            os.path.join(transcript_dir, transcript_file)
+            for transcript_file in os.listdir(transcript_dir)
         ]
         self.tokenizer = tokenizer
+        self.n_text_ctx = n_text_ctx
 
     def __len__(self):
         return len(self.transcript_files)
-    
+
     def __getitem__(self, index):
+        return self.preprocess_text(self.transcript_files[index], index)
+
+    def preprocess_text(self, transcript_file, file_index):
+        with open(file=transcript_file, mode="r") as f:
+            transcript = f.read().strip()
+        text_tokens = self.tokenizer.encode(transcript)
+
+        if file_index == 0:
+            text_tokens = (
+                list(self.tokenizer.sot_sequence_including_notimestamps) + text_tokens
+            )
+
+        text_tokens = np.pad(
+            text_tokens,
+            pad_width=(0, self.n_text_ctx - len(text_tokens)),
+            mode="constant",
+            constant_values=self.tokenizer.no_speech,
+        )
+
+        if file_index == len(self.transcript_files) - 1:
+            text_tokens = (
+                text_tokens[: -len(self.tokenizer.no_speech)] + self.tokenizer.eot
+            )
+
+        text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=DEVICE)
+        return text_tokens
+
+
+class AudioTextDataset(Dataset):
+    def __init__(self, audio_dir, transcript_dir, tokenizer, device, n_text_ctx):
+        self.audio_files = [
+            os.path.join(audio_dir, audio_file) for audio_file in os.listdir(audio_dir)
+        ]
+        self.transcript_files = [
+            os.path.join(transcript_dir, transcript_file)
+            for transcript_file in os.listdir(transcript_dir)
+        ]
+        self.tokenizer = tokenizer
+        self.device = device
+        self.n_text_ctx = n_text_ctx
+
+        if len(self.audio_files) != len(self.transcript_files):
+            raise ValueError(
+                "The number of audio files and transcript files must be the same"
+            )
+
+    def __len__(self):
+        return len(self.audio_files)
+
+    def __getitem__(self, index):
+        audio_data = self.preprocess_audio(self.audio_files[index])
+        text_data = self.preprocess_text(self.transcript_files[index], index)
+        return audio_data, text_data
+
+    def preprocess_audio(self, audio_file):
+        audio_arr = audio.load_audio(audio_file, sr=16000)
+        audio_arr = audio.pad_or_trim(audio_arr)
+        mel_spec = audio.log_mel_spectrogram(audio_arr, device=self.device)
+        mel_spec_normalized = (mel_spec - mel_spec.mean()) / mel_spec.std()
+        mel_spec_scaled = mel_spec_normalized / (mel_spec_normalized.abs().max())
+        return mel_spec_scaled
+
+    def preprocess_text(self, transcript_file, file_index):
+        with open(file=transcript_file, mode="r") as f:
+            transcript = f.read().strip()
+        text_tokens = self.tokenizer.encode(transcript)
+
+        if file_index == 0:
+            text_tokens = (
+                list(self.tokenizer.sot_sequence_including_notimestamps) + text_tokens
+            )
+
+        text_tokens = np.pad(
+            text_tokens,
+            pad_width=(0, self.n_text_ctx - len(text_tokens)),
+            mode="constant",
+            constant_values=self.tokenizer.no_speech,
+        )
+
+        if file_index == len(self.transcript_files) - 1:
+            text_tokens = (
+                text_tokens[: -len(self.tokenizer.no_speech)] + self.tokenizer.eot
+            )
+
+        text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=self.device)
+        return text_tokens
+
 
 @dataclass
 class ModelDimensions:
@@ -101,13 +188,6 @@ model_dims = ModelDimensions(
 
 
 model = model.Whisper(dims=model_dims).to(DEVICE)
-for batch_idx, batch in enumerate(audio_dataloader):
-    mel_spec = batch
-    mel_spec = mel_spec.to(DEVICE)
-    audio_features = model.embed_audio(mel_spec)
-
-
-
 
 
 # Load transcript file
@@ -120,13 +200,15 @@ with open(file=TRANSCRIPT_FILE, mode="r") as f:
 tokenizer = tokenizer.get_tokenizer(multilingual=True, language="en", task="transcribe")
 # tokenize and encode text
 text_tokens = tokenizer.encode(transcript)
-text_tokens = (
-    list(tokenizer.sot_sequence_including_notimestamps) + text_tokens + [tokenizer.eot]
+# add start sequence and end tokens
+# sot/eot token only used when at first/last audio/transcript segment
+text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens
+# padding of text tokens
+text_tokens = np.pad(
+    text_tokens,
+    pad_width=(0, n_text_ctx - len(text_tokens)),
+    mode="constant",
+    constant_values=tokenizer.no_speech,
 )
-text = tokenizer.decode(text_tokens)  # for debugging
 # convert text tokens to tensor
 text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=DEVICE)
-# padding of text tokens
-text_tokens = F.pad(
-    text_tokens, pad=(0, n_text_ctx - len(text_tokens)), mode="constant", value=0
-)
