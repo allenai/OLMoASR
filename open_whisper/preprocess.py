@@ -16,7 +16,9 @@ from typing import Dict, Tuple, Union, List
 from datetime import datetime, timedelta
 
 
-def download_transcript(video_id: str, lang_code: str, output_dir: str, sub_format: str) -> None:
+def download_transcript(
+    video_id: str, lang_code: str, output_dir: str, sub_format: str
+) -> None:
     if lang_code == "unknown":
         lang_code = "en"
 
@@ -27,6 +29,8 @@ def download_transcript(video_id: str, lang_code: str, output_dir: str, sub_form
         "--skip-download",
         "--sub-format",
         f"{sub_format}",
+        "--convert-subs",
+        "srt",
         "--sub-langs",
         f"{lang_code},-live_chat",
         f"https://www.youtube.com/watch?v={video_id}",
