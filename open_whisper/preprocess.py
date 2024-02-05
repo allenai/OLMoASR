@@ -18,7 +18,7 @@ import pysrt
 
 
 def download_transcript(
-    video_id: str, lang_code: str, output_dir: str, sub_format: str
+    video_id: str, lang_code: str, output_dir: str, sub_format: str = "srt"
 ) -> None:
     if lang_code == "unknown":
         lang_code = "en"
@@ -191,7 +191,7 @@ def write_segment(
                 start = start.replace(".", ",")
                 end = end.replace(".", ",")
                 f.write(f"{i + 1}\n")
-                        
+
             f.write(
                 f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
             )
@@ -380,7 +380,7 @@ def parallel_chunk_audio_transcript(args) -> None:
 
 if __name__ == "__main__":
     # video_id = "eh77AUKedyM"
-    # transcript_file = "data/transcripts/eh77AUKedyM/eh77AUKedyM.en-US.vtt"
+    # transcript_file = "data/transcripts/eh77AUKedyM/eh77AUKedyM.en-US.srt"
     # audio_file = "data/audio/eh77AUKedyM/eh77AUKedyM.m4a"
     # chunk_audio_transcript(transcript_file, audio_file)
 
