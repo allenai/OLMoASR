@@ -12,13 +12,11 @@ import pandas as pd
 import multiprocessing
 from tqdm import tqdm
 from itertools import repeat
-from typing import Dict, Tuple, Union
+from typing import Dict, Tuple, Union, List
 from datetime import datetime, timedelta
-from pydub import AudioSegment
-from pydub.playback import play
 
 
-def download_transcript(video_id: str, lang_code: str, output_dir: str) -> None:
+def download_transcript(video_id: str, lang_code: str, output_dir: str, sub_format: str) -> None:
     if lang_code == "unknown":
         lang_code = "en"
 
@@ -28,7 +26,7 @@ def download_transcript(video_id: str, lang_code: str, output_dir: str) -> None:
         "--no-write-auto-subs",
         "--skip-download",
         "--sub-format",
-        "vtt",
+        f"{sub_format}",
         "--sub-langs",
         f"{lang_code},-live_chat",
         f"https://www.youtube.com/watch?v={video_id}",
@@ -75,13 +73,13 @@ def calculate_difference(timestamp1: str, timestamp2: str) -> int:
     return abs(time2 - time1)
 
 
-def adjust_timestamp(timestamp: str, seconds: int) -> str:
+def adjust_timestamp(timestamp: str, milliseconds: int) -> str:
     # Convert the HH:MM:SS.mmm format to a datetime object
     original_time = datetime.strptime(timestamp, "%H:%M:%S.%f")
 
     # Adjust the time by the specified number of seconds
-    # Use timedelta(seconds=seconds) to add or timedelta(seconds=-seconds) to subtract
-    adjusted_time = original_time + timedelta(seconds=seconds)
+    # Use timedelta(milliseconds=milliseconds) to add or timedelta(milliseconds=-milliseconds) to subtract
+    adjusted_time = original_time + timedelta(milliseconds=milliseconds)
 
     # Convert back to the HH:MM:SS.mmm string format
     return adjusted_time.strftime("%H:%M:%S.%f")[
@@ -93,7 +91,7 @@ def clean_transcript(file_path) -> Union[None, bool]:
     with open(file_path, "r", encoding="utf-8") as file:
         content = file.read()
 
-    if content == "":
+    if content.strip() == "":
         return None
 
     # Replace &nbsp; with a space or an empty string
@@ -131,8 +129,8 @@ def trim_audio(
     end_window: int,
     output_dir: str,
 ) -> None:
-    adjusted_start = adjust_timestamp(start, start_window)
-    adjusted_end = adjust_timestamp(end, end_window)
+    adjusted_start = adjust_timestamp(timestamp=start, milliseconds=start_window * 1000)
+    adjusted_end = adjust_timestamp(timestamp=end, milliseconds=end_window * 1000)
 
     command = [
         "ffmpeg",
@@ -150,37 +148,24 @@ def trim_audio(
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-# def chunk_audio(audio_file: str, output_dir: str, transcript_start: str) -> None:
-#     output_dir = output_dir + "/segments"
-#     os.makedirs(output_dir, exist_ok=True)
-
-#     command = [
-#         "ffmpeg",
-#         "-i",
-#         audio_file,
-#         "-f",
-#         "segment",
-#         "-segment_time",
-#         "30",
-#         "-c",
-#         "copy",
-#         f"{output_dir}/.{audio_file.split('.')[-1]}",
-#     ]
-
-#     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-#     for file in sorted(os.listdir(output_dir), key=lambda x: int(x.split(".")[0])):
-#         new_time = adjust_timestamp(transcript_start, 30)
-#         os.rename(
-#             os.path.join(output_dir, file),
-#             os.path.join(
-#                 output_dir, f"{transcript_start}_{new_time}.{file.split('.')[-1]}"
-#             ),
-#         )
-#         transcript_start = new_time
+def write_vtt_segment(timestamps: List, transcript: Dict, output_dir: str) -> None:
+    with open(f"{output_dir}/{timestamps[0][0]}_{timestamps[-1][1]}.vtt", "w") as f:
+        f.write("WEBVTT\n")
+        for i in range(len(timestamps)):
+            start = adjust_timestamp(
+                timestamp=timestamps[i][0],
+                milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+            )
+            end = adjust_timestamp(
+                timestamp=timestamps[i][1],
+                milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+            )
+            f.write(
+                f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
+            )
 
 
-def chunk_audio_transcript(transcript_file: str, audio_file: str):
+def chunk_audio_transcript_text(transcript_file: str, audio_file: str):
     # if transcript or audio files doesn't exist
     if not os.path.exists(transcript_file):
         with open(f"logs/failed_download_t.txt", "a") as f:
@@ -205,10 +190,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str):
     transcript, *_ = read_vtt(transcript_file)
 
     # if transcript file is empty
-    # if transcript == {}:
-    #     with open(f"logs/empty_transcript.txt", "a") as f:
-    #         f.write(f"{transcript_file}\n")
-    #     return None
+    if transcript == {}:
+        with open(f"logs/empty_transcript.txt", "a") as f:
+            f.write(f"{transcript_file}\n")
+        return None
 
     a = 0
     b = 0
@@ -236,20 +221,12 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str):
             transcript_file.write(text)
             transcript_file.close()
 
-            # don't know what to do with this, if this was uncommented, we wouldn't get the first segment of audio - b/c cut before audio starts.
-            # if a == 0:
-            #     start_window = -2
-            # else:
-            #     start_window = 0
-
-            # end_window = 0
-
             trim_audio(
                 audio_file,
                 timestamps[a][0],
                 timestamps[b - 1][1],
                 0,
-                1,
+                0,
                 a_output_dir,
             )
             text = ""
@@ -272,135 +249,101 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str):
             break
 
 
-def parallel_chunk_audio_transcript(args) -> None:
-    chunk_audio_transcript(*args)
+def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
+    # if transcript or audio files doesn't exist
+    if not os.path.exists(transcript_file):
+        with open(f"logs/failed_download_t.txt", "a") as f:
+            f.write(f"{transcript_file}\n")
+        if not os.path.exists(audio_file):
+            with open(f"logs/failed_download_a.txt", "a") as f:
+                f.write(f"{audio_file}\n")
+
+        return None
+
+    t_output_dir = "/".join(transcript_file.split("/")[:3]) + "/segments"
+    a_output_dir = "/".join(audio_file.split("/")[:3]) + "/segments"
+    os.makedirs(t_output_dir, exist_ok=True)
+    os.makedirs(a_output_dir, exist_ok=True)
+
+    cleaned_transcript = clean_transcript(transcript_file)
+    if cleaned_transcript is None:
+        with open(f"logs/empty_transcript.txt", "a") as f:
+            f.write(f"{transcript_file}\n")
+        return None
+
+    transcript, *_ = read_vtt(transcript_file)
+
+    # if transcript file is empty
+    if transcript == {}:
+        with open(f"logs/empty_transcript.txt", "a") as f:
+            f.write(f"{transcript_file}\n")
+        return None
+
+    a = 0
+    b = 0
+
+    timestamps = list(transcript.keys())
+    diff = 0
+    init_diff = 0
+
+    while a < len(transcript) + 1:
+        init_diff = calculate_difference(timestamps[a][0], timestamps[b][1])
+        if init_diff < 30000:
+            diff = init_diff
+            b += 1
+        else:
+            t_output_file = (
+                f"{t_output_dir}/{timestamps[a][0]}_{timestamps[b - 1][1]}.vtt"
+            )
+
+            # write vtt file
+            write_vtt_segment(
+                timestamps[a:b],
+                transcript,
+                t_output_dir,
+            )
+
+            trim_audio(
+                audio_file,
+                timestamps[a][0],
+                timestamps[b - 1][1],
+                0,
+                0,
+                a_output_dir,
+            )
+
+            init_diff = 0
+            diff = 0
+            a = b
+
+        if b == len(transcript) and diff < 30000:
+            t_output_file = (
+                f"{t_output_dir}/{timestamps[a][0]}_{timestamps[b - 1][1]}.vtt"
+            )
+
+            # write vtt file
+            write_vtt_segment(
+                timestamps[a:b],
+                transcript,
+                t_output_dir,
+            )
+
+            trim_audio(
+                audio_file, timestamps[a][0], timestamps[b - 1][1], 0, 0, a_output_dir
+            )
+
+            break
 
 
-def play_audio(file_path):
-    # Load the audio file
-    audio = AudioSegment.from_file(file_path)
-
-    # Play the audio
-    play(audio)
-
-
-# def chunk_transcript(transcript_file: str, output_dir: str) -> None:
-#     output_dir = output_dir + "/segments"
-#     os.makedirs(output_dir, exist_ok=True)
-
-#     transcript, *_ = read_vtt(transcript_file)
-#     a = 0
-#     b = 0
-#     timestamps = list(transcript.keys())
-#     start = timestamps[a][0]
-#     # end = timestamps[b][1]
-#     # text = transcript[(start, end)]
-#     init_diff = 0
-#     text = ""
-#     added_silence = False
-#     remain_text = ""
-
-#     while a < len(transcript) + 1:
-#         if init_diff < 30000:
-#             if init_diff == 0 and convert_to_milliseconds(
-#                 adjust_timestamp(start, 30)
-#             ) < convert_to_milliseconds(timestamps[a][0]):
-#                 init_diff = 30000
-#             elif a == len(transcript) - 1:
-#                 text += transcript[(timestamps[a][0], timestamps[a][1])]
-#                 init_diff = 30000
-#                 a += 1
-#             else:
-#                 init_diff = calculate_difference(start, timestamps[b][1])
-#                 text += transcript[(timestamps[a][0], timestamps[a][1])]
-#                 b += 1
-#                 if convert_to_milliseconds(timestamps[b][0]) > convert_to_milliseconds(
-#                     timestamps[a][1]
-#                 ):
-#                     init_diff += calculate_difference(
-#                         timestamps[b][0],
-#                         timestamps[a][1],
-#                     )
-#                     added_silence = True
-#                 a += 1
-#         else:
-#             new_start = adjust_timestamp(start, 30)
-#             output_file = f"{output_dir}/{start}_{new_start}.txt"
-#             remain_text = ""
-#             if init_diff >= 31000:
-#                 if not added_silence:
-#                     if (init_diff - 30000) // 1000 > len(
-#                         transcript[(timestamps[a - 1][0], timestamps[a - 1][1])].split(
-#                             " "
-#                         )
-#                     ):
-#                         keep_len = int(
-#                             np.ceil(
-#                                 ((init_diff - 30000) // 1000)
-#                                 / len(
-#                                     transcript[
-#                                         (timestamps[a - 1][0], timestamps[a - 1][1])
-#                                     ].split(" ")
-#                                 )
-#                                 * 1.0
-#                             )
-#                         )
-#                         tokens = text.split(" ")
-#                         tokens = tokens[
-#                             : -(
-#                                 len(
-#                                     transcript[
-#                                         (timestamps[a - 1][0], timestamps[a - 1][1])
-#                                     ].split(" ")
-#                                 )
-#                                 - keep_len
-#                             )
-#                         ]
-#                         text = " ".join(tokens)
-#                         remain_text = transcript[
-#                             (timestamps[a - 1][0], timestamps[a - 1][1])
-#                         ][keep_len:]
-#                     else:  # < or ==
-#                         tokens = text.split(" ")
-#                         text = " ".join(
-#                             tokens[
-#                                 : -len(
-#                                     transcript[
-#                                         (timestamps[a - 1][0], timestamps[a - 1][1])
-#                                     ].split(" ")
-#                                 )
-#                                 + 1
-#                             ]
-#                         )
-#                         remain_text = " ".join(
-#                             transcript[
-#                                 (timestamps[a - 1][0], timestamps[a - 1][1])
-#                             ].split(" ")[1:]
-#                         )
-
-#                     a -= 1
-#                     b -= 1
-
-#             transcript_file = open(output_file, "w")
-#             transcript_file.write(text)
-#             transcript_file.close()
-
-#             if a == len(transcript):
-#                 break
-
-#             init_diff = 0
-#             text = remain_text
-#             start = new_start
+def parallel_chunk_audio_transcript_text(args) -> None:
+    chunk_audio_transcript_text(*args)
 
 
 if __name__ == "__main__":
-    # video_id = "-t-J098gF10"
-    # transcript_file = "data/transcripts/-t-J098gF10/-t-J098gF10.en-uYU-mmqFLq8.vtt"
-    # audio_file = "data/audio/-t-J098gF10/-t-J098gF10.wav"
-    # t_output_dir = "data/transcripts/-t-J098gF10"
-    # a_output_dir = "data/audio/-t-J098gF10"
-    # chunk_transcript(transcript_file, output_dir)
-    # chunk_audio_transcript(transcript_file, audio_file, t_output_dir, a_output_dir)
+    video_id = "eh77AUKedyM"
+    transcript_file = "data/transcripts/eh77AUKedyM/eh77AUKedyM.en-US.vtt"
+    audio_file = "data/audio/eh77AUKedyM/eh77AUKedyM.wav"
+    chunk_audio_transcript(transcript_file, audio_file)
 
     # reading in metadata
     df = pd.read_parquet("data/metadata/data.parquet")
@@ -467,7 +410,7 @@ if __name__ == "__main__":
         out = list(
             tqdm(
                 pool.imap_unordered(
-                    parallel_chunk_audio_transcript,
+                    parallel_chunk_audio_transcript_text,
                     zip(
                         transcript_file_paths,
                         audio_file_paths,
