@@ -49,7 +49,7 @@ def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
         "yt-dlp",
         f"https://www.youtube.com/watch?v={video_id}",
         "-f",
-        "bestaudio[ext=ext][asr=44]",
+        "bestaudio[ext=ext][asr=44000]",
         "--audio-quality",
         "0",
         "-o",
