@@ -14,6 +14,7 @@ from tqdm import tqdm
 from itertools import repeat
 from typing import Dict, Tuple, Union, List
 from datetime import datetime, timedelta
+import pysrt
 
 
 def download_transcript(
@@ -35,6 +36,9 @@ def download_transcript(
         "-o",
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
+
+    if sub_format == "srt":
+        command.extend(["--convert-subs", "srt"])
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return
@@ -125,6 +129,20 @@ def read_vtt(file_path: str) -> Union[None, Tuple[Dict, str, str]]:
     return transcript, transcript_start, transcript_end
 
 
+def read_srt(file_path: str) -> Union[None, Tuple[Dict, str, str]]:
+    transcript = {}
+    subs = pysrt.open(file_path)
+    transcript_start = f"{subs[0].start.hours:02}:{subs[0].start.minutes:02}:{subs[0].start.seconds:02}.{subs[0].start.milliseconds:03}"
+    transcript_end = f"{subs[-1].end.hours:02}:{subs[-1].end.minutes:02}:{subs[-1].end.seconds:02}.{subs[-1].end.milliseconds:03}"
+    for sub in subs:
+        start = f"{sub.start.hours:02}:{sub.start.minutes:02}:{sub.start.seconds:02}.{sub.start.milliseconds:03}"
+        end = f"{sub.end.hours:02}:{sub.end.minutes:02}:{sub.end.seconds:02}.{sub.end.milliseconds:03}"
+        text = sub.text
+        transcript[(start, end)] = text
+
+    return transcript, transcript_start, transcript_end
+
+
 def trim_audio(
     audio_file: str,
     start: str,
@@ -152,9 +170,13 @@ def trim_audio(
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def write_vtt_segment(timestamps: List, transcript: Dict, output_dir: str) -> None:
-    with open(f"{output_dir}/{timestamps[0][0]}_{timestamps[-1][1]}.vtt", "w") as f:
-        f.write("WEBVTT\n")
+def write_segment(
+    timestamps: List, transcript: Dict, output_dir: str, ext: str
+) -> None:
+    with open(f"{output_dir}/{timestamps[0][0]}_{timestamps[-1][1]}.{ext}", "w") as f:
+        if ext == "vtt":
+            f.write("WEBVTT\n\n")
+
         for i in range(len(timestamps)):
             start = adjust_timestamp(
                 timestamp=timestamps[i][0],
@@ -164,6 +186,12 @@ def write_vtt_segment(timestamps: List, transcript: Dict, output_dir: str) -> No
                 timestamp=timestamps[i][1],
                 milliseconds=-convert_to_milliseconds(timestamps[0][0]),
             )
+
+            if ext == "srt":
+                start = start.replace(".", ",")
+                end = end.replace(".", ",")
+                f.write(f"{i + 1}\n")
+                        
             f.write(
                 f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
             )
@@ -253,7 +281,13 @@ def chunk_audio_transcript_text(transcript_file: str, audio_file: str):
             break
 
 
-def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
+def parallel_chunk_audio_transcript_text(args) -> None:
+    chunk_audio_transcript_text(*args)
+
+
+def chunk_audio_transcript(
+    transcript_file: str, audio_file: str, transcript_ext: str = "srt"
+) -> None:
     # if transcript or audio files doesn't exist
     if not os.path.exists(transcript_file):
         with open(f"logs/failed_download_t.txt", "a") as f:
@@ -275,7 +309,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             f.write(f"{transcript_file}\n")
         return None
 
-    transcript, *_ = read_vtt(transcript_file)
+    if transcript_ext == "vtt":
+        transcript, *_ = read_vtt(transcript_file)
+    else:
+        transcript, *_ = read_srt(transcript_file)
 
     # if transcript file is empty
     if transcript == {}:
@@ -296,15 +333,14 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             diff = init_diff
             b += 1
         else:
-            t_output_file = (
-                f"{t_output_dir}/{timestamps[a][0]}_{timestamps[b - 1][1]}.vtt"
-            )
+            t_output_file = f"{t_output_dir}/{timestamps[a][0]}_{timestamps[b - 1][1]}.{transcript_ext}"
 
             # write vtt file
-            write_vtt_segment(
+            write_segment(
                 timestamps[a:b],
                 transcript,
                 t_output_dir,
+                transcript_ext,
             )
 
             trim_audio(
@@ -321,15 +357,14 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             a = b
 
         if b == len(transcript) and diff < 30000:
-            t_output_file = (
-                f"{t_output_dir}/{timestamps[a][0]}_{timestamps[b - 1][1]}.vtt"
-            )
+            t_output_file = f"{t_output_dir}/{timestamps[a][0]}_{timestamps[b - 1][1]}.{transcript_ext}"
 
             # write vtt file
-            write_vtt_segment(
+            write_segment(
                 timestamps[a:b],
                 transcript,
                 t_output_dir,
+                transcript_ext,
             )
 
             trim_audio(
@@ -339,18 +374,21 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             break
 
 
-def parallel_chunk_audio_transcript_text(args) -> None:
-    chunk_audio_transcript_text(*args)
+def parallel_chunk_audio_transcript(args) -> None:
+    chunk_audio_transcript(*args)
 
 
 if __name__ == "__main__":
-    video_id = "eh77AUKedyM"
-    transcript_file = "data/transcripts/eh77AUKedyM/eh77AUKedyM.en-US.vtt"
-    audio_file = "data/audio/eh77AUKedyM/eh77AUKedyM.wav"
-    chunk_audio_transcript(transcript_file, audio_file)
+    # video_id = "eh77AUKedyM"
+    # transcript_file = "data/transcripts/eh77AUKedyM/eh77AUKedyM.en-US.vtt"
+    # audio_file = "data/audio/eh77AUKedyM/eh77AUKedyM.m4a"
+    # chunk_audio_transcript(transcript_file, audio_file)
+
+    transcript_ext = "srt"
+    audio_ext = "m4a"
 
     # reading in metadata
-    df = pd.read_parquet("data/metadata/data.parquet")
+    df = pd.read_parquet("data/metadata/captions-0010.parquet")
     # only getting english data (that's less than 5 minutes long)
     en_df = df[
         (df["manual_caption_languages"].str.contains("en"))
@@ -380,7 +418,8 @@ if __name__ == "__main__":
         out = list(
             tqdm(
                 pool.imap_unordered(
-                    parallel_download_audio, zip(sample_id, repeat("data/audio"))
+                    parallel_download_audio,
+                    zip(sample_id, repeat("data/audio"), repeat(audio_ext)),
                 ),
                 total=len(sample),
             )
@@ -392,7 +431,12 @@ if __name__ == "__main__":
             tqdm(
                 pool.imap_unordered(
                     parallel_download_transcript,
-                    zip(sample_id, sample_lang, repeat("data/transcripts")),
+                    zip(
+                        sample_id,
+                        sample_lang,
+                        repeat("data/transcripts"),
+                        repeat(transcript_ext),
+                    ),
                 ),
                 total=len(sample),
             )
@@ -400,10 +444,10 @@ if __name__ == "__main__":
 
     # transcript and audio file paths for reference when chunking
     transcript_file_paths = [
-        f"data/transcripts/{sample_id[i]}/{sample_id[i]}.{sample_lang[i]}.vtt"
+        f"data/transcripts/{sample_id[i]}/{sample_id[i]}.{sample_lang[i]}.{transcript_ext}"
         for i in range(len(sample_id))
     ]
-    audio_file_paths = [f"data/audio/{id}/{id}.wav" for id in sample_id]
+    audio_file_paths = [f"data/audio/{id}/{id}.{audio_ext}" for id in sample_id]
 
     # for i in range(len(sample_id)):
     #     print(f"Processing {sample_id[i]}")
@@ -414,10 +458,11 @@ if __name__ == "__main__":
         out = list(
             tqdm(
                 pool.imap_unordered(
-                    parallel_chunk_audio_transcript_text,
+                    parallel_chunk_audio_transcript,
                     zip(
                         transcript_file_paths,
                         audio_file_paths,
+                        repeat(transcript_ext),
                     ),
                 ),
                 total=len(sample),
