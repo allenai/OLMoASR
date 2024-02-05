@@ -35,7 +35,7 @@ def download_transcript(
         "-o",
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
-    
+
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return
 
@@ -44,19 +44,19 @@ def parallel_download_transcript(args) -> None:
     download_transcript(*args)
 
 
-def download_audio(video_id: str, output_dir: str, encoding: str) -> None:
+def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
     command = [
         "yt-dlp",
         f"https://www.youtube.com/watch?v={video_id}",
         "-f",
-        "bestaudio",
+        "bestaudio[ext=ext][asr=44][acodec=mp4a]",
         "--audio-quality",
         "0",
         "-o",
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
 
-    if encoding == "wav":
+    if ext == "wav":
         command.extend(["--extract-audio", "--audio-format", "wav"])
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
