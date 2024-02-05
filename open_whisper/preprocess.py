@@ -29,14 +29,13 @@ def download_transcript(
         "--skip-download",
         "--sub-format",
         f"{sub_format}",
-        "--convert-subs",
-        "srt",
         "--sub-langs",
         f"{lang_code},-live_chat",
         f"https://www.youtube.com/watch?v={video_id}",
         "-o",
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
+    
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return
 
@@ -45,20 +44,21 @@ def parallel_download_transcript(args) -> None:
     download_transcript(*args)
 
 
-def download_audio(video_id: str, output_dir: str) -> None:
+def download_audio(video_id: str, output_dir: str, encoding: str) -> None:
     command = [
         "yt-dlp",
         f"https://www.youtube.com/watch?v={video_id}",
         "-f",
         "bestaudio",
-        "--extract-audio",
-        "--audio-format",
-        "wav",
         "--audio-quality",
         "0",
         "-o",
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
+
+    if encoding == "wav":
+        command.extend(["--extract-audio", "--audio-format", "wav"])
+
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
