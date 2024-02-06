@@ -8,11 +8,6 @@ import torch
 import torch.nn.functional as F
 
 
-def exact_div(x, y):
-    assert x % y == 0
-    return x // y
-
-
 # hard-coded audio hyperparameters
 SAMPLE_RATE = 16000
 N_FFT = 400  # 25ms window - 16000 * 0.025 = 400
