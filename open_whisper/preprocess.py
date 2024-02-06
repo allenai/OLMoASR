@@ -270,22 +270,43 @@ if __name__ == "__main__":
     transcript_ext = "srt"
     audio_ext = "m4a"
 
+    # --- sanity-check example ---
     # reading in metadata
-    df = pd.read_parquet("data/metadata/captions-0010.parquet")
-    # only getting english data (that's less than 5 minutes long)
-    en_df = df[
-        (df["manual_caption_languages"].str.contains("en"))
-        & (df["automatic_caption_orig_language"].str.contains("en"))
+    # df = pd.read_parquet("data/metadata/captions-0010.parquet")
+    # # only getting english data (that's less than 5 minutes long)
+    # en_df = df[
+    #     (df["manual_caption_languages"].str.contains("en"))
+    #     & (df["automatic_caption_orig_language"].str.contains("en"))
+    # ]
+
+    # sample = en_df[en_df["categories"] == "Education"][
+    #     ["id", "manual_caption_languages"]
+    # ].to_numpy()[:10]
+    # # ensuring that language codes are english only
+    # for i, (id, langs) in enumerate(sample):
+    #     if "," in langs:
+    #         for lang in langs.split(","):
+    #             if "en" in lang:
+    #                 sample[i][1] = lang
+    #                 break
+
+    # --- data for tiny-en model ---
+    captions_0000 = pd.read_parquet("data/metadata/captions-0000.parquet")
+    en_df = captions_0000[
+        (captions_0000["manual_caption_languages"].str.contains("en"))
+        & (captions_0000["automatic_caption_orig_language"].str.contains("en"))
     ]
 
-    # randomly sampling 36 videos
-    # rng = np.random.default_rng(42)
-    # sample = rng.choice(en_df[["id", "manual_caption_languages"]], 50, replace=False)
+    hq_df = en_df[
+        (en_df["categories"] == "Science & Technology")
+        | (en_df["categories"] == "Education")
+        | (en_df["categories"] == "News & Politics")
+    ].sort_values(by="view_count", ascending=False)[:30000][
+        "id", "manual_caption_languages"
+    ]
 
-    sample = en_df[en_df["categories"] == "Education"][
-        ["id", "manual_caption_languages"]
-    ].to_numpy()[:10]
-    # ensuring that language codes are english only
+    sample = hq_df.to_numpy()
+
     for i, (id, langs) in enumerate(sample):
         if "," in langs:
             for lang in langs.split(","):
@@ -331,10 +352,6 @@ if __name__ == "__main__":
         for i in range(len(sample_id))
     ]
     audio_file_paths = [f"data/audio/{id}/{id}.{audio_ext}" for id in sample_id]
-
-    # for i in range(len(sample_id)):
-    #     print(f"Processing {sample_id[i]}")
-    #     chunk_audio_transcript(transcript_file_paths[i], audio_file_paths[i])
 
     # chunking audios and transcripts
     with multiprocessing.Pool() as pool:
