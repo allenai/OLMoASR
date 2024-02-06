@@ -197,11 +197,6 @@ def chunk_audio_transcript(
 
     transcript, *_ = utils.TranscriptReader(transcript_file).read()
 
-    # if transcript_ext == "vtt":
-    #     transcript, *_ = read_vtt(transcript_file)
-    # else:
-    #     transcript, *_ = read_srt(transcript_file)
-
     # if transcript file is empty
     if transcript == {}:
         with open(f"logs/empty_transcript.txt", "a") as f:
