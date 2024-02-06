@@ -11,7 +11,7 @@ import multiprocessing
 from tqdm import tqdm
 from itertools import repeat
 from typing import Union
-from open_whisper import utils
+import utils
 
 
 def download_transcript(
