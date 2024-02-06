@@ -11,7 +11,7 @@ import multiprocessing
 from tqdm import tqdm
 from itertools import repeat
 from typing import Union
-import utils
+from open_whisper import utils
 
 
 def download_transcript(
@@ -291,6 +291,7 @@ if __name__ == "__main__":
     #                 break
 
     # --- data for tiny-en model ---
+    print("Reading in data")
     captions_0000 = pd.read_parquet("data/metadata/captions-0000.parquet")
     en_df = captions_0000[
         (captions_0000["manual_caption_languages"].str.contains("en"))
@@ -301,8 +302,8 @@ if __name__ == "__main__":
         (en_df["categories"] == "Science & Technology")
         | (en_df["categories"] == "Education")
         | (en_df["categories"] == "News & Politics")
-    ].sort_values(by="view_count", ascending=False)[:30000][
-        "id", "manual_caption_languages"
+    ].sort_values(by="view_count", ascending=False)[:25000][
+        ["id", "manual_caption_languages"]
     ]
 
     sample = hq_df.to_numpy()
