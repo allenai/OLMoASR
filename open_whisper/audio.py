@@ -6,6 +6,7 @@ from typing import Optional, Union
 import numpy as np
 import torch
 import torch.nn.functional as F
+from open_whisper import utils
 
 
 # hard-coded audio hyperparameters
@@ -16,7 +17,9 @@ CHUNK_LENGTH = 30  # max 30 second chunks
 N_SAMPLES = (
     CHUNK_LENGTH * SAMPLE_RATE
 )  # 480000 samples in a 30-second chunk - 30 * 16000 = 480000
-N_FRAMES = exact_div(N_SAMPLES, HOP_LENGTH)  # 3000 frames in a mel spectrogram input
+N_FRAMES = utils.exact_div(
+    N_SAMPLES, HOP_LENGTH
+)  # 3000 frames in a mel spectrogram input
 
 N_SAMPLES_PER_TOKEN = (
     HOP_LENGTH * 2

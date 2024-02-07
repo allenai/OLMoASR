@@ -136,3 +136,89 @@
 #         transcript_start = new_time
 
 
+# def chunk_audio_transcript_text(transcript_file: str, audio_file: str):
+#     # if transcript or audio files doesn't exist
+#     if not os.path.exists(transcript_file):
+#         with open(f"logs/failed_download_t.txt", "a") as f:
+#             f.write(f"{transcript_file}\n")
+#         if not os.path.exists(audio_file):
+#             with open(f"logs/failed_download_a.txt", "a") as f:
+#                 f.write(f"{audio_file}\n")
+
+#         return None
+
+#     t_output_dir = "/".join(transcript_file.split("/")[:3]) + "/segments"
+#     a_output_dir = "/".join(audio_file.split("/")[:3]) + "/segments"
+#     os.makedirs(t_output_dir, exist_ok=True)
+#     os.makedirs(a_output_dir, exist_ok=True)
+
+#     cleaned_transcript = clean_transcript(transcript_file)
+#     if cleaned_transcript is None:
+#         with open(f"logs/empty_transcript.txt", "a") as f:
+#             f.write(f"{transcript_file}\n")
+#         return None
+
+#     transcript, *_ = read_vtt(transcript_file)
+
+#     # if transcript file is empty
+#     if transcript == {}:
+#         with open(f"logs/empty_transcript.txt", "a") as f:
+#             f.write(f"{transcript_file}\n")
+#         return None
+
+#     a = 0
+#     b = 0
+
+#     timestamps = list(transcript.keys())
+#     diff = 0
+#     init_diff = 0
+#     text = ""
+
+#     while a < len(transcript) + 1:
+#         init_diff = calculate_difference(timestamps[a][0], timestamps[b][1])
+#         if init_diff < 30000:
+#             diff = init_diff
+#             if text != "":
+#                 if text[-1] != " ":
+#                     text += " "
+
+#             text += transcript[(timestamps[b][0], timestamps[b][1])]
+#             b += 1
+#         else:
+#             t_output_file = (
+#                 f"{t_output_dir}/{timestamps[a][0]}_{timestamps[b - 1][1]}.txt"
+#             )
+#             transcript_file = open(t_output_file, "w")
+#             transcript_file.write(text)
+#             transcript_file.close()
+
+#             trim_audio(
+#                 audio_file,
+#                 timestamps[a][0],
+#                 timestamps[b - 1][1],
+#                 0,
+#                 0,
+#                 a_output_dir,
+#             )
+#             text = ""
+#             init_diff = 0
+#             diff = 0
+#             a = b
+
+#         if b == len(transcript) and diff < 30000:
+#             t_output_file = (
+#                 f"{t_output_dir}/{timestamps[a][0]}_{timestamps[b - 1][1]}.txt"
+#             )
+#             transcript_file = open(t_output_file, "w")
+#             transcript_file.write(text)
+#             transcript_file.close()
+
+#             trim_audio(
+#                 audio_file, timestamps[a][0], timestamps[b - 1][1], 0, 0, a_output_dir
+#             )
+
+#             break
+
+
+# def parallel_chunk_audio_transcript_text(args) -> None:
+#     chunk_audio_transcript_text(*args)
