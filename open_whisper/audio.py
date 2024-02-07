@@ -24,10 +24,10 @@ N_FRAMES = utils.exact_div(
 N_SAMPLES_PER_TOKEN = (
     HOP_LENGTH * 2
 )  # the initial convolutions has stride 2 - don't understand this yet
-FRAMES_PER_SECOND = exact_div(
+FRAMES_PER_SECOND = utils.exact_div(
     SAMPLE_RATE, HOP_LENGTH
 )  # 10ms per audio frame - don't understand this yet
-TOKENS_PER_SECOND = exact_div(
+TOKENS_PER_SECOND = utils.exact_div(
     SAMPLE_RATE, N_SAMPLES_PER_TOKEN
 )  # 20ms per audio token - don't understand this yet
 
