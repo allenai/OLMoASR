@@ -45,7 +45,6 @@ class Conv1d(nn.Conv1d):
             x, weight.to(x.dtype), None if bias is None else bias.to(x.dtype)
         )
 
-
 # don't really understand the positional embeddings and the intuition behind it
 def sinusoids(length, channels, max_timescale=10000):
     """Returns sinusoids for positional embedding"""
@@ -60,10 +59,10 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, n_state: int, n_head: int):
         super().__init__()
         self.n_head = n_head
-        self.query = Linear(n_state, n_state)  # W_q
-        self.key = Linear(n_state, n_state, bias=False)  # W_k
-        self.value = Linear(n_state, n_state)  # W_v
-        self.out = Linear(n_state, n_state)  # W_o
+        self.query = Linear(n_state, n_state) # W_q
+        self.key = Linear(n_state, n_state, bias=False) # W_k
+        self.value = Linear(n_state, n_state) # W_v
+        self.out = Linear(n_state, n_state) # W_o
 
     def forward(
         self,
@@ -72,7 +71,7 @@ class MultiHeadAttention(nn.Module):
         mask: Optional[Tensor] = None,
         kv_cache: Optional[dict] = None,
     ):
-        q = self.query(x)  # W_q * x
+        q = self.query(x) # W_q * x
         # not sure when which branch is taken
         if kv_cache is None or xa is None or self.key not in kv_cache:
             # hooks, if installed (i.e. kv_cache is not None), will prepend the cached kv tensors;
@@ -129,16 +128,10 @@ class ResidualAttentionBlock(nn.Module):
         xa: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
         kv_cache: Optional[dict] = None,
-        padding_mask: Optional[Tensor] = None,
     ):
         x = x + self.attn(self.attn_ln(x), mask=mask, kv_cache=kv_cache)[0]
         if self.cross_attn:
-            x = (
-                x
-                + self.cross_attn(
-                    self.cross_attn_ln(x), xa, mask=padding_mask, kv_cache=kv_cache
-                )[0]
-            )
+            x = x + self.cross_attn(self.cross_attn_ln(x), xa, kv_cache=kv_cache)[0]
         x = x + self.mlp(self.mlp_ln(x))
         return x
 
@@ -196,20 +189,12 @@ class TextDecoder(nn.Module):
         mask = torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1)
         self.register_buffer("mask", mask, persistent=False)
 
-    def forward(
-        self,
-        x: Tensor,
-        xa: Tensor,
-        kv_cache: Optional[dict] = None,
-        padding_mask: Optional[Tensor] = None,
-    ):
+    def forward(self, x: Tensor, xa: Tensor, kv_cache: Optional[dict] = None):
         """
         x : torch.LongTensor, shape = (batch_size, <= n_ctx)
             the text tokens
         xa : torch.Tensor, shape = (batch_size, n_audio_ctx, n_audio_state)
             the encoded audio features to be attended on
-        padding_mask : torch.Tensor, shape = (batch_size, n_ctx)
-            the mask for padding tokens
         """
         offset = next(iter(kv_cache.values())).shape[1] if kv_cache else 0
         x = (
@@ -219,9 +204,7 @@ class TextDecoder(nn.Module):
         x = x.to(xa.dtype)
 
         for block in self.blocks:
-            x = block(
-                x, xa, mask=self.mask, kv_cache=kv_cache, padding_mask=padding_mask
-            )
+            x = block(x, xa, mask=self.mask, kv_cache=kv_cache)
 
         x = self.ln(x)
         logits = (
@@ -236,35 +219,30 @@ class Whisper(nn.Module):
         super().__init__()
         self.dims = dims
         self.encoder = AudioEncoder(
-            self.dims.n_mels,  # mel channels
-            self.dims.n_audio_ctx,  # context length of audio embedding
-            self.dims.n_audio_state,  # dimension of audio embedding
-            self.dims.n_audio_head,  # number of heads in encoder
-            self.dims.n_audio_layer,  # number of layers in encoder
+            self.dims.n_mels, # mel channels
+            self.dims.n_audio_ctx, # context length of audio embedding
+            self.dims.n_audio_state, # dimension of audio embedding
+            self.dims.n_audio_head, # number of heads in encoder
+            self.dims.n_audio_layer, # number of layers in encoder
         )
         self.decoder = TextDecoder(
-            self.dims.n_vocab,  # vocab size
-            self.dims.n_text_ctx,  # context length of text embedding
-            self.dims.n_text_state,  # dimension of text embedding
-            self.dims.n_text_head,  # number of heads in decoder
-            self.dims.n_text_layer,  # number of layers in decoder
+            self.dims.n_vocab, # vocab size
+            self.dims.n_text_ctx, # context length of text embedding
+            self.dims.n_text_state, # dimension of text embedding
+            self.dims.n_text_head, # number of heads in decoder
+            self.dims.n_text_layer, # number of layers in decoder
         )
 
     def embed_audio(self, mel: torch.Tensor):
         return self.encoder(mel)
 
-    def logits(
-        self,
-        tokens: torch.Tensor,
-        audio_features: torch.Tensor,
-        padding_mask: Optional[torch.Tensor] = None,
-    ):
-        return self.decoder(tokens, audio_features, padding_mask)
+    def logits(self, tokens: torch.Tensor, audio_features: torch.Tensor):
+        return self.decoder(tokens, audio_features)
 
     def forward(
         self, mel: torch.Tensor, tokens: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
-        return self.decoder(tokens, self.encoder(mel), padding_mask)
+        return self.decoder(tokens, self.encoder(mel))
 
     @property
     def device(self):
