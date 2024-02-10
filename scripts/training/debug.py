@@ -1,4 +1,4 @@
-from open_whisper import audio, tokenizer, preprocess, model
+from open_whisper import audio, tokenizer, preprocess, model, utils
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
@@ -10,11 +10,14 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
 from torcheval.metrics import WordErrorRate
 import wandb
+from typing import List
 
 
 AUDIO_FILE = "data/audio/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.wav"
 TRANSCRIPT_FILE = "data/transcripts/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.txt"
+EVAL_DIR = "data/eval/LibriSpeech/test-clean"
 DEVICE = torch.device("cuda:0")
+debug = False
 
 # encoder architecture
 n_mels = 80
@@ -32,15 +35,16 @@ n_text_layer = 4
 
 
 class AudioTextDataset(Dataset):
-    def __init__(self, audio_dir, transcript_dir, tokenizer, device, n_text_ctx):
-        self.audio_files = [
-            os.path.join(audio_dir, audio_file)
-            for audio_file in sorted(os.listdir(audio_dir))
-        ]
-        self.transcript_files = [
-            os.path.join(transcript_dir, transcript_file)
-            for transcript_file in sorted(os.listdir(transcript_dir))
-        ]
+    def __init__(
+        self,
+        audio_files: List,
+        transcript_files: List,
+        tokenizer: tokenizer.Tokenizer,
+        device: torch.DeviceObjType,
+        n_text_ctx: int,
+    ):
+        self.audio_files = sorted(audio_files)
+        self.transcript_files = sorted(transcript_files)
         self.tokenizer = tokenizer
         self.device = device
         self.n_text_ctx = n_text_ctx
@@ -55,10 +59,13 @@ class AudioTextDataset(Dataset):
 
     def __getitem__(self, index):
         audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
-        text_tokens = self.preprocess_text(self.transcript_files[index], index)
+        text_tokens, eot_index = self.preprocess_text(
+            self.transcript_files[index], index
+        )
+        # offset
         text_input = text_tokens[:-1]
         text_y = text_tokens[1:]
-        return audio_file, audio_input, text_input, text_y
+        return audio_file, audio_input, text_input, text_y, eot_index
 
     def preprocess_audio(self, audio_file):
         audio_arr = audio.load_audio(audio_file, sr=16000)
@@ -69,39 +76,50 @@ class AudioTextDataset(Dataset):
         return audio_file, mel_spec_scaled
 
     def preprocess_text(self, transcript_file, file_index):
-        with open(file=transcript_file, mode="r") as f:
-            transcript = f.read().strip()
-        text_tokens = self.tokenizer.encode(transcript)
+        # transcript -> text
+        transcript, *_ = utils.TranscriptReader(file_path=transcript_file).read()
 
-        if file_index == 0:
-            text_tokens = (
-                list(self.tokenizer.sot_sequence_including_notimestamps) + text_tokens
-            )
+        if transcript == {}:
+            text_tokens = [self.tokenizer.no_speech]
+        else:
+            transcript_text = utils.TranscriptReader.extract_text(transcript)
 
-        if file_index == len(self.transcript_files) - 1:
-            text_tokens.append(tokenizer.eot)
+            text_tokens = self.tokenizer.encode(transcript_text)
+
+        text_tokens = (
+            list(self.tokenizer.sot_sequence_including_notimestamps) + text_tokens
+        )
+
+        text_tokens.append(tokenizer.eot)
+        eot_index = len(text_tokens) - 1
 
         text_tokens = np.pad(
             text_tokens,
             pad_width=(0, self.n_text_ctx - len(text_tokens)),
             mode="constant",
-            constant_values=self.tokenizer.no_speech,
+            constant_values=0,
         )
 
         text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=self.device)
-        return text_tokens
+        return text_tokens, eot_index
 
 
 tokenizer = tokenizer.get_tokenizer(multilingual=True, language="en", task="transcribe")
 audio_text_dataset = AudioTextDataset(
-    audio_dir="data/audio/eh77AUKedyM/segments",
-    transcript_dir="data/transcripts/eh77AUKedyM/segments",
+    audio_files=[
+        os.path.join("data/sanity-check/audio/eh77AUKedyM/segments", segment)
+        for segment in os.listdir("data/sanity-check/audio/eh77AUKedyM/segments")
+    ],
+    transcript_files=[
+        os.path.join("data/sanity-check/transcripts/eh77AUKedyM/segments", segment)
+        for segment in os.listdir("data/sanity-check/transcripts/eh77AUKedyM/segments")
+    ],
     tokenizer=tokenizer,
     device=DEVICE,
     n_text_ctx=448,
 )
 
-batch_size = 2
+batch_size = 256
 audio_text_dataloader = DataLoader(
     audio_text_dataset, batch_size=batch_size, shuffle=False, num_workers=0
 )
@@ -162,29 +180,49 @@ scheduler = LambdaLR(optimizer=optimizer, lr_lambda=lr_lambda)
 max_grad_norm = 1.0
 metric = WordErrorRate()
 
+# model random init
+# model.eval()
+# for batch_idx, batch in enumerate(audio_text_dataloader):
+#     audio_files, audio_input, text_input, text_y = batch
+
+#     logits = model(audio_input, text_input)
+#     probs = F.softmax(logits, dim=-1)
+#     pred = torch.argmax(probs, dim=-1)
+
+#     pred_text = [
+#         tokenizer.decode(list(pred_instance)) for pred_instance in pred.cpu().numpy()
+#     ]
+#     tgt_text = [
+#         tokenizer.decode(list(text_y_instance))
+#         for text_y_instance in text_y.cpu().numpy()
+#     ]
+#     metric.update(pred_text, tgt_text)
+#     average_wer = metric.compute().cpu().numpy().item() * 100
+#     print(f"{average_wer=}")
+
+
 model.train()
 
-config = {
-    "lr": lr,
-    "betas": betas,
-    "eps": eps,
-    "weight_decay": weight_decay,
-    "batch_size": batch_size,
-    "epochs": epochs,
-    "total_steps": total_steps,
-    "warmup_steps": "warmup_steps",
-}
-
-wandb.init(
-    project="open_whisper",
-    entity="huongngo-8",
-    config=config,
-    save_code=True,
-    job_type="training",
-    tags="tiny-en-overfit",
-    dir="scripts/training",
-    resume="auto",
-)
+if not debug:
+    config = {
+        "lr": lr,
+        "betas": betas,
+        "eps": eps,
+        "weight_decay": weight_decay,
+        "batch_size": batch_size,
+        "epochs": epochs,
+        "total_steps": total_steps,
+        "warmup_steps": "warmup_steps",
+    }
+    wandb.init(
+        project="open_whisper",
+        entity="huongngo-8",
+        config=config,
+        save_code=True,
+        job_type="training",
+        tags="tiny-en-overfit",
+        dir="scripts/training",
+    )
 
 columns = ["audio_input", "pred_test", "tgt_text", "wer", "epoch"]
 train_table = wandb.Table(columns=columns)
@@ -193,7 +231,7 @@ for epoch in range(epochs):
     for batch_idx, batch in enumerate(audio_text_dataloader):
         # print(f"{scheduler.get_last_lr()=}")
         optimizer.zero_grad()
-        audio_files, audio_input, text_input, text_y = batch
+        audio_files, audio_input, text_input, text_y, eot_index = batch
 
         logits = model(audio_input, text_input)
         probs = F.softmax(logits, dim=-1)
@@ -204,17 +242,20 @@ for epoch in range(epochs):
             for pred_instance in pred.cpu().numpy()
         ]
         tgt_text = [
-            tokenizer.decode(list(text_y_instance))
-            for text_y_instance in text_y.cpu().numpy()
+            tokenizer.decode(list(text_y_instance[: eot_index[i]]))
+            for i, text_y_instance in enumerate(text_y.cpu().numpy())
         ]
         metric.update(pred_text, tgt_text)
         average_wer = metric.compute().cpu().numpy().item() * 100
 
-        print(f"{pred_text[0]=}")
-        print(f"{tgt_text[0]=}")
-        print(f"{average_wer=}")
+        with open("logs/training_results.txt", "a") as f:
+            f.write(f"{pred_text[0]=}\n")
+            f.write(f"{tgt_text[0]=}\n")
+            f.write(f"{average_wer=}\n\n")
 
-        loss = F.cross_entropy(logits.view(-1, logits.shape[-1]), text_y.view(-1))
+        loss = F.cross_entropy(
+            logits.view(-1, logits.shape[-1]), text_y.view(-1), ignore_index=0
+        )
         print(f"{loss=}")
 
         wandb.log({"loss": loss, "average_wer": average_wer})
