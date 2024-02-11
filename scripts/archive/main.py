@@ -142,3 +142,75 @@
 
 #         text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=DEVICE)
 #         return text_tokens
+
+# # evaluation dataset
+# dirs = []
+# for root, dir, files in os.walk(EVAL_DIR):
+#     if len(root.split("/")) == 6:
+#         dirs.append(root)
+
+
+# class AudioTextDatasetEval(Dataset):
+#     def __init__(self, file_dirs, tokenizer, device, n_text_ctx):
+#         self.audio_files = []
+#         self.transcript_texts = []
+#         self.tokenizer = tokenizer
+#         self.device = device
+#         self.n_text_ctx = n_text_ctx
+
+#         files = [
+#             os.path.join(file_dir, audio_file)
+#             for file_dir in sorted(file_dirs)
+#             for audio_file in sorted(os.listdir(file_dir))
+#         ]
+
+#         self.audio_files = sorted([f for f in files if not f.endswith("txt")])
+
+#         transcript_files = sorted([f for f in files if f.endswith("txt")])
+
+#         for transcript_file in transcript_files:
+#             with open(file=transcript_file, mode="r") as f:
+#                 transcript_text = [" ".join(line.strip().split(" ")[1:]) for line in f]
+
+#             self.transcript_texts.extend(transcript_text)
+
+#     def __len__(self):
+#         return len(self.audio_files)
+
+#     def __getitem__(self, index):
+#         audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
+#         text_tokens = self.preprocess_text(self.transcript_texts[index], index)
+#         text_input = text_tokens[:-1]
+#         text_y = text_tokens[1:]
+#         return audio_file, audio_input, text_input, text_y
+
+#     def preprocess_audio(self, audio_file):
+#         audio_arr = audio.load_audio(audio_file, sr=16000)
+#         audio_arr = audio.pad_or_trim(audio_arr)
+#         mel_spec = audio.log_mel_spectrogram(audio_arr, device=self.device)
+#         mel_spec_normalized = (mel_spec - mel_spec.mean()) / mel_spec.std()
+#         mel_spec_scaled = mel_spec_normalized / (mel_spec_normalized.abs().max())
+#         return audio_file, mel_spec_scaled
+
+#     def preprocess_text(self, transcript_file, file_index):
+#         with open(file=transcript_file, mode="r") as f:
+#             transcript = f.read().strip()
+#         text_tokens = self.tokenizer.encode(transcript)
+
+#         if file_index == 0:
+#             text_tokens = (
+#                 list(self.tokenizer.sot_sequence_including_notimestamps) + text_tokens
+#             )
+
+#         if file_index == len(self.transcript_files) - 1:
+#             text_tokens.append(tokenizer.eot)
+
+#         text_tokens = np.pad(
+#             text_tokens,
+#             pad_width=(0, self.n_text_ctx - len(text_tokens)),
+#             mode="constant",
+#             constant_values=self.tokenizer.no_speech,
+#         )
+
+#         text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=self.device)
+#         return text_tokens
