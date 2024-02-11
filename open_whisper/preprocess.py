@@ -5,6 +5,7 @@
 # 80-channel mel spectrogram is a mel spectrogram represented by 80 mel bins (frequency channels)
 # feature normalization: globally scale input to be between [-1, 1] with approximate mean 0 across pre-training dataset
 import os
+import shutil
 import subprocess
 import pandas as pd
 import multiprocessing
@@ -18,6 +19,10 @@ import numpy as np
 def download_transcript(
     video_id: str, lang_code: str, output_dir: str, sub_format: str = "srt"
 ) -> None:
+    # to not redownload
+    if os.path.exists(f"{output_dir}/{video_id}/{video_id}.{lang_code}.{sub_format}"):
+        return None
+
     if lang_code == "unknown":
         lang_code = "en"
 
@@ -39,7 +44,13 @@ def download_transcript(
         command.extend(["--convert-subs", "srt"])
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return
+
+    if not os.path.exists(
+        f"{output_dir}/{video_id}/{video_id}.{lang_code}.{sub_format}"
+    ):
+        with open(f"logs/failed_download_t.txt", "a") as f:
+            f.write(f"{video_id}\n")
+        return None
 
 
 def parallel_download_transcript(args) -> None:
@@ -47,6 +58,10 @@ def parallel_download_transcript(args) -> None:
 
 
 def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
+    # to not redownload
+    if os.path.exists(f"{output_dir}/{video_id}/{video_id}.{ext}"):
+        return None
+
     command = [
         "yt-dlp",
         f"https://www.youtube.com/watch?v={video_id}",
@@ -63,6 +78,12 @@ def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    # if after downloading, the file doesn't exist
+    if not os.path.exists(f"{output_dir}/{video_id}/{video_id}.{ext}"):
+        with open(f"logs/failed_download_a.txt", "a") as f:
+            f.write(f"{video_id}\n")
+        return None
+
 
 def parallel_download_audio(args) -> None:
     download_audio(*args)
@@ -77,6 +98,8 @@ def clean_transcript(file_path) -> Union[None, bool]:
 
     # Replace &nbsp; with a space or an empty string
     modified_content = content.replace("&nbsp;", " ")
+    modified_content = modified_content.replace("\h", "")
+    modified_content = modified_content.replace("\h\h", "")
 
     with open(file_path, "w", encoding="utf-8") as file:
         file.write(modified_content)
@@ -84,226 +107,144 @@ def clean_transcript(file_path) -> Union[None, bool]:
     return True
 
 
-def chunk_audio_transcript(
-    transcript_file: str, audio_file: str, transcript_ext: str = "srt"
-) -> None:
-    # if transcript or audio files doesn't exist
-    if not os.path.exists(transcript_file):
-        with open(f"logs/failed_download_t.txt", "a") as f:
-            f.write(f"{transcript_file}\n")
-        if not os.path.exists(audio_file):
-            with open(f"logs/failed_download_a.txt", "a") as f:
-                f.write(f"{audio_file}\n")
+def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
+    try:
+        # if transcript or audio files doesn't exist
+        if not os.path.exists(transcript_file):
+            return None
+        if not os.path.exists(audio_file): 
+            return None
+        
+        transcript_ext = transcript_file.split(".")[-1]
 
+        t_output_dir = "/".join(transcript_file.split("/")[:3]) + "/segments"
+        a_output_dir = "/".join(audio_file.split("/")[:3]) + "/segments"
+        os.makedirs(t_output_dir, exist_ok=True)
+        os.makedirs(a_output_dir, exist_ok=True)
+
+        cleaned_transcript = clean_transcript(transcript_file)
+        if cleaned_transcript is None:
+            with open(f"logs/empty_transcripts.txt", "a") as f:
+                f.write(f"{transcript_file}\n")
+            return None
+
+        transcript, *_ = utils.TranscriptReader(transcript_file).read()
+
+        # if transcript file is empty
+        if transcript == {}:
+            with open(f"logs/empty_transcript.txt", "a") as f:
+                f.write(f"{transcript_file}\n")
+            return None
+
+        a = 0
+        b = 0
+
+        timestamps = list(transcript.keys())
+        diff = 0
+        init_diff = 0
+
+        while a < len(transcript) + 1:
+            init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
+            if init_diff < 30000:
+                diff = init_diff
+                b += 1
+            else:
+                # edge case (when transcript line is > 30s)
+                if b == a:
+                    with open(f"logs/faulty_transcripts.txt", "a") as f:
+                        f.write(f"{t_output_dir.split('/')[-2]}\tindex: {b}\n")
+                    return None
+
+                # write transcript file
+                utils.write_segment(
+                    timestamps[a:b],
+                    transcript,
+                    t_output_dir,
+                    transcript_ext,
+                )
+
+                utils.trim_audio(
+                    audio_file,
+                    timestamps[a][0],
+                    timestamps[b - 1][1],
+                    0,
+                    0,
+                    a_output_dir,
+                )
+
+                init_diff = 0
+                diff = 0
+
+                # checking for silence
+                if timestamps[b][0] != timestamps[b - 1][1]:
+                    silence_segments = (
+                        utils.calculate_difference(
+                            timestamps[b - 1][1], timestamps[b][0]
+                        )
+                        // 30000
+                    )
+
+                    for i in range(0, silence_segments + 1):
+                        start = utils.adjust_timestamp(
+                            timestamps[b - 1][1], (i * 30000)
+                        )
+
+                        if i == silence_segments:
+                            end = timestamps[b][0]
+                        else:
+                            end = utils.adjust_timestamp(start, 30000)
+
+                        utils.write_segment(
+                            [
+                                (
+                                    start,
+                                    end,
+                                )
+                            ],
+                            None,
+                            t_output_dir,
+                            transcript_ext,
+                        )
+                        utils.trim_audio(
+                            audio_file,
+                            start,
+                            end,
+                            0,
+                            0,
+                            a_output_dir,
+                        )
+
+                a = b
+
+            if b == len(transcript) and diff < 30000:
+                # write transcript file
+                utils.write_segment(
+                    timestamps[a:b],
+                    transcript,
+                    t_output_dir,
+                    transcript_ext,
+                )
+
+                utils.trim_audio(
+                    audio_file,
+                    timestamps[a][0],
+                    timestamps[b - 1][1],
+                    0,
+                    0,
+                    a_output_dir,
+                )
+
+                break
+
+        os.remove(transcript_file)
+        os.remove(audio_file)
+
+    except Exception as e:
+        with open(f"logs/failed_chunking.txt", "a") as f:
+            f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
         return None
-
-    t_output_dir = "/".join(transcript_file.split("/")[:3]) + "/segments"
-    a_output_dir = "/".join(audio_file.split("/")[:3]) + "/segments"
-    os.makedirs(t_output_dir, exist_ok=True)
-    os.makedirs(a_output_dir, exist_ok=True)
-
-    cleaned_transcript = clean_transcript(transcript_file)
-    if cleaned_transcript is None:
-        with open(f"logs/empty_transcript.txt", "a") as f:
-            f.write(f"{transcript_file}\n")
-        return None
-
-    transcript, *_ = utils.TranscriptReader(transcript_file).read()
-
-    # if transcript file is empty
-    if transcript == {}:
-        with open(f"logs/empty_transcript.txt", "a") as f:
-            f.write(f"{transcript_file}\n")
-        return None
-
-    a = 0
-    b = 0
-
-    timestamps = list(transcript.keys())
-    diff = 0
-    init_diff = 0
-
-    while a < len(transcript) + 1:
-        init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
-        if init_diff < 30000:
-            diff = init_diff
-            b += 1
-        else:
-            t_output_file = f"{t_output_dir}/{timestamps[a][0]}_{timestamps[b - 1][1]}.{transcript_ext}"
-
-            # write vtt file
-            utils.write_segment(
-                timestamps[a:b],
-                transcript,
-                t_output_dir,
-                transcript_ext,
-            )
-
-            utils.trim_audio(
-                audio_file,
-                timestamps[a][0],
-                timestamps[b - 1][1],
-                0,
-                0,
-                a_output_dir,
-            )
-
-            init_diff = 0
-            diff = 0
-            a = b
-
-        if b == len(transcript) and diff < 30000:
-            t_output_file = f"{t_output_dir}/{timestamps[a][0]}_{timestamps[b - 1][1]}.{transcript_ext}"
-
-            # write vtt file
-            utils.write_segment(
-                timestamps[a:b],
-                transcript,
-                t_output_dir,
-                transcript_ext,
-            )
-
-            utils.trim_audio(
-                audio_file, timestamps[a][0], timestamps[b - 1][1], 0, 0, a_output_dir
-            )
-
-            break
-
-    os.remove(transcript_file)
-    os.remove(audio_file)
 
 
 def parallel_chunk_audio_transcript(args) -> None:
     chunk_audio_transcript(*args)
 
-
-if __name__ == "__main__":
-    # video_id = "eh77AUKedyM"
-    # transcript_file = "data/transcripts/eh77AUKedyM/eh77AUKedyM.en-US.srt"
-    # audio_file = "data/audio/eh77AUKedyM/eh77AUKedyM.m4a"
-    # chunk_audio_transcript(transcript_file, audio_file)
-
-    transcript_ext = "srt"
-    audio_ext = "m4a"
-
-    # --- sanity-check example ---
-    # reading in metadata
-    # df = pd.read_parquet("data/metadata/captions-0010.parquet")
-    # # only getting english data (that's less than 5 minutes long)
-    # en_df = df[
-    #     (df["manual_caption_languages"].str.contains("en"))
-    #     & (df["automatic_caption_orig_language"].str.contains("en"))
-    # ]
-
-    # sample = en_df[en_df["categories"] == "Education"][
-    #     ["id", "manual_caption_languages"]
-    # ].to_numpy()[:10]
-    # # ensuring that language codes are english only
-    # for i, (id, langs) in enumerate(sample):
-    #     if "," in langs:
-    #         for lang in langs.split(","):
-    #             if "en" in lang:
-    #                 sample[i][1] = lang
-    #                 break
-
-    # --- data for tiny-en model ---
-    print("Reading in data")
-    captions_0000 = pd.read_parquet("data/metadata/captions-0000.parquet")
-    en_df = captions_0000[
-        (captions_0000["manual_caption_languages"].str.contains("en"))
-        & (captions_0000["automatic_caption_orig_language"].str.contains("en"))
-    ]
-
-    hq_df = en_df[
-        (en_df["categories"] == "Science & Technology")
-        | (en_df["categories"] == "Education")
-        | (en_df["categories"] == "News & Politics")
-    ].sort_values(by="view_count", ascending=False)[:25000][
-        ["id", "manual_caption_languages"]
-    ]
-
-    sample = hq_df.to_numpy()
-
-    for i, (id, langs) in enumerate(sample):
-        if "," in langs:
-            for lang in langs.split(","):
-                if "en" in lang:
-                    sample[i][1] = lang
-                    break
-
-    # breaking up the sample list (2 columns) into 2 lists
-    sample_id, sample_lang = [row[0] for row in sample], [row[1] for row in sample]
-
-    # downloading audio
-    # with multiprocessing.Pool() as pool:
-    #     out = list(
-    #         tqdm(
-    #             pool.imap_unordered(
-    #                 parallel_download_audio,
-    #                 zip(sample_id, repeat("data/audio"), repeat(audio_ext)),
-    #             ),
-    #             total=len(sample),
-    #         )
-    #     )
-
-    # downloading transcripts
-    # with multiprocessing.Pool() as pool:
-    #     out = list(
-    #         tqdm(
-    #             pool.imap_unordered(
-    #                 parallel_download_transcript,
-    #                 zip(
-    #                     sample_id,
-    #                     sample_lang,
-    #                     repeat("data/transcripts"),
-    #                     repeat(transcript_ext),
-    #                 ),
-    #             ),
-    #             total=len(sample),
-    #         )
-    #     )
-
-    # transcript and audio file paths for reference when chunking
-    transcript_file_paths = [
-        f"data/transcripts/{sample_id[i]}/{sample_id[i]}.{sample_lang[i]}.{transcript_ext}"
-        for i in range(len(sample_id))
-    ]
-    rng = np.random.default_rng(42)
-    sample_transcript_file_paths = rng.choice(transcript_file_paths, 30)
-    audio_file_paths = [f"data/audio/{id}/{id}.{audio_ext}" for id in sample_id]
-    rng = np.random.default_rng(42)
-    sample_audio_file_paths = rng.choice(audio_file_paths, 30)
-
-    print(f"{sample_audio_file_paths=}")
-    print(f"{sample_transcript_file_paths}")
-
-    # chunking audios and transcripts
-    # with multiprocessing.Pool() as pool:
-    #     out = list(
-    #         tqdm(
-    #             pool.imap_unordered(
-    #                 parallel_chunk_audio_transcript,
-    #                 zip(
-    #                     transcript_file_paths,
-    #                     audio_file_paths,
-    #                     repeat(transcript_ext),
-    #                 ),
-    #             ),
-    #             total=len(sample),
-    #         )
-    #     )
-
-    with multiprocessing.Pool() as pool:
-        out = list(
-            tqdm(
-                pool.imap_unordered(
-                    parallel_chunk_audio_transcript,
-                    zip(
-                        sample_transcript_file_paths,
-                        sample_audio_file_paths,
-                        repeat(transcript_ext),
-                    ),
-                ),
-                total=30,
-            )
-        )
