@@ -39,7 +39,7 @@ class AudioTextDataset(Dataset):
         self,
         audio_files: List,
         transcript_files: List,
-        tokenizer: tokenizer.Tokenizer,
+        tokenizer,
         device: torch.DeviceObjType,
         n_text_ctx: int,
     ):
@@ -119,7 +119,7 @@ audio_text_dataset = AudioTextDataset(
     n_text_ctx=448,
 )
 
-batch_size = 256
+batch_size = 2
 audio_text_dataloader = DataLoader(
     audio_text_dataset, batch_size=batch_size, shuffle=False, num_workers=0
 )
@@ -183,7 +183,7 @@ metric = WordErrorRate()
 # model random init
 # model.eval()
 # for batch_idx, batch in enumerate(audio_text_dataloader):
-#     audio_files, audio_input, text_input, text_y = batch
+#     audio_files, audio_input, text_input, text_y, eot_index = batch
 
 #     logits = model(audio_input, text_input)
 #     probs = F.softmax(logits, dim=-1)
@@ -193,8 +193,8 @@ metric = WordErrorRate()
 #         tokenizer.decode(list(pred_instance)) for pred_instance in pred.cpu().numpy()
 #     ]
 #     tgt_text = [
-#         tokenizer.decode(list(text_y_instance))
-#         for text_y_instance in text_y.cpu().numpy()
+#         tokenizer.decode(list(text_y_instance[: eot_index[i]]))
+#         for i, text_y_instance in enumerate(text_y.cpu().numpy())
 #     ]
 #     metric.update(pred_text, tgt_text)
 #     average_wer = metric.compute().cpu().numpy().item() * 100
@@ -265,6 +265,19 @@ for epoch in range(epochs):
 
         optimizer.step()
         scheduler.step()
+
+    if epoch == 1:
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            # You can also save other items such as scheduler state
+            'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+            'dims': model_dims.__dict__,
+            # Include any other information you deem necessary
+        }
+
+        torch.save(checkpoint, "checkpoints/tiny-en.pt")
 
     for i in range(len(pred_text)):
         pred_text_instance = pred_text[i]
