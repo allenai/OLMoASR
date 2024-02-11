@@ -7,6 +7,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from .decoding import decode as decode_function
+from .decoding import detect_language as detect_language_function
 
 
 @dataclass
@@ -288,3 +290,6 @@ class Whisper(nn.Module):
 
         self.decoder.apply(install_hooks)
         return cache, hooks
+    
+    detect_language = detect_language_function
+    decode = decode_function
