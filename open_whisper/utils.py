@@ -1,8 +1,14 @@
 from datetime import datetime, timedelta
 import subprocess
-from typing import Dict, Union, Tuple, List
+from typing import Dict, Union, Tuple, List, Optional
 import pysrt
 import webvtt
+import zlib
+
+
+def compression_ratio(text) -> float:
+    text_bytes = text.encode("utf-8")
+    return len(text_bytes) / len(zlib.compress(text_bytes))
 
 
 def exact_div(x, y):
@@ -71,7 +77,7 @@ class TranscriptReader:
         transcript = {}
         captions = webvtt.read(file_path)
 
-        if captions == []:
+        if len(captions) == 0:
             return transcript, "", ""
 
         transcript_start = captions[0].start
@@ -87,6 +93,9 @@ class TranscriptReader:
     def read_srt(self, file_path: str) -> Union[None, Tuple[Dict, str, str]]:
         transcript = {}
         subs = pysrt.open(file_path)
+        if len(subs) == 0:
+            return transcript, "", ""
+
         transcript_start = f"{subs[0].start.hours:02}:{subs[0].start.minutes:02}:{subs[0].start.seconds:02}.{subs[0].start.milliseconds:03}"
         transcript_end = f"{subs[-1].end.hours:02}:{subs[-1].end.minutes:02}:{subs[-1].end.seconds:02}.{subs[-1].end.milliseconds:03}"
         for sub in subs:
@@ -105,29 +114,38 @@ class TranscriptReader:
         else:
             raise ValueError("Unsupported file type")
 
+    def extract_text(transcript: Dict) -> Optional[str]:
+        transcript_text = ""
+        for _, text in transcript.items():
+            transcript_text += text.strip() + " "
+        return transcript_text.strip()
+
 
 def write_segment(
-    timestamps: List, transcript: Dict, output_dir: str, ext: str
+    timestamps: List, transcript: Optional[Dict], output_dir: str, ext: str
 ) -> None:
     with open(f"{output_dir}/{timestamps[0][0]}_{timestamps[-1][1]}.{ext}", "w") as f:
-        if ext == "vtt":
-            f.write("WEBVTT\n\n")
+        if transcript == None:
+            f.write("")
+        else:
+            if ext == "vtt":
+                f.write("WEBVTT\n\n")
 
-        for i in range(len(timestamps)):
-            start = adjust_timestamp(
-                timestamp=timestamps[i][0],
-                milliseconds=-convert_to_milliseconds(timestamps[0][0]),
-            )
-            end = adjust_timestamp(
-                timestamp=timestamps[i][1],
-                milliseconds=-convert_to_milliseconds(timestamps[0][0]),
-            )
+            for i in range(len(timestamps)):
+                start = adjust_timestamp(
+                    timestamp=timestamps[i][0],
+                    milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+                )
+                end = adjust_timestamp(
+                    timestamp=timestamps[i][1],
+                    milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+                )
 
-            if ext == "srt":
-                start = start.replace(".", ",")
-                end = end.replace(".", ",")
-                f.write(f"{i + 1}\n")
+                if ext == "srt":
+                    start = start.replace(".", ",")
+                    end = end.replace(".", ",")
+                    f.write(f"{i + 1}\n")
 
-            f.write(
-                f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
-            )
+                f.write(
+                    f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
+                )
