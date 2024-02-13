@@ -11,6 +11,9 @@ from torch.nn.utils import clip_grad_norm_
 from torcheval.metrics import WordErrorRate
 import wandb
 from typing import List
+import string
+from open_whisper.utils import average_wer, clean_text
+import jiwer
 
 
 AUDIO_FILE = "data/audio/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.wav"
@@ -59,13 +62,11 @@ class AudioTextDataset(Dataset):
 
     def __getitem__(self, index):
         audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
-        text_tokens, eot_index = self.preprocess_text(
-            self.transcript_files[index], index
-        )
+        text_tokens = self.preprocess_text(self.transcript_files[index], index)
         # offset
         text_input = text_tokens[:-1]
         text_y = text_tokens[1:]
-        return audio_file, audio_input, text_input, text_y, eot_index
+        return audio_file, audio_input, text_input, text_y
 
     def preprocess_audio(self, audio_file):
         audio_arr = audio.load_audio(audio_file, sr=16000)
@@ -91,7 +92,6 @@ class AudioTextDataset(Dataset):
         )
 
         text_tokens.append(tokenizer.eot)
-        eot_index = len(text_tokens) - 1
 
         text_tokens = np.pad(
             text_tokens,
@@ -101,7 +101,7 @@ class AudioTextDataset(Dataset):
         )
 
         text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=self.device)
-        return text_tokens, eot_index
+        return text_tokens
 
 
 tokenizer = tokenizer.get_tokenizer(multilingual=True, language="en", task="transcribe")
@@ -152,7 +152,6 @@ model_dims = ModelDimensions(
     n_text_layer=4,
 )
 
-
 model = model.Whisper(dims=model_dims).to(DEVICE)
 lr = 1.5e-3
 betas = (0.9, 0.98)
@@ -178,7 +177,6 @@ def lr_lambda(current_step: int) -> float:
 
 scheduler = LambdaLR(optimizer=optimizer, lr_lambda=lr_lambda)
 max_grad_norm = 1.0
-metric = WordErrorRate()
 
 # model random init
 # model.eval()
@@ -203,60 +201,91 @@ metric = WordErrorRate()
 
 model.train()
 
-if not debug:
-    config = {
-        "lr": lr,
-        "betas": betas,
-        "eps": eps,
-        "weight_decay": weight_decay,
-        "batch_size": batch_size,
-        "epochs": epochs,
-        "total_steps": total_steps,
-        "warmup_steps": "warmup_steps",
-    }
-    wandb.init(
-        project="open_whisper",
-        entity="huongngo-8",
-        config=config,
-        save_code=True,
-        job_type="training",
-        tags="tiny-en-overfit",
-        dir="scripts/training",
-    )
+config = {
+    "lr": lr,
+    "betas": betas,
+    "eps": eps,
+    "weight_decay": weight_decay,
+    "batch_size": batch_size,
+    "epochs": epochs,
+    "total_steps": total_steps,
+    "warmup_steps": "warmup_steps",
+}
+
+wandb.init(
+    project="open_whisper",
+    entity="huongngo-8",
+    config=config,
+    save_code=True,
+    job_type="training",
+    tags="tiny-en-overfit" if not debug else "tiny-en-overfit-debug",
+    dir="scripts/training",
+)
 
 columns = ["audio_input", "pred_test", "tgt_text", "wer", "epoch"]
 train_table = wandb.Table(columns=columns)
 
 for epoch in range(epochs):
     for batch_idx, batch in enumerate(audio_text_dataloader):
-        # print(f"{scheduler.get_last_lr()=}")
         optimizer.zero_grad()
-        audio_files, audio_input, text_input, text_y, eot_index = batch
+        audio_files, audio_input, text_input, text_y = batch
 
         logits = model(audio_input, text_input)
         probs = F.softmax(logits, dim=-1)
         pred = torch.argmax(probs, dim=-1)
 
-        pred_text = [
-            tokenizer.decode(list(pred_instance))
-            for pred_instance in pred.cpu().numpy()
-        ]
-        tgt_text = [
-            tokenizer.decode(list(text_y_instance[: eot_index[i]]))
-            for i, text_y_instance in enumerate(text_y.cpu().numpy())
-        ]
-        metric.update(pred_text, tgt_text)
-        average_wer = metric.compute().cpu().numpy().item() * 100
+        # pred_text = [
+        #     tokenizer.decode(list(pred_instance))
+        #     for pred_instance in pred.cpu().numpy()
+        # ]
 
-        with open("logs/training_results.txt", "a") as f:
+        # tgt_text = [
+        #     tokenizer.decode(list(text_y_instance))
+        #     for text_y_instance in text_y.cpu().numpy()
+        # ]
+
+        pred_text = []
+        for pred_instance in pred.cpu().numpy():
+            pred_instance_text = tokenizer.decode(list(pred_instance))
+            pred_instance_text = pred_instance_text.rsplit("<|endoftext|>", 1)[0]
+            if not pred_instance_text.endswith("<|endoftext|>"):
+                pred_instance_text = pred_instance_text + "<|endoftext|>"
+            pred_text.append(pred_instance_text)
+            
+        tgt_text = []
+        for text_y_instance in text_y.cpu().numpy():
+            tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
+            tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
+            tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
+            tgt_text.append(tgt_y_instance_text)
+        
+        # text normalization
+        pred_tgt_pairs = clean_text(list(zip(tgt_text, pred_text)), "english")
+
+        # metric = WordErrorRate()
+        # metric.update(pred_text, tgt_text)
+        # average_wer = metric.compute().cpu().numpy().item() * 100
+
+        average_wer = average_wer(pred_tgt_pairs)
+
+        with open(f"logs/training/training_results_kaiming_4.txt", "a") as f:
             f.write(f"{pred_text[0]=}\n")
+            f.write(f"{len(pred_text[0])=}\n")
             f.write(f"{tgt_text[0]=}\n")
+            f.write(f"{len(tgt_text[0])=}\n")
+            if len(pred_text) > 1:
+                f.write(f"{pred_text[1]=}\n")
+                f.write(f"{len(pred_text[1])=}\n")
+                f.write(f"{tgt_text[1]=}\n")
+                f.write(f"{len(tgt_text[1])=}\n")
             f.write(f"{average_wer=}\n\n")
 
         loss = F.cross_entropy(
             logits.view(-1, logits.shape[-1]), text_y.view(-1), ignore_index=0
         )
+
         print(f"{loss=}")
+        print(f"{average_wer=}")
 
         wandb.log({"loss": loss, "average_wer": average_wer})
 
@@ -266,24 +295,22 @@ for epoch in range(epochs):
         optimizer.step()
         scheduler.step()
 
-    if epoch == 1:
-        checkpoint = {
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            # You can also save other items such as scheduler state
-            'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
-            'dims': model_dims.__dict__,
-            # Include any other information you deem necessary
-        }
+    # checkpoint = {
+    #     "epoch": epoch,
+    #     "model_state_dict": model.state_dict(),
+    #     "optimizer_state_dict": optimizer.state_dict(),
+    #     # You can also save other items such as scheduler state
+    #     "scheduler_state_dict": scheduler.state_dict() if scheduler else None,
+    #     "dims": model_dims.__dict__,
+    #     # Include any other information you deem necessary
+    # }
 
-        torch.save(checkpoint, "checkpoints/tiny-en.pt")
+    # torch.save(checkpoint, "checkpoints/tiny-en.pt")
 
     for i in range(len(pred_text)):
         pred_text_instance = pred_text[i]
         tgt_text_instance = tgt_text[i]
-        metric.update(pred_text_instance, tgt_text_instance)
-        wer = metric.compute().cpu().numpy().item() * 100
+        wer = np.round(jiwer.wer(tgt_text_instance, pred_text_instance), 2)
         train_table.add_data(
             wandb.Audio(audio_files[i], sample_rate=16000),
             pred_text,
