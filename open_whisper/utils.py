@@ -1,9 +1,11 @@
+import numpy as np
 from datetime import datetime, timedelta
 import subprocess
 from typing import Dict, Union, Tuple, List, Optional
 import pysrt
 import webvtt
 import jiwer
+from .normalizers import BasicTextNormalizer, EnglishTextNormalizer
 
 
 def exact_div(x, y):
@@ -151,4 +153,28 @@ calculate_wer = lambda pair: jiwer.wer(pair[0], pair[1])  # truth, predicted
 
 def average_wer(pair_list: List[Tuple[str, str]]) -> float:
     # remember that tuple or list has to be of the form (truth, predicted)
-    return 100 * (sum(map(calculate_wer, pair_list)) / len(pair_list))
+    return np.round(100 * (sum(map(calculate_wer, pair_list)) / len(pair_list)))
+
+
+def clean_text(
+    pair_list: List[Tuple[str, str]],
+    normalizer: str,
+    remove_diacritics: bool,
+    split_letters: bool,
+) -> List[Tuple[str, str]]:
+    if normalizer == "basic":
+        normalizer = BasicTextNormalizer(
+            remove_diacritics=remove_diacritics, split_letters=split_letters
+        )
+    elif normalizer == "english":
+        normalizer = EnglishTextNormalizer(
+            remove_diacritics=remove_diacritics, split_letters=split_letters
+        )
+    else:
+        raise ValueError("Unsupported normalizer")
+
+    normalize = lambda pair: (
+        normalizer.clean(pair[0]),
+        normalizer.clean(pair[1]),
+    )
+    return list(map(normalize, pair_list))
