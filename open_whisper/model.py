@@ -142,7 +142,12 @@ class MultiHeadAttention(nn.Module):
 
         qk = q @ k
         if mask is not None:
-            qk = qk + mask[:n_ctx, :n_ctx]
+            qk = (
+                qk
+                + mask.unsqueeze(dim=1).repeat(1, self.n_head, 1, 1)[
+                    :, :, :n_ctx, :n_ctx
+                ]
+            )
         qk = qk.float()
 
         w = F.softmax(qk, dim=-1).to(q.dtype)
@@ -238,7 +243,13 @@ class TextDecoder(nn.Module):
         mask = torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1)
         self.register_buffer("mask", mask, persistent=False)
 
-    def forward(self, x: Tensor, xa: Tensor, kv_cache: Optional[dict] = None):
+    def forward(
+        self,
+        x: Tensor,
+        xa: Tensor,
+        kv_cache: Optional[dict] = None,
+        padding_mask: Optional[Tensor] = None,
+    ):
         """
         x : torch.LongTensor, shape = (batch_size, <= n_ctx)
             the text tokens
@@ -251,6 +262,9 @@ class TextDecoder(nn.Module):
             + self.positional_embedding[offset : offset + x.shape[-1]]
         )
         x = x.to(xa.dtype)
+
+        if padding_mask is not None:
+            self.mask = padding_mask + self.mask
 
         for block in self.blocks:
             x = block(x, xa, mask=self.mask, kv_cache=kv_cache)
@@ -285,13 +299,18 @@ class Whisper(nn.Module):
     def embed_audio(self, mel: torch.Tensor):
         return self.encoder(mel)
 
-    def logits(self, tokens: torch.Tensor, audio_features: torch.Tensor):
-        return self.decoder(tokens, audio_features)
+    def logits(
+        self,
+        tokens: torch.Tensor,
+        audio_features: torch.Tensor,
+        padding_mask: torch.Tensor = None,
+    ):
+        return self.decoder(tokens, audio_features, padding_mask = padding_mask)
 
     def forward(
-        self, mel: torch.Tensor, tokens: torch.Tensor
+        self, mel: torch.Tensor, tokens: torch.Tensor, padding_mask: torch.Tensor = None
     ) -> Dict[str, torch.Tensor]:
-        return self.decoder(tokens, self.encoder(mel))
+        return self.decoder(tokens, self.encoder(mel), padding_mask = padding_mask)
 
     @property
     def device(self):

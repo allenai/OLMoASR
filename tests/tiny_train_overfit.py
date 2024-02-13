@@ -77,7 +77,7 @@ class AudioTextDataset(Dataset):
         mel_spec_scaled = mel_spec_normalized / (mel_spec_normalized.abs().max())
         return audio_file, mel_spec_scaled
 
-    def preprocess_text(self, transcript_file):
+    def preprocess_text(self, transcript_file, file_index):
         # transcript -> text
         transcript, *_ = utils.TranscriptReader(file_path=transcript_file).read()
 
@@ -108,37 +108,6 @@ class AudioTextDataset(Dataset):
 
         text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=self.device)
         return text_tokens, padding_mask
-
-
-class AudioTextEval(AudioTextDataset):
-    def __init__(
-        self,
-        audio_files: List,
-        transcript_files: List,
-        tokenizer,
-        device: torch.DeviceObjType,
-        n_text_ctx: int,
-    ):
-        super().__init__(audio_files, transcript_files, tokenizer, device, n_text_ctx)
-
-        transcript_texts = []
-        for file in sorted(transcript_files):
-            with open(file, "r") as f:
-                transcript_text = [
-                    (line.split(" ")[0], " ".join(line.split(" ")[1:]).strip())
-                    for line in f
-                ]
-            transcript_texts.extend(transcript_text)
-
-    def __getitem__(self, index):
-        audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
-        text_tokens, padding_mask = self.preprocess_text(
-            self.transcript_files[index], index
-        )
-        # offset
-        text_input = text_tokens[:-1]
-        text_y = text_tokens[1:]
-        return audio_file, audio_input, text_input, text_y, padding_mask
 
 
 tokenizer = tokenizer.get_tokenizer(multilingual=True, language="en", task="transcribe")
