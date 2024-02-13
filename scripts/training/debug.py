@@ -20,7 +20,7 @@ AUDIO_FILE = "data/audio/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.wav"
 TRANSCRIPT_FILE = "data/transcripts/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.txt"
 EVAL_DIR = "data/eval/LibriSpeech/test-clean"
 DEVICE = torch.device("cuda:0")
-debug = False
+debug = True
 
 # encoder architecture
 n_mels = 80
@@ -258,6 +258,9 @@ for epoch in range(epochs):
             tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
             tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
             tgt_text.append(tgt_y_instance_text)
+
+        if len(pred_text) != len(tgt_text): # when len(pred_text) = 1 but len(tgt_text) = 2
+            tgt_text = tgt_text[0]
         
         # text normalization
         pred_tgt_pairs = clean_text(list(zip(tgt_text, pred_text)), "english")
@@ -268,16 +271,12 @@ for epoch in range(epochs):
 
         average_wer = average_wer(pred_tgt_pairs)
 
-        with open(f"logs/training/training_results_kaiming_4.txt", "a") as f:
-            f.write(f"{pred_text[0]=}\n")
-            f.write(f"{len(pred_text[0])=}\n")
-            f.write(f"{tgt_text[0]=}\n")
-            f.write(f"{len(tgt_text[0])=}\n")
-            if len(pred_text) > 1:
-                f.write(f"{pred_text[1]=}\n")
-                f.write(f"{len(pred_text[1])=}\n")
-                f.write(f"{tgt_text[1]=}\n")
-                f.write(f"{len(tgt_text[1])=}\n")
+        with open(f"logs/training/training_results_kaiming.txt", "a") as f:
+            for pred_text_instance, tgt_text_instance in pred_tgt_pairs:
+                f.write(f"{pred_text_instance=}\n")
+                f.write(f"{len(pred_text_instance)=}\n")
+                f.write(f"{tgt_text_instance=}\n")
+                f.write(f"{len(tgt_text_instance)=}\n")
             f.write(f"{average_wer=}\n\n")
 
         loss = F.cross_entropy(
