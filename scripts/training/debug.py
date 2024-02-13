@@ -15,9 +15,6 @@ from open_whisper import utils
 import jiwer
 
 
-AUDIO_FILE = "data/audio/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.wav"
-TRANSCRIPT_FILE = "data/transcripts/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.txt"
-EVAL_DIR = "data/eval/LibriSpeech/test-clean"
 DEVICE = torch.device("cuda:0")
 debug = False
 
