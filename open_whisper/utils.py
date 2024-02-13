@@ -159,8 +159,8 @@ def average_wer(pair_list: List[Tuple[str, str]]) -> float:
 def clean_text(
     pair_list: List[Tuple[str, str]],
     normalizer: str,
-    remove_diacritics: bool,
-    split_letters: bool,
+    remove_diacritics: bool = True,
+    split_letters: bool = True,
 ) -> List[Tuple[str, str]]:
     if normalizer == "basic":
         normalizer = BasicTextNormalizer(

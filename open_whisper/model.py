@@ -1,7 +1,7 @@
 import base64
 import gzip
 from dataclasses import dataclass
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Tuple, List
 
 import numpy as np
 import torch
@@ -29,6 +29,16 @@ class LayerNorm(nn.LayerNorm):
 
 
 class Linear(nn.Linear):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = True,
+        device=None,
+        dtype=None,
+    ):
+        nn.init.kaiming_normal_(self.weight, mode="fan_in", nonlinearity="relu")
+
     def forward(self, x: Tensor) -> Tensor:
         return F.linear(
             x,
@@ -38,12 +48,31 @@ class Linear(nn.Linear):
 
 
 class Conv1d(nn.Conv1d):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: Tuple[int, ...],
+        stride: Tuple[int, ...],
+        padding: Tuple[int, ...],
+        dilation: Tuple[int, ...],
+        transposed: bool,
+        output_padding: Tuple[int, ...],
+        groups: int,
+        bias: bool,
+        padding_mode: str,
+        device=None,
+        dtype=None,
+    ):
+        nn.init.kaiming_normal_(self.weight, mode="fan_in", nonlinearity="relu")
+
     def _conv_forward(
         self, x: Tensor, weight: Tensor, bias: Optional[Tensor]
     ) -> Tensor:
         return super()._conv_forward(
             x, weight.to(x.dtype), None if bias is None else bias.to(x.dtype)
         )
+
 
 # don't really understand the positional embeddings and the intuition behind it
 def sinusoids(length, channels, max_timescale=10000):
@@ -59,10 +88,10 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, n_state: int, n_head: int):
         super().__init__()
         self.n_head = n_head
-        self.query = Linear(n_state, n_state) # W_q
-        self.key = Linear(n_state, n_state, bias=False) # W_k
-        self.value = Linear(n_state, n_state) # W_v
-        self.out = Linear(n_state, n_state) # W_o
+        self.query = Linear(n_state, n_state)  # W_q
+        self.key = Linear(n_state, n_state, bias=False)  # W_k
+        self.value = Linear(n_state, n_state)  # W_v
+        self.out = Linear(n_state, n_state)  # W_o
 
     def forward(
         self,
@@ -71,7 +100,7 @@ class MultiHeadAttention(nn.Module):
         mask: Optional[Tensor] = None,
         kv_cache: Optional[dict] = None,
     ):
-        q = self.query(x) # W_q * x
+        q = self.query(x)  # W_q * x
         # not sure when which branch is taken
         if kv_cache is None or xa is None or self.key not in kv_cache:
             # hooks, if installed (i.e. kv_cache is not None), will prepend the cached kv tensors;
@@ -175,7 +204,11 @@ class TextDecoder(nn.Module):
     ):
         super().__init__()
 
-        self.token_embedding = nn.Embedding(n_vocab, n_state)
+        self.token_embedding = nn.Embedding(n_vocab, n_state, padding_idx=0)
+        nn.init.kaiming_normal_(
+            self.token_embedding.weight, mode="fan_in", nonlinearity="relu"
+        )
+
         self.positional_embedding = nn.Parameter(torch.empty(n_ctx, n_state))
 
         self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
@@ -219,18 +252,18 @@ class Whisper(nn.Module):
         super().__init__()
         self.dims = dims
         self.encoder = AudioEncoder(
-            self.dims.n_mels, # mel channels
-            self.dims.n_audio_ctx, # context length of audio embedding
-            self.dims.n_audio_state, # dimension of audio embedding
-            self.dims.n_audio_head, # number of heads in encoder
-            self.dims.n_audio_layer, # number of layers in encoder
+            self.dims.n_mels,  # mel channels
+            self.dims.n_audio_ctx,  # context length of audio embedding
+            self.dims.n_audio_state,  # dimension of audio embedding
+            self.dims.n_audio_head,  # number of heads in encoder
+            self.dims.n_audio_layer,  # number of layers in encoder
         )
         self.decoder = TextDecoder(
-            self.dims.n_vocab, # vocab size
-            self.dims.n_text_ctx, # context length of text embedding
-            self.dims.n_text_state, # dimension of text embedding
-            self.dims.n_text_head, # number of heads in decoder
-            self.dims.n_text_layer, # number of layers in decoder
+            self.dims.n_vocab,  # vocab size
+            self.dims.n_text_ctx,  # context length of text embedding
+            self.dims.n_text_state,  # dimension of text embedding
+            self.dims.n_text_head,  # number of heads in decoder
+            self.dims.n_text_layer,  # number of layers in decoder
         )
 
     def embed_audio(self, mel: torch.Tensor):
