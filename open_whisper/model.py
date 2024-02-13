@@ -37,6 +37,10 @@ class Linear(nn.Linear):
         device=None,
         dtype=None,
     ):
+        super(Linear, self).__init__(
+            in_features, out_features, bias=bias, device=device, dtype=dtype
+        )
+
         nn.init.kaiming_normal_(self.weight, mode="fan_in", nonlinearity="relu")
 
     def forward(self, x: Tensor) -> Tensor:
@@ -52,18 +56,30 @@ class Conv1d(nn.Conv1d):
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: Tuple[int, ...],
-        stride: Tuple[int, ...],
-        padding: Tuple[int, ...],
-        dilation: Tuple[int, ...],
-        transposed: bool,
-        output_padding: Tuple[int, ...],
-        groups: int,
-        bias: bool,
-        padding_mode: str,
+        kernel_size: int,
+        stride: int = 1,
+        padding: int = 0,
+        dilation: int = 1,
+        groups: int = 1,
+        bias: bool = True,
+        padding_mode: str = "zeros",
         device=None,
         dtype=None,
     ):
+        super(Conv1d, self).__init__(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
+            padding_mode=padding_mode,
+            device=device,
+            dtype=dtype,
+        )
+
         nn.init.kaiming_normal_(self.weight, mode="fan_in", nonlinearity="relu")
 
     def _conv_forward(

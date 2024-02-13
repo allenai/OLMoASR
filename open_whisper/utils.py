@@ -167,14 +167,12 @@ def clean_text(
             remove_diacritics=remove_diacritics, split_letters=split_letters
         )
     elif normalizer == "english":
-        normalizer = EnglishTextNormalizer(
-            remove_diacritics=remove_diacritics, split_letters=split_letters
-        )
+        normalizer = EnglishTextNormalizer()
     else:
         raise ValueError("Unsupported normalizer")
 
     normalize = lambda pair: (
-        normalizer.clean(pair[0]),
-        normalizer.clean(pair[1]),
+        normalizer.clean(pair[0]) if normalizer == "basic" else normalizer(pair[0]),
+        normalizer.clean(pair[1]) if normalizer == "basic" else normalizer(pair[1]),
     )
     return list(map(normalize, pair_list))
