@@ -148,12 +148,19 @@ def write_segment(
                 )
 
 
-calculate_wer = lambda pair: jiwer.wer(pair[0], pair[1])  # truth, predicted
+def calculate_wer(pair: Tuple[str, str]) -> float:
+    # truth, predicted
+    if pair[0] == "" and pair[1] == "":
+        return 0.0
+    elif pair[0] == "" and pair[1] != "":
+        return (0.01 * len(pair[1].split())) * 100.0
+    else:
+        return jiwer.wer(pair[0], pair[1]) * 100.0
 
 
 def average_wer(pair_list: List[Tuple[str, str]]) -> float:
     # remember that tuple or list has to be of the form (truth, predicted)
-    return np.round(100 * (sum(map(calculate_wer, pair_list)) / len(pair_list)))
+    return np.round(sum(map(calculate_wer, pair_list)) / len(pair_list))
 
 
 def clean_text(
