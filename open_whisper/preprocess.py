@@ -48,7 +48,7 @@ def download_transcript(
     if not os.path.exists(
         f"{output_dir}/{video_id}/{video_id}.{lang_code}.{sub_format}"
     ):
-        with open(f"logs/failed_download_t.txt", "a") as f:
+        with open(f"logs/data/failed_download_t.txt", "a") as f:
             f.write(f"{video_id}\n")
         return None
 
@@ -80,7 +80,7 @@ def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
 
     # if after downloading, the file doesn't exist
     if not os.path.exists(f"{output_dir}/{video_id}/{video_id}.{ext}"):
-        with open(f"logs/failed_download_a.txt", "a") as f:
+        with open(f"logs/data/failed_download_a.txt", "a") as f:
             f.write(f"{video_id}\n")
         return None
 
@@ -111,10 +111,14 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
     try:
         # if transcript or audio files doesn't exist
         if not os.path.exists(transcript_file):
+            with open(f"logs/data/unchunked_pairs.txt", "a") as f:
+                f.write(f"{transcript_file}\n")
             return None
-        if not os.path.exists(audio_file): 
+        if not os.path.exists(audio_file):
+            with open(f"logs/data/unchunked_pairs.txt", "a") as f:
+                f.write(f"{audio_file}\n")
             return None
-        
+
         transcript_ext = transcript_file.split(".")[-1]
 
         t_output_dir = "/".join(transcript_file.split("/")[:3]) + "/segments"
@@ -124,7 +128,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
         cleaned_transcript = clean_transcript(transcript_file)
         if cleaned_transcript is None:
-            with open(f"logs/empty_transcripts.txt", "a") as f:
+            with open(f"logs/data/empty_transcripts.txt", "a") as f:
                 f.write(f"{transcript_file}\n")
             return None
 
@@ -132,7 +136,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
         # if transcript file is empty
         if transcript == {}:
-            with open(f"logs/empty_transcript.txt", "a") as f:
+            with open(f"logs/data/empty_transcript.txt", "a") as f:
                 f.write(f"{transcript_file}\n")
             return None
 
@@ -151,7 +155,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             else:
                 # edge case (when transcript line is > 30s)
                 if b == a:
-                    with open(f"logs/faulty_transcripts.txt", "a") as f:
+                    with open(f"logs/data/faulty_transcripts.txt", "a") as f:
                         f.write(f"{t_output_dir.split('/')[-2]}\tindex: {b}\n")
                     return None
 
@@ -236,15 +240,17 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
                 break
 
+        with open(f"logs/data/chunked_pairs.txt", "a") as f:
+            f.write(f"{audio_file.split('/')[-1].split('.')[0]}\n")
+
         os.remove(transcript_file)
         os.remove(audio_file)
 
     except Exception as e:
-        with open(f"logs/failed_chunking.txt", "a") as f:
+        with open(f"logs/data/failed_chunking.txt", "a") as f:
             f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
         return None
 
 
 def parallel_chunk_audio_transcript(args) -> None:
     chunk_audio_transcript(*args)
-
