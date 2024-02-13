@@ -109,16 +109,6 @@ def clean_transcript(file_path) -> Union[None, bool]:
 
 def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
     try:
-        # if transcript or audio files doesn't exist
-        if not os.path.exists(transcript_file):
-            with open(f"logs/data/unchunked_pairs.txt", "a") as f:
-                f.write(f"{transcript_file}\n")
-            return None
-        if not os.path.exists(audio_file):
-            with open(f"logs/data/unchunked_pairs.txt", "a") as f:
-                f.write(f"{audio_file}\n")
-            return None
-
         transcript_ext = transcript_file.split(".")[-1]
 
         t_output_dir = "/".join(transcript_file.split("/")[:3]) + "/segments"
