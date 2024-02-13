@@ -149,6 +149,6 @@ def write_segment(
 calculate_wer = lambda pair: jiwer.wer(pair[0], pair[1])  # truth, predicted
 
 
-def average_wer(pair_list: List[Tuple[str, str]] | List[List[str, str]]) -> float:
+def average_wer(pair_list: List[Tuple[str, str]]) -> float:
     # remember that tuple or list has to be of the form (truth, predicted)
     return 100 * (sum(map(calculate_wer, pair_list)) / len(pair_list))
