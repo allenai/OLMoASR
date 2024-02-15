@@ -111,8 +111,8 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
     try:
         transcript_ext = transcript_file.split(".")[-1]
 
-        t_output_dir = "/".join(transcript_file.split("/")[:3]) + "/segments"
-        a_output_dir = "/".join(audio_file.split("/")[:3]) + "/segments"
+        t_output_dir = "/".join(transcript_file.split("/")[:-1]) + "/segments"
+        a_output_dir = "/".join(audio_file.split("/")[:-1]) + "/segments"
         os.makedirs(t_output_dir, exist_ok=True)
         os.makedirs(a_output_dir, exist_ok=True)
 
@@ -170,7 +170,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                 diff = 0
 
                 # checking for silence
-                if timestamps[b][0] != timestamps[b - 1][1]:
+                if timestamps[b][0] > timestamps[b - 1][1]:
                     silence_segments = (
                         utils.calculate_difference(
                             timestamps[b - 1][1], timestamps[b][0]
@@ -244,3 +244,54 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
 def parallel_chunk_audio_transcript(args) -> None:
     chunk_audio_transcript(*args)
+
+# if __name__ == "__main__":
+#     unequal_chunks = []
+#     for root, dirs, files in os.walk("data/transcripts"):
+#         if "segments" not in root:
+#             if "segments" not in os.listdir(root):
+#                 unequal_chunks.append(root.split("/")[-1])
+#     unequal_chunks = unequal_chunks[1:]
+
+#     captions_0000 = pd.read_parquet("data/metadata/captions-0000.parquet")
+#     sample = captions_0000[captions_0000["id"].isin(unequal_chunks)][["id", "manual_caption_languages"]].to_numpy()
+
+#     for i, (id, langs) in enumerate(sample):
+#         if "," in langs:
+#             for lang in langs.split(","):
+#                 if "en" in lang:
+#                     sample[i][1] = lang
+#                     break
+
+#     sample_id, sample_lang = [row[0] for row in sample], [row[1] for row in sample]
+
+#     # transcript and audio file paths for reference when chunking
+#     transcript_file_paths = [
+#         f"data/transcripts/{sample_id[i]}/{sample_id[i]}.{sample_lang[i]}.{'srt'}"
+#         for i in range(len(sample_id))
+#     ]
+
+#     audio_file_paths = [f"data/audio/{id}/{id}.{'m4a'}" for id in sample_id]
+        
+#     with multiprocessing.Pool() as pool:
+#         out = list(
+#             tqdm(
+#                 pool.imap_unordered(
+#                     parallel_chunk_audio_transcript,
+#                     zip(
+#                         transcript_file_paths,
+#                         audio_file_paths,
+#                     ),
+#                 ),
+#                 total=len(sample),
+#             )
+#         )
+
+
+#     # video_id = "9OYNyr8enD4"
+#     # lang_code = captions_0000[captions_0000["id"] == video_id]["manual_caption_languages"].values[0]
+#     # download_transcript(video_id, lang_code, "data/sanity-check/transcripts")
+#     # download_audio(video_id, "data/sanity-check/audio")
+#     # transcript_file = f"data/sanity-check/transcripts/{video_id}/{video_id}.{lang_code}.srt"
+#     # audio_file = f"data/sanity-check/audio/{video_id}/{video_id}.m4a"
+#     # chunk_audio_transcript(transcript_file, audio_file)

@@ -13,6 +13,13 @@ import wandb
 from typing import List
 from open_whisper import utils
 import jiwer
+import torch
+from torch.nn import functional as F
+from torch.nn.utils import clip_grad_norm_
+from torch.utils.data import DataLoader
+from pytorch_lightning import LightningModule, Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import WandbLogger
 
 
 DEVICE = torch.device("cuda:0")
@@ -48,19 +55,17 @@ class AudioTextDataset(Dataset):
         self.device = device
         self.n_text_ctx = n_text_ctx
 
-        if len(self.audio_files) != len(self.transcript_files):
-            raise ValueError(
-                "The number of audio files and transcript files must be the same"
-            )
+        # if len(self.audio_files) != len(self.transcript_files):
+        #     raise ValueError(
+        #         "The number of audio files and transcript files must be the same"
+        #     )
 
     def __len__(self):
         return len(self.audio_files)
 
     def __getitem__(self, index):
         audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
-        text_tokens, padding_mask = self.preprocess_text(
-            self.transcript_files[index], index
-        )
+        text_tokens, padding_mask = self.preprocess_text(self.transcript_files[index])
         # offset
         text_input = text_tokens[:-1]
         text_y = text_tokens[1:]
@@ -118,47 +123,115 @@ class AudioTextEval(AudioTextDataset):
     ):
         super().__init__(audio_files, transcript_files, tokenizer, device, n_text_ctx)
 
-        transcript_texts = []
-        for file in sorted(transcript_files):
+        self.transcript_texts = []
+        for file in transcript_files:
             with open(file, "r") as f:
                 transcript_text = [
                     (line.split(" ")[0], " ".join(line.split(" ")[1:]).strip())
                     for line in f
                 ]
-            transcript_texts.extend(transcript_text)
+            self.transcript_texts.extend(transcript_text)
 
     def __getitem__(self, index):
         audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
-        text_tokens, padding_mask = self.preprocess_text(
-            self.transcript_files[index], index
+        text_tokens = self.preprocess_text(*self.transcript_texts[index])
+
+        return audio_file, audio_input, text_tokens[1:]
+
+    def preprocess_text(self, text_id, transcript_text):
+        text_tokens = self.tokenizer.encode(transcript_text)
+
+        text_tokens = (
+            list(self.tokenizer.sot_sequence_including_notimestamps) + text_tokens
         )
-        # offset
-        text_input = text_tokens[:-1]
-        text_y = text_tokens[1:]
-        return audio_file, audio_input, text_input, text_y, padding_mask
+
+        text_tokens.append(tokenizer.eot)
+
+        text_tokens = np.pad(
+            text_tokens,
+            pad_width=(0, self.n_text_ctx - len(text_tokens)),
+            mode="constant",
+            constant_values=0,
+        )
+
+        text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=self.device)
+        return text_id, text_tokens
 
 
+# dataset setup
 tokenizer = tokenizer.get_tokenizer(multilingual=True, language="en", task="transcribe")
+
+audio_files = []
+for root, dirs, files in os.walk("data/audio"):
+    if "segments" in root:
+        for f in os.listdir(root):
+            audio_files.append(os.path.join(root, f))
+
+transcript_files = []
+for root, dirs, files in os.walk("data/transcripts"):
+    if "segments" in root:
+        for f in os.listdir(root):
+            transcript_files.append(os.path.join(root, f))
+
 audio_text_dataset = AudioTextDataset(
-    audio_files=[
-        os.path.join("data/sanity-check/audio/eh77AUKedyM/segments", segment)
-        for segment in os.listdir("data/sanity-check/audio/eh77AUKedyM/segments")
-    ],
-    transcript_files=[
-        os.path.join("data/sanity-check/transcripts/eh77AUKedyM/segments", segment)
-        for segment in os.listdir("data/sanity-check/transcripts/eh77AUKedyM/segments")
-    ],
+    audio_files=audio_files[:100],
+    transcript_files=transcript_files[:100],
     tokenizer=tokenizer,
     device=DEVICE,
     n_text_ctx=448,
 )
 
-batch_size = 2
+# audio_text_dataset = AudioTextDataset(
+#     audio_files=[
+#         os.path.join("data/sanity-check/audio/eh77AUKedyM/segments", segment)
+#         for segment in os.listdir("data/sanity-check/audio/eh77AUKedyM/segments")
+#     ],
+#     transcript_files=[
+#         os.path.join("data/sanity-check/transcripts/eh77AUKedyM/segments", segment)
+#         for segment in os.listdir("data/sanity-check/transcripts/eh77AUKedyM/segments")
+#     ],
+#     tokenizer=tokenizer,
+#     device=DEVICE,
+#     n_text_ctx=448,
+# )
+
+
+train_batch_size = 4
 audio_text_dataloader = DataLoader(
-    audio_text_dataset, batch_size=batch_size, shuffle=False, num_workers=0
+    audio_text_dataset, batch_size=train_batch_size, shuffle=False, num_workers=0
 )
 
 
+# data_dirs_val = []
+# for root, dirs, files in os.walk("data/eval/LibriSpeech/test-clean"):
+#     if len(root.split("/")) == 6:
+#         data_dirs_val.append(root)
+
+# transcript_files = []
+# audio_files = []
+
+# for d in data_dirs_val:
+#     for f in os.listdir(d):
+#         if f.endswith("txt"):
+#             transcript_files.append(os.path.join(d, f))
+#         else:
+#             audio_files.append(os.path.join(d, f))
+
+# audio_text_dataset_val = AudioTextEval(
+#     audio_files=sorted(audio_files),
+#     transcript_files=sorted(transcript_files),
+#     tokenizer=tokenizer,
+#     device=DEVICE,
+#     n_text_ctx=448,
+# )
+
+# val_batch_size = 8
+# audio_text_val_dataloader = DataLoader(
+#     audio_text_dataset_val, batch_size=val_batch_size
+# )
+
+
+# model setup
 @dataclass
 class ModelDimensions:
     n_mels: int
@@ -232,7 +305,7 @@ max_grad_norm = 1.0
 #     average_wer = metric.compute().cpu().numpy().item() * 100
 #     print(f"{average_wer=}")
 
-
+# model training
 model.train()
 
 config = {
@@ -240,7 +313,7 @@ config = {
     "betas": betas,
     "eps": eps,
     "weight_decay": weight_decay,
-    "batch_size": batch_size,
+    "batch_size": train_batch_size,
     "epochs": epochs,
     "total_steps": total_steps,
     "warmup_steps": "warmup_steps",
@@ -257,7 +330,7 @@ wandb.init(
 )
 
 columns = ["audio_input", "pred_test", "tgt_text", "wer", "epoch"]
-train_table = wandb.Table(columns=columns)
+val_table = wandb.Table(columns=columns)
 
 for epoch in range(epochs):
     for batch_idx, batch in enumerate(audio_text_dataloader):
@@ -268,48 +341,31 @@ for epoch in range(epochs):
         probs = F.softmax(logits, dim=-1)
         pred = torch.argmax(probs, dim=-1)
 
-        # pred_text = [
-        #     tokenizer.decode(list(pred_instance))
-        #     for pred_instance in pred.cpu().numpy()
-        # ]
-
-        # tgt_text = [
-        #     tokenizer.decode(list(text_y_instance))
-        #     for text_y_instance in text_y.cpu().numpy()
-        # ]
-
         pred_text = []
         for pred_instance in pred.cpu().numpy():
             pred_instance_text = tokenizer.decode(list(pred_instance))
             pred_instance_text = pred_instance_text.rsplit("<|endoftext|>", 1)[0]
-            if not pred_instance_text.endswith("<|endoftext|>"):
-                pred_instance_text = pred_instance_text + "<|endoftext|>"
             pred_text.append(pred_instance_text)
 
         tgt_text = []
         for text_y_instance in text_y.cpu().numpy():
             tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
             tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
-            tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
             tgt_text.append(tgt_y_instance_text)
 
-        if len(pred_text) != len(
-            tgt_text
-        ):  # when len(pred_text) = 1 but len(tgt_text) = 2
-            pred_text = [pred_text[0]]
-            logits = logits[0, :, :]
+        # if len(pred_text) != len(
+        #     tgt_text
+        # ):  # when len(pred_text) = 1 but len(tgt_text) = 2
+        #     pred_text = [pred_text[0]]
+        #     logits = logits[0, :, :]
 
         # text normalization
         tgt_pred_pairs = utils.clean_text(list(zip(tgt_text, pred_text)), "english")
 
-        # metric = WordErrorRate()
-        # metric.update(pred_text, tgt_text)
-        # average_wer = metric.compute().cpu().numpy().item() * 100
-
         average_wer = utils.average_wer(tgt_pred_pairs)
 
         with open(f"logs/training/training_results.txt", "a") as f:
-            for tgt_text_instance, pred_text_instance in tgt_pred_pairs:
+            for tgt_text_instance, pred_text_instance in tgt_pred_pairs[:10:2]:
                 f.write(f"{pred_text_instance=}\n")
                 f.write(f"{len(pred_text_instance)=}\n")
                 f.write(f"{tgt_text_instance=}\n")
@@ -331,6 +387,71 @@ for epoch in range(epochs):
         optimizer.step()
         scheduler.step()
 
+    # validation
+    for batch_idx, batch in enumerate(audio_text_val_dataloader):
+        decoder_input = torch.full((val_batch_size, 1), tokenizer.sot, dtype=torch.long, device=DEVICE)
+        active = torch.ones(val_batch_size, dtype=torch.bool)
+        generated_sequences = [[] for _ in range(val_batch_size)]
+
+        with torch.no_grad():
+            audio_files, audio_input, text_y = batch
+            logits = model(audio_input, decoder_input)
+            probs = F.softmax(logits, dim=-1)
+            next_token_pred = torch.argmax(probs, dim=-1)
+
+            for i in range(val_batch_size):
+                if active[i] and len(generated_sequences[i]) < n_text_ctx:
+                    generated_sequences[i].append(next_token_pred[i].item())
+                    if next_token_pred[i].item() == tokenizer.eot:
+                        active[i] = False
+                elif len(generated_sequences[i]) == n_text_ctx:
+                    active[i] = False
+
+            if not active.any():
+                break
+
+            decoder_input = torch.cat(
+                [decoder_input, next_token_pred.unsqueeze(-1)], dim=-1
+            )
+
+        loss = F.cross_entropy(
+            logits.view(-1, logits.shape[-1]), text_y.view(-1), ignore_index=-1
+        )
+
+        tgt_pred_pairs = [
+            (tokenizer.decode(text_y[i]), tokenizer.decode(seq))
+            for i, seq in enumerate(generated_sequences)
+        ]
+
+        # text normalization
+        tgt_pred_pairs = utils.clean_text(tgt_pred_pairs, "english")
+
+        average_wer = utils.average_wer(tgt_pred_pairs)
+
+        print(f"{loss=}")
+        print(f"{average_wer=}")
+
+        with open(f"logs/training/val_results.txt", "a") as f:
+            for i, (tgt_text_instance, pred_text_instance) in enumerate(
+                tgt_pred_pairs[:10:2]
+            ):
+                f.write(f"{pred_text_instance=}\n")
+                f.write(f"{len(pred_text_instance)=}\n")
+                f.write(f"{tgt_text_instance=}\n")
+                f.write(f"{len(tgt_text_instance)=}\n")
+
+                # logging to wandb table
+                wer = np.round(jiwer.wer(tgt_text_instance, pred_text_instance), 2)
+                val_table.add_data(
+                    wandb.Audio(audio_files[i], sample_rate=16000),
+                    pred_text,
+                    tgt_text,
+                    wer,
+                    epoch,
+                )
+
+            f.write(f"{average_wer=}\n\n")
+
     # checkpoint = {
     #     "epoch": epoch,
     #     "model_state_dict": model.state_dict(),
@@ -343,16 +464,6 @@ for epoch in range(epochs):
 
     # torch.save(checkpoint, "checkpoints/tiny-en.pt")
 
-    for i in range(len(pred_text)):
-        pred_text_instance = pred_text[i]
-        tgt_text_instance = tgt_text[i]
-        wer = np.round(jiwer.wer(tgt_text_instance, pred_text_instance), 2)
-        train_table.add_data(
-            wandb.Audio(audio_files[i], sample_rate=16000),
-            pred_text,
-            tgt_text,
-            wer,
-            epoch,
-        )
+wandb.log({"train_table": val_table})
 
-wandb.log({"train_table": train_table})
+
