@@ -214,3 +214,18 @@
 
 #         text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=self.device)
 #         return text_tokens
+
+
+# audio_text_dataset = AudioTextDataset(
+#     audio_files=[
+#         os.path.join("data/sanity-check/audio/eh77AUKedyM/segments", segment)
+#         for segment in os.listdir("data/sanity-check/audio/eh77AUKedyM/segments")
+#     ],
+#     transcript_files=[
+#         os.path.join("data/sanity-check/transcripts/eh77AUKedyM/segments", segment)
+#         for segment in os.listdir("data/sanity-check/transcripts/eh77AUKedyM/segments")
+#     ],
+#     tokenizer=tokenizer,
+#     device=DEVICE,
+#     n_text_ctx=448,
+# )
