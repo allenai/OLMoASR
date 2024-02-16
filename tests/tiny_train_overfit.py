@@ -1,23 +1,18 @@
-from open_whisper import audio, tokenizer, preprocess, model, utils
+from open_whisper import audio, tokenizer, model, utils
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-import os
-from dataclasses import dataclass
-import numpy as np
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
-from torcheval.metrics import WordErrorRate
+
+import os
+from dataclasses import dataclass
+import numpy as np
 import wandb
 from typing import List
-from open_whisper import utils
-import jiwer
 
-
-AUDIO_FILE = "data/audio/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.wav"
-TRANSCRIPT_FILE = "data/transcripts/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.txt"
-EVAL_DIR = "data/eval/LibriSpeech/test-clean"
 DEVICE = torch.device("cuda:0")
 debug = False
 
@@ -51,19 +46,12 @@ class AudioTextDataset(Dataset):
         self.device = device
         self.n_text_ctx = n_text_ctx
 
-        if len(self.audio_files) != len(self.transcript_files):
-            raise ValueError(
-                "The number of audio files and transcript files must be the same"
-            )
-
     def __len__(self):
         return len(self.audio_files)
 
     def __getitem__(self, index):
         audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
-        text_tokens, padding_mask = self.preprocess_text(
-            self.transcript_files[index], index
-        )
+        text_tokens, padding_mask = self.preprocess_text(self.transcript_files[index])
         # offset
         text_input = text_tokens[:-1]
         text_y = text_tokens[1:]
@@ -77,7 +65,7 @@ class AudioTextDataset(Dataset):
         mel_spec_scaled = mel_spec_normalized / (mel_spec_normalized.abs().max())
         return audio_file, mel_spec_scaled
 
-    def preprocess_text(self, transcript_file, file_index):
+    def preprocess_text(self, transcript_file):
         # transcript -> text
         transcript, *_ = utils.TranscriptReader(file_path=transcript_file).read()
 
@@ -110,27 +98,51 @@ class AudioTextDataset(Dataset):
         return text_tokens, padding_mask
 
 
+# dataset setup
 tokenizer = tokenizer.get_tokenizer(multilingual=True, language="en", task="transcribe")
+
+audio_files = []
+for root, dirs, files in os.walk("data/audio"):
+    if "segments" in root:
+        for f in os.listdir(root):
+            audio_files.append(os.path.join(root, f))
+
+transcript_files = []
+for root, dirs, files in os.walk("data/transcripts"):
+    if "segments" in root:
+        for f in os.listdir(root):
+            transcript_files.append(os.path.join(root, f))
+
 audio_text_dataset = AudioTextDataset(
-    audio_files=[
-        os.path.join("data/sanity-check/audio/eh77AUKedyM/segments", segment)
-        for segment in os.listdir("data/sanity-check/audio/eh77AUKedyM/segments")
-    ],
-    transcript_files=[
-        os.path.join("data/sanity-check/transcripts/eh77AUKedyM/segments", segment)
-        for segment in os.listdir("data/sanity-check/transcripts/eh77AUKedyM/segments")
-    ],
+    audio_files=audio_files[:100],
+    transcript_files=transcript_files[:100],
     tokenizer=tokenizer,
     device=DEVICE,
     n_text_ctx=448,
 )
 
-batch_size = 2
+# audio_text_dataset = AudioTextDataset(
+#     audio_files=[
+#         os.path.join("data/sanity-check/audio/eh77AUKedyM/segments", segment)
+#         for segment in os.listdir("data/sanity-check/audio/eh77AUKedyM/segments")
+#     ],
+#     transcript_files=[
+#         os.path.join("data/sanity-check/transcripts/eh77AUKedyM/segments", segment)
+#         for segment in os.listdir("data/sanity-check/transcripts/eh77AUKedyM/segments")
+#     ],
+#     tokenizer=tokenizer,
+#     device=DEVICE,
+#     n_text_ctx=448,
+# )
+
+
+train_batch_size = 4
 audio_text_dataloader = DataLoader(
-    audio_text_dataset, batch_size=batch_size, shuffle=False, num_workers=0
+    audio_text_dataset, batch_size=train_batch_size, shuffle=False, num_workers=0
 )
 
 
+# model setup
 @dataclass
 class ModelDimensions:
     n_mels: int
@@ -204,7 +216,7 @@ max_grad_norm = 1.0
 #     average_wer = metric.compute().cpu().numpy().item() * 100
 #     print(f"{average_wer=}")
 
-
+# model training
 model.train()
 
 config = {
@@ -212,7 +224,7 @@ config = {
     "betas": betas,
     "eps": eps,
     "weight_decay": weight_decay,
-    "batch_size": batch_size,
+    "batch_size": train_batch_size,
     "epochs": epochs,
     "total_steps": total_steps,
     "warmup_steps": "warmup_steps",
@@ -229,7 +241,7 @@ wandb.init(
 )
 
 columns = ["audio_input", "pred_test", "tgt_text", "wer", "epoch"]
-train_table = wandb.Table(columns=columns)
+val_table = wandb.Table(columns=columns)
 
 for epoch in range(epochs):
     for batch_idx, batch in enumerate(audio_text_dataloader):
@@ -240,48 +252,25 @@ for epoch in range(epochs):
         probs = F.softmax(logits, dim=-1)
         pred = torch.argmax(probs, dim=-1)
 
-        # pred_text = [
-        #     tokenizer.decode(list(pred_instance))
-        #     for pred_instance in pred.cpu().numpy()
-        # ]
-
-        # tgt_text = [
-        #     tokenizer.decode(list(text_y_instance))
-        #     for text_y_instance in text_y.cpu().numpy()
-        # ]
-
         pred_text = []
         for pred_instance in pred.cpu().numpy():
             pred_instance_text = tokenizer.decode(list(pred_instance))
             pred_instance_text = pred_instance_text.rsplit("<|endoftext|>", 1)[0]
-            if not pred_instance_text.endswith("<|endoftext|>"):
-                pred_instance_text = pred_instance_text + "<|endoftext|>"
             pred_text.append(pred_instance_text)
 
         tgt_text = []
         for text_y_instance in text_y.cpu().numpy():
             tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
             tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
-            tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
             tgt_text.append(tgt_y_instance_text)
-
-        if len(pred_text) != len(
-            tgt_text
-        ):  # when len(pred_text) = 1 but len(tgt_text) = 2
-            pred_text = [pred_text[0]]
-            logits = logits[0, :, :]
 
         # text normalization
         tgt_pred_pairs = utils.clean_text(list(zip(tgt_text, pred_text)), "english")
 
-        # metric = WordErrorRate()
-        # metric.update(pred_text, tgt_text)
-        # average_wer = metric.compute().cpu().numpy().item() * 100
-
         average_wer = utils.average_wer(tgt_pred_pairs)
 
         with open(f"logs/training/training_results.txt", "a") as f:
-            for tgt_text_instance, pred_text_instance in tgt_pred_pairs:
+            for tgt_text_instance, pred_text_instance in tgt_pred_pairs[:10:2]:
                 f.write(f"{pred_text_instance=}\n")
                 f.write(f"{len(pred_text_instance)=}\n")
                 f.write(f"{tgt_text_instance=}\n")
@@ -315,16 +304,4 @@ for epoch in range(epochs):
 
     # torch.save(checkpoint, "checkpoints/tiny-en.pt")
 
-    for i in range(len(pred_text)):
-        pred_text_instance = pred_text[i]
-        tgt_text_instance = tgt_text[i]
-        wer = np.round(jiwer.wer(tgt_text_instance, pred_text_instance), 2)
-        train_table.add_data(
-            wandb.Audio(audio_files[i], sample_rate=16000),
-            pred_text,
-            tgt_text,
-            wer,
-            epoch,
-        )
-
-wandb.log({"train_table": train_table})
+wandb.log({"train_table": val_table})
