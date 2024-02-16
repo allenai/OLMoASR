@@ -1,28 +1,25 @@
-from open_whisper import audio, tokenizer, preprocess, model, utils
+from open_whisper import audio, tokenizer, model, utils
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-import os
-from dataclasses import dataclass
-import numpy as np
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
-from torcheval.metrics import WordErrorRate
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
+
+import os
+from dataclasses import dataclass
+import numpy as np
 import wandb
 from typing import List
-from open_whisper import utils
 import jiwer
-import torch
-from torch.nn import functional as F
-from torch.nn.utils import clip_grad_norm_
-from torch.utils.data import DataLoader
-from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
 
-
-DEVICE = torch.device("cuda:0")
+dist.init_process_group(backend="nccl")
+DEVICE = torch.device(f"cuda:{torch.distributed.get_rank()}")
+torch.cuda.set_device(DEVICE)
 debug = False
 
 # encoder architecture
@@ -54,11 +51,6 @@ class AudioTextDataset(Dataset):
         self.tokenizer = tokenizer
         self.device = device
         self.n_text_ctx = n_text_ctx
-
-        # if len(self.audio_files) != len(self.transcript_files):
-        #     raise ValueError(
-        #         "The number of audio files and transcript files must be the same"
-        #     )
 
     def __len__(self):
         return len(self.audio_files)
@@ -181,54 +173,42 @@ audio_text_dataset = AudioTextDataset(
     n_text_ctx=448,
 )
 
-# audio_text_dataset = AudioTextDataset(
-#     audio_files=[
-#         os.path.join("data/sanity-check/audio/eh77AUKedyM/segments", segment)
-#         for segment in os.listdir("data/sanity-check/audio/eh77AUKedyM/segments")
-#     ],
-#     transcript_files=[
-#         os.path.join("data/sanity-check/transcripts/eh77AUKedyM/segments", segment)
-#         for segment in os.listdir("data/sanity-check/transcripts/eh77AUKedyM/segments")
-#     ],
-#     tokenizer=tokenizer,
-#     device=DEVICE,
-#     n_text_ctx=448,
-# )
 
-
-train_batch_size = 4
+train_batch_size = 256
 audio_text_dataloader = DataLoader(
     audio_text_dataset, batch_size=train_batch_size, shuffle=False, num_workers=0
 )
 
+audio_text_dataloader = DataLoader(audio_text_dataset, batch_size=train_batch_size)
 
-# data_dirs_val = []
-# for root, dirs, files in os.walk("data/eval/LibriSpeech/test-clean"):
-#     if len(root.split("/")) == 6:
-#         data_dirs_val.append(root)
 
-# transcript_files = []
-# audio_files = []
+data_dirs_val = []
+for root, dirs, files in os.walk("data/eval/LibriSpeech/test-clean"):
+    if len(root.split("/")) == 6:
+        data_dirs_val.append(root)
 
-# for d in data_dirs_val:
-#     for f in os.listdir(d):
-#         if f.endswith("txt"):
-#             transcript_files.append(os.path.join(d, f))
-#         else:
-#             audio_files.append(os.path.join(d, f))
+transcript_files = []
+audio_files = []
 
-# audio_text_dataset_val = AudioTextEval(
-#     audio_files=sorted(audio_files),
-#     transcript_files=sorted(transcript_files),
-#     tokenizer=tokenizer,
-#     device=DEVICE,
-#     n_text_ctx=448,
-# )
+for d in data_dirs_val:
+    for f in os.listdir(d):
+        if f.endswith("txt"):
+            transcript_files.append(os.path.join(d, f))
+        else:
+            audio_files.append(os.path.join(d, f))
 
-# val_batch_size = 8
-# audio_text_val_dataloader = DataLoader(
-#     audio_text_dataset_val, batch_size=val_batch_size
-# )
+audio_text_dataset_val = AudioTextEval(
+    audio_files=sorted(audio_files),
+    transcript_files=sorted(transcript_files),
+    tokenizer=tokenizer,
+    device=DEVICE,
+    n_text_ctx=448,
+)
+
+val_batch_size = 128
+audio_text_val_dataloader = DataLoader(
+    audio_text_dataset_val, batch_size=val_batch_size
+)
 
 
 # model setup
@@ -259,7 +239,9 @@ model_dims = ModelDimensions(
     n_text_layer=4,
 )
 
-model = model.Whisper(dims=model_dims).to(DEVICE)
+model = model.Whisper(dims=model_dims)
+model.to(DEVICE)
+
 lr = 1.5e-3
 betas = (0.9, 0.98)
 eps = 1e-6
@@ -285,25 +267,6 @@ def lr_lambda(current_step: int) -> float:
 scheduler = LambdaLR(optimizer=optimizer, lr_lambda=lr_lambda)
 max_grad_norm = 1.0
 
-# model random init
-# model.eval()
-# for batch_idx, batch in enumerate(audio_text_dataloader):
-#     audio_files, audio_input, text_input, text_y, eot_index = batch
-
-#     logits = model(audio_input, text_input)
-#     probs = F.softmax(logits, dim=-1)
-#     pred = torch.argmax(probs, dim=-1)
-
-#     pred_text = [
-#         tokenizer.decode(list(pred_instance)) for pred_instance in pred.cpu().numpy()
-#     ]
-#     tgt_text = [
-#         tokenizer.decode(list(text_y_instance[: eot_index[i]]))
-#         for i, text_y_instance in enumerate(text_y.cpu().numpy())
-#     ]
-#     metric.update(pred_text, tgt_text)
-#     average_wer = metric.compute().cpu().numpy().item() * 100
-#     print(f"{average_wer=}")
 
 # model training
 model.train()
@@ -353,12 +316,6 @@ for epoch in range(epochs):
             tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
             tgt_text.append(tgt_y_instance_text)
 
-        # if len(pred_text) != len(
-        #     tgt_text
-        # ):  # when len(pred_text) = 1 but len(tgt_text) = 2
-        #     pred_text = [pred_text[0]]
-        #     logits = logits[0, :, :]
-
         # text normalization
         tgt_pred_pairs = utils.clean_text(list(zip(tgt_text, pred_text)), "english")
 
@@ -389,7 +346,9 @@ for epoch in range(epochs):
 
     # validation
     for batch_idx, batch in enumerate(audio_text_val_dataloader):
-        decoder_input = torch.full((val_batch_size, 1), tokenizer.sot, dtype=torch.long, device=DEVICE)
+        decoder_input = torch.full(
+            (val_batch_size, 1), tokenizer.sot, dtype=torch.long, device=DEVICE
+        )
         active = torch.ones(val_batch_size, dtype=torch.bool)
         generated_sequences = [[] for _ in range(val_batch_size)]
 
@@ -465,5 +424,3 @@ for epoch in range(epochs):
     # torch.save(checkpoint, "checkpoints/tiny-en.pt")
 
 wandb.log({"train_table": val_table})
-
-
