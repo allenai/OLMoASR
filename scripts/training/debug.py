@@ -6,9 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data import Dataset, DataLoader
 
 import os
 from dataclasses import dataclass
@@ -17,9 +15,8 @@ import wandb
 from typing import List
 import jiwer
 
-dist.init_process_group(backend="nccl")
-DEVICE = torch.device(f"cuda:{torch.distributed.get_rank()}")
-torch.cuda.set_device(DEVICE)
+
+DEVICE = torch.device("cuda:0")
 debug = False
 
 # encoder architecture
@@ -179,8 +176,6 @@ audio_text_dataloader = DataLoader(
     audio_text_dataset, batch_size=train_batch_size, shuffle=False, num_workers=0
 )
 
-audio_text_dataloader = DataLoader(audio_text_dataset, batch_size=train_batch_size)
-
 
 data_dirs_val = []
 for root, dirs, files in os.walk("data/eval/LibriSpeech/test-clean"):
@@ -239,9 +234,7 @@ model_dims = ModelDimensions(
     n_text_layer=4,
 )
 
-model = model.Whisper(dims=model_dims)
-model.to(DEVICE)
-
+model = model.Whisper(dims=model_dims).to(DEVICE)
 lr = 1.5e-3
 betas = (0.9, 0.98)
 eps = 1e-6
@@ -423,4 +416,4 @@ for epoch in range(epochs):
 
     # torch.save(checkpoint, "checkpoints/tiny-en.pt")
 
-wandb.log({"train_table": val_table})
+wandb.log({"val_table": val_table})
