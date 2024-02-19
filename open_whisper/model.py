@@ -225,7 +225,7 @@ class TextDecoder(nn.Module):
     ):
         super().__init__()
 
-        self.token_embedding = nn.Embedding(n_vocab, n_state, padding_idx=0)
+        self.token_embedding = nn.Embedding(n_vocab + 1, n_state, padding_idx=51864)
         nn.init.kaiming_normal_(
             self.token_embedding.weight, mode="fan_in", nonlinearity="relu"
         )
@@ -264,7 +264,14 @@ class TextDecoder(nn.Module):
         x = x.to(xa.dtype)
 
         if padding_mask is not None:
-            self.mask = padding_mask + self.mask
+            n_ctx = x.shape[1]
+            mask = (
+                torch.empty(n_ctx + 1, n_ctx + 1)
+                .fill_(-np.inf)
+                .triu_(1)
+                .to(device=padding_mask.device)
+            )
+            self.mask = padding_mask + mask
 
         for block in self.blocks:
             x = block(x, xa, mask=self.mask, kv_cache=kv_cache)
@@ -305,12 +312,12 @@ class Whisper(nn.Module):
         audio_features: torch.Tensor,
         padding_mask: torch.Tensor = None,
     ):
-        return self.decoder(tokens, audio_features, padding_mask = padding_mask)
+        return self.decoder(tokens, audio_features, padding_mask=padding_mask)
 
     def forward(
         self, mel: torch.Tensor, tokens: torch.Tensor, padding_mask: torch.Tensor = None
     ) -> Dict[str, torch.Tensor]:
-        return self.decoder(tokens, self.encoder(mel), padding_mask = padding_mask)
+        return self.decoder(tokens, self.encoder(mel), padding_mask=padding_mask)
 
     @property
     def device(self):
