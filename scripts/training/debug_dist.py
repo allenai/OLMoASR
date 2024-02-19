@@ -226,7 +226,7 @@ def main(rank, world_size, model_dims, train_batch_size=8):
         weight_decay=weight_decay,
     )
 
-    epochs = 8795
+    epochs = 50
     total_steps = len(audio_text_dataloader) * epochs
     warmup_steps = 2048
 
