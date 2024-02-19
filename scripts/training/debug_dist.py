@@ -35,23 +35,6 @@ n_text_state = 384
 n_text_head = 6
 n_text_layer = 4
 
-from open_whisper import audio, tokenizer, model, utils
-
-import torch
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import LambdaLR
-from torch.nn.utils import clip_grad_norm_
-from torch.utils.data import Dataset, DataLoader
-
-import os
-from dataclasses import dataclass
-import numpy as np
-import wandb
-from typing import List
-import jiwer
-
 
 class AudioTextDataset(Dataset):
     def __init__(
