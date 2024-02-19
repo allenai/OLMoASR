@@ -109,13 +109,6 @@ def clean_transcript(file_path) -> Union[None, bool]:
 
 def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
     try:
-        transcript_ext = transcript_file.split(".")[-1]
-
-        t_output_dir = "/".join(transcript_file.split("/")[:-1]) + "/segments"
-        a_output_dir = "/".join(audio_file.split("/")[:-1]) + "/segments"
-        os.makedirs(t_output_dir, exist_ok=True)
-        os.makedirs(a_output_dir, exist_ok=True)
-
         cleaned_transcript = clean_transcript(transcript_file)
         if cleaned_transcript is None:
             with open(f"logs/data/empty_transcripts.txt", "a") as f:
@@ -129,6 +122,13 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             with open(f"logs/data/empty_transcript.txt", "a") as f:
                 f.write(f"{transcript_file}\n")
             return None
+
+        transcript_ext = transcript_file.split(".")[-1]
+
+        t_output_dir = "/".join(transcript_file.split("/")[:-1]) + "/segments"
+        a_output_dir = "/".join(audio_file.split("/")[:-1]) + "/segments"
+        os.makedirs(t_output_dir, exist_ok=True)
+        os.makedirs(a_output_dir, exist_ok=True)
 
         a = 0
         b = 0
@@ -147,6 +147,9 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                 if b == a:
                     with open(f"logs/data/faulty_transcripts.txt", "a") as f:
                         f.write(f"{t_output_dir.split('/')[-2]}\tindex: {b}\n")
+                        # delete directory
+                        shutil.rmtree("/".join(transcript_file.split("/")[:-1]))
+                        shutil.rmtree("/".join(audio_file.split("/")[:-1]))
                     return None
 
                 # write transcript file
