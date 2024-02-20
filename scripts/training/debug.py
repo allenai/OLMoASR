@@ -133,8 +133,8 @@ for root, dirs, files in os.walk("data/transcripts"):
             transcript_files.append(os.path.join(root, f))
 
 audio_text_dataset = AudioTextDataset(
-    audio_files=audio_files,
-    transcript_files=transcript_files,
+    audio_files=audio_files[:200],
+    transcript_files=transcript_files[:200],
     tokenizer=tokenizer,
     device=DEVICE,
     n_text_ctx=448,
@@ -204,6 +204,7 @@ optimizer = AdamW(
 epochs = 50
 total_steps = len(train_dataloader) * epochs
 warmup_steps = 2048
+best_val_loss = float("inf")
 
 
 def lr_lambda(current_step: int) -> float:
@@ -247,7 +248,10 @@ columns = ["audio_input", "pred_test", "tgt_text", "wer", "epoch"]
 val_table = wandb.Table(columns=columns)
 
 for epoch in range(epochs):
+    model.train()
+    print(f"Training: {epoch + 1}")
     for batch_idx, batch in enumerate(train_dataloader):
+        model.train()
         optimizer.zero_grad()
         audio_files, transcript_files, audio_input, text_input, text_y, padding_mask = (
             batch
@@ -296,82 +300,106 @@ for epoch in range(epochs):
         optimizer.step()
         scheduler.step()
 
-        # validation
-        for batch_idx, batch in enumerate(val_dataloader):
+    # validation
+    print("\nValidation")
+    val_loss = 0.0
+    val_wer = 0.0
+    for batch_idx, batch in enumerate(val_dataloader):
+        model.eval()
+        decoder_input = torch.full(
+            (val_batch_size, 1), tokenizer.sot, dtype=torch.long, device=DEVICE
+        )
+        generated_sequences = [[] for _ in range(val_batch_size)]
+        active = torch.ones(val_batch_size, dtype=torch.bool)
 
-            decoder_input = torch.full(
-                (val_batch_size, 1), tokenizer.sot, dtype=torch.long, device=DEVICE
-            )
-            generated_sequences = [[] for _ in range(val_batch_size)]
-            active = torch.ones(val_batch_size, dtype=torch.bool)
+        while active.any():
+            with torch.no_grad():
+                audio_files, _, audio_input, _, text_y, _ = batch
 
-            while active.any():
-                with torch.no_grad():
-                    audio_files, _, audio_input, _, text_y, _ = batch
-                    logits = model(audio_input, decoder_input)
-                    probs = F.softmax(logits, dim=-1)
-                    # not a 1-dim tensor! grows as decoding continues
-                    next_token_pred = torch.argmax(probs, dim=-1)
+                logits = model(audio_input, decoder_input[:, :n_text_ctx])
+                probs = F.softmax(logits, dim=-1)
+                # not a 1-dim tensor! grows as decoding continues
+                next_token_pred = torch.argmax(probs, dim=-1)
 
-                    for i in range(val_batch_size):
-                        if active[i] and len(generated_sequences[i]) < n_text_ctx:
-                            generated_sequences[i].append(next_token_pred[i][-1].item())
-                            if next_token_pred[i][-1].item() == tokenizer.eot:
-                                active[i] = False
-                        elif len(generated_sequences[i]) == n_text_ctx:
+                for i in range(val_batch_size):
+                    if active[i] and len(generated_sequences[i]) < n_text_ctx - 1:
+                        generated_sequences[i].append(next_token_pred[i][-1].item())
+                        if next_token_pred[i][-1].item() == tokenizer.eot:
                             active[i] = False
+                    elif active[i] and len(generated_sequences[i]) == n_text_ctx - 1:
+                        active[i] = False
 
-                    if not active.any():
-                        break
+                if not active.any():
+                    break
 
-                    decoder_input = torch.cat([decoder_input, next_token_pred], dim=-1)
+                decoder_input = torch.cat(
+                    [decoder_input, next_token_pred[:, -1].unsqueeze(1)], dim=-1
+                )
 
-            tgt_pred_pairs = [
-                (tokenizer.decode(text_y[i]), tokenizer.decode(seq))
-                for i, seq in enumerate(generated_sequences)
-            ]
+        logits = logits[:, : n_text_ctx - 1, :]
+        val_loss += F.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]),
+            text_y.view(-1),
+            ignore_index=51864,
+        )
 
-            # text normalization
-            tgt_pred_pairs = utils.clean_text(tgt_pred_pairs, "english")
+        average_loss = val_loss / (batch_idx + 1)
 
-            average_wer = utils.average_wer(tgt_pred_pairs)
+        tgt_pred_pairs = [
+            (tokenizer.decode(text_y[i]), tokenizer.decode(seq))
+            for i, seq in enumerate(generated_sequences)
+        ]
 
-            print(f"{loss=}")
-            print(f"{average_wer=}")
+        # text normalization
+        tgt_pred_pairs = utils.clean_text(tgt_pred_pairs, "english")
 
-            with open(f"logs/training/val_results.txt", "a") as f:
-                for i, (tgt_text_instance, pred_text_instance) in enumerate(
-                    tgt_pred_pairs[:10:2]
-                ):
-                    f.write(f"{pred_text_instance=}\n")
-                    f.write(f"{len(pred_text_instance)=}\n")
-                    f.write(f"{tgt_text_instance=}\n")
-                    f.write(f"{len(tgt_text_instance)=}\n")
+        val_wer += utils.average_wer(tgt_pred_pairs)
+        average_wer = val_wer / (batch_idx + 1)
 
-                    # logging to wandb table
-                    wer = np.round(
-                        jiwer.wer(tgt_text_instance, pred_text_instance), 2
-                    )
-                    val_table.add_data(
-                        wandb.Audio(audio_files[i], sample_rate=16000),
-                        pred_text,
-                        tgt_text,
-                        wer,
-                        epoch,
-                    )
+        print(f"{average_loss=}")
+        print(f"{average_wer=}")
 
-                f.write(f"{average_wer=}\n\n")
+        with open(f"logs/training/val_results.txt", "a") as f:
+            for i, (tgt_text_instance, pred_text_instance) in enumerate(
+                tgt_pred_pairs[:10:2]
+            ):
+                f.write(f"{pred_text_instance=}\n")
+                f.write(f"{len(pred_text_instance)=}\n")
+                f.write(f"{tgt_text_instance=}\n")
+                f.write(f"{len(tgt_text_instance)=}\n")
 
-    # checkpoint = {
-    #     "epoch": epoch,
-    #     "model_state_dict": model.state_dict(),
-    #     "optimizer_state_dict": optimizer.state_dict(),
-    #     # You can also save other items such as scheduler state
-    #     "scheduler_state_dict": scheduler.state_dict() if scheduler else None,
-    #     "dims": model_dims.__dict__,
-    #     # Include any other information you deem necessary
-    # }
+                # logging to wandb table
+                wer = np.round(
+                    utils.calculate_wer((tgt_text_instance, pred_text_instance)), 2
+                )
+                val_table.add_data(
+                    wandb.Audio(audio_files[i], sample_rate=16000),
+                    pred_text,
+                    tgt_text,
+                    wer,
+                    epoch,
+                )
 
-    # torch.save(checkpoint, "checkpoints/tiny-en.pt")
+            f.write(f"{average_wer=}\n\n")
 
-# wandb.log({"val_table": val_table})
+    ave_val_wer = val_wer / len(val_dataloader)
+    ave_val_loss = val_loss / len(val_dataloader)
+
+    wandb.log({"val_loss": ave_val_loss, "val_wer": ave_val_wer})
+
+    if ave_val_loss < best_val_loss:
+        best_val_loss = ave_val_loss
+        checkpoint = {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            # You can also save other items such as scheduler state
+            "scheduler_state_dict": scheduler.state_dict() if scheduler else None,
+            "dims": model_dims.__dict__,
+            # Include any other information you deem necessary
+        }
+
+        torch.save(checkpoint, "checkpoints/tiny-en.pt")
+    print("\n")
+
+wandb.log({"val_table": val_table})
