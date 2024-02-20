@@ -129,6 +129,7 @@ class MultiHeadAttention(nn.Module):
             v = kv_cache[self.value]
 
         wv, qk = self.qkv_attention(q, k, v, mask)
+        mask = None
         return self.out(wv), qk
 
     def qkv_attention(
@@ -213,7 +214,7 @@ class AudioEncoder(nn.Module):
         x = (x + self.positional_embedding).to(x.dtype)
 
         for block in self.blocks:
-            x = block(x)
+            x = block(x, mask=None)
 
         x = self.ln_post(x)
         return x
@@ -263,8 +264,8 @@ class TextDecoder(nn.Module):
         )
         x = x.to(xa.dtype)
 
+        n_ctx = x.shape[1]
         if padding_mask is not None:
-            n_ctx = x.shape[1]
             mask = (
                 torch.empty(n_ctx + 1, n_ctx + 1)
                 .fill_(-np.inf)
@@ -272,6 +273,8 @@ class TextDecoder(nn.Module):
                 .to(device=padding_mask.device)
             )
             self.mask = padding_mask + mask
+        else:
+            self.mask = None
 
         for block in self.blocks:
             x = block(x, xa, mask=self.mask, kv_cache=kv_cache)
