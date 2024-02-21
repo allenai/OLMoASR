@@ -3,7 +3,7 @@ import open_whisper as ow
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
@@ -189,7 +189,7 @@ for root, *_ in os.walk("data/transcripts"):
             transcript_files_train.append(os.path.join(root, f))
 
 
-def main(rank, world_size, model_dims, train_batch_size=8):
+def main(rank, world_size, model_dims, train_batch_size=8, val_batch_size=8):
     # setup the process groups
     setup(rank, world_size)
 
@@ -199,17 +199,23 @@ def main(rank, world_size, model_dims, train_batch_size=8):
     )
 
     audio_text_dataset = AudioTextDataset(
-        audio_files=audio_files_train,
-        transcript_files=transcript_files_train,
+        audio_files=audio_files_train[:200],
+        transcript_files=transcript_files_train[:200],
         tokenizer=tokenizer,
         device=rank,
         n_text_ctx=model_dims.n_text_ctx,
     )
 
-    # prepare the dataloader
-    audio_text_dataloader = prepare(
-        audio_text_dataset, rank, world_size, train_batch_size
+    train_size = int(0.7 * len(audio_text_dataset))
+    val_size = len(audio_text_dataset) - train_size
+
+    train_dataset, val_dataset = random_split(
+        audio_text_dataset, [train_size, val_size]
     )
+
+    # prepare the dataloaders
+    train_dataloader = prepare(train_dataset, rank, world_size, train_batch_size)
+    val_dataloader = prepare(val_dataset, rank, world_size, val_batch_size)
 
     model = ow.model.Whisper(dims=model_dims).to(rank)
     model = DDP(model, device_ids=[rank], output_device=rank)
@@ -227,8 +233,10 @@ def main(rank, world_size, model_dims, train_batch_size=8):
     )
 
     epochs = 50
-    total_steps = len(audio_text_dataloader) * epochs
+    total_steps = len(train_dataloader) * epochs
     warmup_steps = 2048
+    if rank == 0:
+        best_val_loss = float("inf")
 
     def lr_lambda(current_step: int) -> float:
         if current_step < warmup_steps:
@@ -257,18 +265,24 @@ def main(rank, world_size, model_dims, train_batch_size=8):
             "warmup_steps": "warmup_steps",
         }
 
+        tags = ["tiny-en", "ddp-train"]
         wandb.init(
             project="open_whisper",
             entity="huongngo-8",
             config=config,
             save_code=True,
             job_type="training",
-            tags=["tiny-en-overfit"] if not debug else ["tiny-en-overfit-debug"],
+            tags=tags if not debug else tags.append("debug"),
             dir="scripts/training",
         )
 
+        columns = ["audio_input", "pred_test", "tgt_text", "wer", "epoch"]
+        val_table = wandb.Table(columns=columns)
+
     for epoch in range(epochs):
-        for batch_idx, batch in enumerate(audio_text_dataloader):
+        model.train()
+        for batch_idx, batch in enumerate(train_dataloader):
+            model.train()
             optimizer.zero_grad()
             (
                 audio_files,
@@ -284,7 +298,7 @@ def main(rank, world_size, model_dims, train_batch_size=8):
             pred = torch.argmax(probs, dim=-1)
 
             loss = F.cross_entropy(
-                logits.view(-1, logits.shape[-1]), text_y.view(-1), ignore_index=0
+                logits.view(-1, logits.shape[-1]), text_y.view(-1), ignore_index=51864
             )
             loss_tensor = loss.clone()
             dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
@@ -307,30 +321,150 @@ def main(rank, world_size, model_dims, train_batch_size=8):
 
             average_wer = utils.average_wer(tgt_pred_pairs)
             # Use torch.tensor to work with dist.all_reduce
-            average_wer_tensor = torch.tensor(average_wer, device=rank)
+            ave_wer_tensor = torch.tensor(average_wer, device=rank)
             # Aggregate WER across all processes
-            dist.all_reduce(average_wer_tensor, op=dist.ReduceOp.SUM)
+            dist.all_reduce(ave_wer_tensor, op=dist.ReduceOp.SUM)
             # Calculate the average WER across all processes
-            average_wer = average_wer_tensor.item() / dist.get_world_size()
+            ave_wer_agg = ave_wer_tensor.item() / dist.get_world_size()
 
             if rank == 0:
-                print(f"{loss_agg=}")
-                print(f"{average_wer=}")
+                print(f"train_loss: {loss_agg}")
+                print(f"train_wer: {ave_wer_agg}")
 
-                wandb.log({"loss": loss_agg, "average_wer": average_wer})
+                wandb.log({"train_loss": loss_agg, "train_wer": ave_wer_agg})
 
-                with open(f"logs/training/training_results.txt", "a") as f:
+                with open(
+                    f"logs/training/training_results_{'_'.join(tags)}.txt", "a"
+                ) as f:
                     for tgt_text_instance, pred_text_instance in tgt_pred_pairs[:10:2]:
                         f.write(f"{pred_text_instance=}\n")
                         f.write(f"{len(pred_text_instance)=}\n")
                         f.write(f"{tgt_text_instance=}\n")
                         f.write(f"{len(tgt_text_instance)=}\n")
-                    f.write(f"{average_wer=}\n\n")
+                    f.write(f"{ave_wer_agg=}\n\n")
 
             loss.backward()
             clip_grad_norm_(model.parameters(), max_grad_norm)  # gradient clipping
             optimizer.step()
             scheduler.step()
+
+        # validation
+        val_loss = 0.0
+        val_wer = 0.0
+        for batch_idx, batch in enumerate(val_dataloader):
+            audio_files, _, audio_input, _, text_y, _ = batch
+            model.eval()
+            decoder_input = torch.full(
+                (len(audio_files), 1), tokenizer.sot, dtype=torch.long, device=rank
+            )
+            generated_sequences = [[] for _ in range(len(audio_files))]
+            active = torch.ones(len(audio_files), dtype=torch.bool)
+
+            while active.any():
+                with torch.no_grad():
+                    logits = model(audio_input, decoder_input[:, : n_text_ctx - 1])
+                    probs = F.softmax(logits, dim=-1)
+                    # not a 1-dim tensor! grows as decoding continues
+                    next_token_pred = torch.argmax(probs, dim=-1)
+
+                    for i in range(len(audio_files)):
+                        if active[i] and len(generated_sequences[i]) < n_text_ctx - 1:
+                            generated_sequences[i].append(next_token_pred[i][-1].item())
+                            if next_token_pred[i][-1].item() == tokenizer.eot:
+                                active[i] = False
+                        elif (
+                            active[i] and len(generated_sequences[i]) == n_text_ctx - 1
+                        ):
+                            active[i] = False
+
+                    if not active.any():
+                        break
+
+                    decoder_input = torch.cat(
+                        [decoder_input, next_token_pred[:, -1].unsqueeze(1)], dim=-1
+                    )
+
+            batch_val_loss = F.cross_entropy(
+                logits.reshape(-1, logits.shape[-1]),
+                text_y.view(-1),
+                ignore_index=51864,
+            )
+            val_loss += batch_val_loss
+
+            tgt_pred_pairs = [
+                (tokenizer.decode(text_y[i]), tokenizer.decode(seq))
+                for i, seq in enumerate(generated_sequences)
+            ]
+            # text normalization
+            tgt_pred_pairs = utils.clean_text(tgt_pred_pairs, "english")
+
+            batch_val_wer = utils.average_wer(tgt_pred_pairs)
+            val_wer += batch_val_wer
+
+            if rank == 0:
+                print(f"val_loss by batch: {batch_val_loss}")
+                print(f"val_wer by batch: {batch_val_wer}")
+
+                with open(f"logs/training/val_results_{'_'.join(tags)}.txt", "a") as f:
+                    for i, (tgt_text_instance, pred_text_instance) in enumerate(
+                        tgt_pred_pairs[:10:2]
+                    ):
+                        f.write(f"{pred_text_instance=}\n")
+                        f.write(f"{len(pred_text_instance)=}\n")
+                        f.write(f"{tgt_text_instance=}\n")
+                        f.write(f"{len(tgt_text_instance)=}\n")
+
+                        # logging to wandb table
+                        wer = np.round(
+                            utils.calculate_wer(
+                                (tgt_text_instance, pred_text_instance)
+                            ),
+                            2,
+                        )
+                        val_table.add_data(
+                            wandb.Audio(audio_files[i], sample_rate=16000),
+                            pred_text_instance,
+                            tgt_text_instance,
+                            wer,
+                            epoch,
+                        )
+
+                    f.write(f"{batch_val_wer=}\n\n")
+
+        ave_val_wer = val_wer / len(val_dataloader)
+        ave_val_loss = val_loss / len(val_dataloader)
+
+        ave_val_wer_tensor = torch.tensor(ave_val_wer, device=rank)
+        dist.all_reduce(ave_val_wer_tensor, op=dist.ReduceOp.SUM)
+        ave_val_wer_agg = ave_val_wer_tensor.item() / dist.get_world_size()
+
+        ave_val_loss_tensor = ave_val_loss.clone()
+        dist.all_reduce(ave_val_loss_tensor, op=dist.ReduceOp.SUM)
+        ave_val_loss_agg = ave_val_loss_tensor.item() / dist.get_world_size()
+
+        if rank == 0:
+            print(f"val_loss: {ave_val_loss_agg}")
+            print(f"val_wer: {ave_val_wer_agg}")
+
+            wandb.log({"val_loss": ave_val_loss_agg, "val_wer": ave_val_wer_agg})
+            if ave_val_loss_agg < best_val_loss:
+                best_val_loss = ave_val_loss_agg
+                checkpoint = {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    # You can also save other items such as scheduler state
+                    "scheduler_state_dict": (
+                        scheduler.state_dict() if scheduler else None
+                    ),
+                    "dims": model_dims.__dict__,
+                    # Include any other information you deem necessary
+                }
+
+                torch.save(checkpoint, "checkpoints/tiny-en.pt")
+
+    if rank == 0:
+        wandb.log({"val_table": val_table})
 
     cleanup()
 
