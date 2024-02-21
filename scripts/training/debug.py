@@ -6,7 +6,6 @@ from torch.utils.data import Dataset, DataLoader, random_split
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
-from torch.utils.data import Dataset, DataLoader
 
 import os
 from dataclasses import dataclass
@@ -305,23 +304,22 @@ for epoch in range(epochs):
     val_loss = 0.0
     val_wer = 0.0
     for batch_idx, batch in enumerate(val_dataloader):
+        audio_files, _, audio_input, _, text_y, _ = batch
         model.eval()
         decoder_input = torch.full(
-            (val_batch_size, 1), tokenizer.sot, dtype=torch.long, device=DEVICE
+            (len(audio_files), 1), tokenizer.sot, dtype=torch.long, device=DEVICE
         )
-        generated_sequences = [[] for _ in range(val_batch_size)]
-        active = torch.ones(val_batch_size, dtype=torch.bool)
+        generated_sequences = [[] for _ in range(len(audio_files))]
+        active = torch.ones(len(audio_files), dtype=torch.bool)
 
         while active.any():
             with torch.no_grad():
-                audio_files, _, audio_input, _, text_y, _ = batch
-
-                logits = model(audio_input, decoder_input[:, :n_text_ctx])
+                logits = model(audio_input, decoder_input[:, :n_text_ctx - 1])
                 probs = F.softmax(logits, dim=-1)
                 # not a 1-dim tensor! grows as decoding continues
                 next_token_pred = torch.argmax(probs, dim=-1)
 
-                for i in range(val_batch_size):
+                for i in range(len(audio_files)):
                     if active[i] and len(generated_sequences[i]) < n_text_ctx - 1:
                         generated_sequences[i].append(next_token_pred[i][-1].item())
                         if next_token_pred[i][-1].item() == tokenizer.eot:
@@ -336,7 +334,6 @@ for epoch in range(epochs):
                     [decoder_input, next_token_pred[:, -1].unsqueeze(1)], dim=-1
                 )
 
-        logits = logits[:, : n_text_ctx - 1, :]
         val_loss += F.cross_entropy(
             logits.reshape(-1, logits.shape[-1]),
             text_y.view(-1),
@@ -374,8 +371,8 @@ for epoch in range(epochs):
                 )
                 val_table.add_data(
                     wandb.Audio(audio_files[i], sample_rate=16000),
-                    pred_text,
-                    tgt_text,
+                    pred_text_instance,
+                    tgt_text_instance,
                     wer,
                     epoch,
                 )
