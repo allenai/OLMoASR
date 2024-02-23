@@ -18,7 +18,7 @@ import numpy as np
 import wandb
 from typing import List
 
-debug = False
+debug = True
 
 # encoder architecture
 n_mels = 80
@@ -188,7 +188,7 @@ for root, *_ in os.walk("data/transcripts"):
             transcript_files_train.append(os.path.join(root, f))
 
 
-def main(rank, world_size, model_dims, train_batch_size=8, val_batch_size=8):
+def main(rank, world_size, model_dims, subset=None, train_batch_size=8, val_batch_size=8):
     # setup the process groups
     setup(rank, world_size)
 
@@ -198,18 +198,19 @@ def main(rank, world_size, model_dims, train_batch_size=8, val_batch_size=8):
     )
 
     audio_text_dataset = AudioTextDataset(
-        audio_files=audio_files_train[:500],
-        transcript_files=transcript_files_train[:500],
+        audio_files=audio_files_train if subset is None else audio_files_train[:subset],
+        transcript_files=transcript_files_train if subset is None else transcript_files_train[:subset],
         tokenizer=tokenizer,
         device=rank,
         n_text_ctx=model_dims.n_text_ctx,
     )
 
-    train_size = int(0.7 * len(audio_text_dataset))
+    train_size = int(0.8 * len(audio_text_dataset))
     val_size = len(audio_text_dataset) - train_size
 
+    generator = torch.Generator().manual_seed(42)
     train_dataset, val_dataset = random_split(
-        audio_text_dataset, [train_size, val_size]
+        audio_text_dataset, [train_size, val_size], generator=generator
     )
 
     # prepare the dataloaders
@@ -236,7 +237,7 @@ def main(rank, world_size, model_dims, train_batch_size=8, val_batch_size=8):
     warmup_steps = 2048
 
     if rank == 0:
-        print(f"{total_steps=}, {warmup_steps=}, {epochs=}")
+        best_val_loss = float("inf")
 
     def lr_lambda(current_step: int) -> float:
         if current_step < warmup_steps:
@@ -264,14 +265,25 @@ def main(rank, world_size, model_dims, train_batch_size=8, val_batch_size=8):
             "total_steps": total_steps,
             "warmup_steps": "warmup_steps",
         }
-        tags = ["tiny-en", "ddp-train", "grad-acc"]
+        tags = [
+            "tiny-en",
+            "ddp-train",
+            "grad-acc",
+            f"{subset}" if subset is not None else "full",
+            f"{lr}",
+            f"{train_batch_size}",
+        ]
+
+        if debug:
+            tags.append("debug")
+
         wandb.init(
             project="open_whisper",
             entity="huongngo-8",
             config=config,
             save_code=True,
             job_type="training",
-            tags=(tags if not debug else tags.append("debug")),
+            tags=(tags),
             dir="scripts/training",
         )
 
@@ -281,11 +293,14 @@ def main(rank, world_size, model_dims, train_batch_size=8, val_batch_size=8):
     accumulation_steps = 32  # Number of steps over which to accumulate gradients
 
     for epoch in range(epochs):
-        optimizer.zero_grad()
         batch_pred_text = []
         batch_tgt_text = []
+        model.train()
+        optimizer.zero_grad()
 
         for batch_idx, batch in enumerate(train_dataloader):
+            model.train()
+
             (
                 audio_files,
                 transcript_files,
@@ -313,39 +328,41 @@ def main(rank, world_size, model_dims, train_batch_size=8, val_batch_size=8):
                 microbatch_tgt_text.append(tgt_y_instance_text)
             batch_tgt_text.extend(microbatch_tgt_text)
 
-            loss = F.cross_entropy(
+            train_loss = F.cross_entropy(
                 logits.view(-1, logits.shape[-1]), text_y.view(-1), ignore_index=51864
             )
 
-            loss = (
-                loss / accumulation_steps
+            train_loss = (
+                train_loss / accumulation_steps
             )  # normalization of loss (gradient accumulation)
 
-            loss.backward()  # Accumulate gradients
+            train_loss.backward()  # accumulate gradients
 
             if batch_idx > 0 and ((batch_idx + 1) % accumulation_steps == 0):
-                loss_tensor = loss.clone()
-                dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
-                loss_agg = loss_tensor.item() / dist.get_world_size()
+                train_loss_tensor = train_loss.clone()
+                dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
+                train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
                 # text normalization
                 tgt_pred_pairs = utils.clean_text(
                     list(zip(batch_tgt_text, batch_pred_text)), "english"
                 )
 
-                average_wer = utils.average_wer(tgt_pred_pairs)
+                train_wer = utils.average_wer(tgt_pred_pairs)
                 # Use torch.tensor to work with dist.all_reduce
-                average_wer_tensor = torch.tensor(average_wer, device=rank)
+                train_wer_tensor = torch.tensor(train_wer, device=rank)
                 # Aggregate WER across all processes
-                dist.all_reduce(average_wer_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
                 # Calculate the average WER across all processes
-                average_wer = average_wer_tensor.item() / dist.get_world_size()
+                train_wer_all = train_wer_tensor.item() / dist.get_world_size()
 
                 if rank == 0:
-                    print(f"{loss_agg=}")
-                    print(f"{average_wer=}")
+                    print(f"train_loss: {train_loss_all}")
+                    print(f"train_wer: {train_wer_all}")
 
-                    wandb.log({"loss": loss_agg, "average_wer": average_wer})
+                    wandb.log(
+                        {"train_loss": train_loss_all, "train_wer": train_wer_all}
+                    )
 
                     with open(
                         f"logs/training/training_results_{'_'.join(tags)}.txt", "a"
@@ -357,7 +374,7 @@ def main(rank, world_size, model_dims, train_batch_size=8, val_batch_size=8):
                             f.write(f"{len(pred_text_instance)=}\n")
                             f.write(f"{tgt_text_instance=}\n")
                             f.write(f"{len(tgt_text_instance)=}\n")
-                        f.write(f"{average_wer=}\n\n")
+                        f.write(f"{train_wer_all=}\n\n")
 
                 # Gradient clipping, if necessary, should be done before optimizer.step()
                 clip_grad_norm_(model.parameters(), max_grad_norm)
@@ -467,19 +484,19 @@ def main(rank, world_size, model_dims, train_batch_size=8, val_batch_size=8):
 
         ave_val_wer_tensor = torch.tensor(ave_val_wer, device=rank)
         dist.all_reduce(ave_val_wer_tensor, op=dist.ReduceOp.SUM)
-        ave_val_wer_agg = ave_val_wer_tensor.item() / dist.get_world_size()
+        val_wer_all = ave_val_wer_tensor.item() / dist.get_world_size()
 
         ave_val_loss_tensor = ave_val_loss.clone()
         dist.all_reduce(ave_val_loss_tensor, op=dist.ReduceOp.SUM)
-        ave_val_loss_agg = ave_val_loss_tensor.item() / dist.get_world_size()
+        val_loss_all = ave_val_loss_tensor.item() / dist.get_world_size()
 
         if rank == 0:
-            print(f"val_loss: {ave_val_loss_agg}")
-            print(f"val_wer: {ave_val_wer_agg}")
+            print(f"val_loss: {val_loss_all}")
+            print(f"val_wer: {val_wer_all}")
 
-            wandb.log({"val_loss": ave_val_loss_agg, "val_wer": ave_val_wer_agg})
-            if ave_val_loss_agg < best_val_loss:
-                best_val_loss = ave_val_loss_agg
+            wandb.log({"val_loss": val_loss_all, "val_wer": val_wer_all})
+            if val_loss_all < best_val_loss:
+                best_val_loss = val_loss_all
                 checkpoint = {
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
@@ -504,4 +521,5 @@ if __name__ == "__main__":
     # suppose we have 4 gpus
     torch.cuda.empty_cache()
     world_size = 4
-    mp.spawn(main, args=[world_size, model_dims], nprocs=world_size)
+    subset = None
+    mp.spawn(main, args=[world_size, model_dims, subset], nprocs=world_size)
