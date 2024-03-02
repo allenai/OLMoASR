@@ -12,8 +12,12 @@ import multiprocessing
 from tqdm import tqdm
 from itertools import repeat
 from typing import Union
-from open_whisper import utils
+from open_whisper import utils, audio
 import numpy as np
+import torch
+
+# for getting mel spectrogram
+# DEVICE = torch.device("cuda:0")
 
 
 def download_transcript(
@@ -248,7 +252,39 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 def parallel_chunk_audio_transcript(args) -> None:
     chunk_audio_transcript(*args)
 
+
+# def get_mel(audio_file):
+#     audio_arr = audio.load_audio(audio_file, sr=16000)
+#     audio_arr = audio.pad_or_trim(audio_arr)
+#     mel_spec = audio.log_mel_spectrogram(audio_arr, device=DEVICE)
+#     return (audio_file, mel_spec)
+
+
 # if __name__ == "__main__":
+#     audio_files = []
+#     for root, dirs, files in os.walk("data/audio"):
+#         if "segments" in root:
+#             audio_files.extend([os.path.join(root, f) for f in os.listdir(root)])
+
+#     with multiprocessing.Pool() as pool:
+#         file_mel = list(
+#             tqdm(
+#                 pool.imap_unordered(get_mel, audio_files[:10]),
+#                 total=len(audio_files[:10]),
+#             )
+#         )
+
+#     audio_files, mel_specs = zip(*file_mel)
+
+#     audio_files = list(audio_files)
+
+#     mel_specs = [mel_spec.numpy() for mel_spec in mel_specs]
+
+#     np.savez_compressed(
+#         "data/mel_specs.npz", audio_file=audio_files, mel_spec=mel_specs
+#     )
+
+
 #     unequal_chunks = []
 #     for root, dirs, files in os.walk("data/transcripts"):
 #         if "segments" not in root:
@@ -275,7 +311,7 @@ def parallel_chunk_audio_transcript(args) -> None:
 #     ]
 
 #     audio_file_paths = [f"data/audio/{id}/{id}.{'m4a'}" for id in sample_id]
-        
+
 #     with multiprocessing.Pool() as pool:
 #         out = list(
 #             tqdm(
