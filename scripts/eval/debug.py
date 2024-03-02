@@ -18,50 +18,50 @@ result = whisper.decode(model, mel, options)
 print(result.text)
 
 
-class AudioTextEval(AudioTextDataset):
-    def __init__(
-        self,
-        audio_files: List,
-        transcript_files: List,
-        tokenizer,
-        device: torch.DeviceObjType,
-        n_text_ctx: int,
-    ):
-        super().__init__(audio_files, transcript_files, tokenizer, device, n_text_ctx)
+# class AudioTextEval(AudioTextDataset):
+#     def __init__(
+#         self,
+#         audio_files: List,
+#         transcript_files: List,
+#         tokenizer,
+#         device: torch.DeviceObjType,
+#         n_text_ctx: int,
+#     ):
+#         super().__init__(audio_files, transcript_files, tokenizer, device, n_text_ctx)
 
-        self.transcript_texts = []
-        for file in transcript_files:
-            with open(file, "r") as f:
-                transcript_text = [
-                    (line.split(" ")[0], " ".join(line.split(" ")[1:]).strip())
-                    for line in f
-                ]
-            self.transcript_texts.extend(transcript_text)
+#         self.transcript_texts = []
+#         for file in transcript_files:
+#             with open(file, "r") as f:
+#                 transcript_text = [
+#                     (line.split(" ")[0], " ".join(line.split(" ")[1:]).strip())
+#                     for line in f
+#                 ]
+#             self.transcript_texts.extend(transcript_text)
 
-    def __getitem__(self, index):
-        audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
-        text_tokens = self.preprocess_text(*self.transcript_texts[index])
+#     def __getitem__(self, index):
+#         audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
+#         text_tokens = self.preprocess_text(*self.transcript_texts[index])
 
-        return audio_file, audio_input, text_tokens[1:]
+#         return audio_file, audio_input, text_tokens[1:]
 
-    def preprocess_text(self, text_id, transcript_text):
-        text_tokens = self.tokenizer.encode(transcript_text)
+#     def preprocess_text(self, text_id, transcript_text):
+#         text_tokens = self.tokenizer.encode(transcript_text)
 
-        text_tokens = (
-            list(self.tokenizer.sot_sequence_including_notimestamps) + text_tokens
-        )
+#         text_tokens = (
+#             list(self.tokenizer.sot_sequence_including_notimestamps) + text_tokens
+#         )
 
-        text_tokens.append(tokenizer.eot)
+#         text_tokens.append(tokenizer.eot)
 
-        text_tokens = np.pad(
-            text_tokens,
-            pad_width=(0, self.n_text_ctx - len(text_tokens)),
-            mode="constant",
-            constant_values=51864,
-        )
+#         text_tokens = np.pad(
+#             text_tokens,
+#             pad_width=(0, self.n_text_ctx - len(text_tokens)),
+#             mode="constant",
+#             constant_values=51864,
+#         )
 
-        text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=self.device)
-        return text_id, text_tokens
+#         text_tokens = torch.tensor(text_tokens, dtype=torch.long, device=self.device)
+#         return text_id, text_tokens
 
 
 data_dirs_val = []
