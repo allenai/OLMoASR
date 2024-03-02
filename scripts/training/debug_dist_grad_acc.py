@@ -18,7 +18,7 @@ import numpy as np
 import wandb
 from typing import List
 
-debug = True
+debug = False
 
 # encoder architecture
 n_mels = 80
@@ -188,7 +188,9 @@ for root, *_ in os.walk("data/transcripts"):
             transcript_files_train.append(os.path.join(root, f))
 
 
-def main(rank, world_size, model_dims, subset=None, train_batch_size=8, val_batch_size=8):
+def main(
+    rank, world_size, model_dims, subset=None, train_batch_size=8, val_batch_size=8
+):
     # setup the process groups
     setup(rank, world_size)
 
@@ -197,9 +199,21 @@ def main(rank, world_size, model_dims, subset=None, train_batch_size=8, val_batc
         multilingual=True, language="en", task="transcribe"
     )
 
+    if subset is not None:
+        rng = np.random.default_rng(seed=42)
+        start_idx = rng.choice(range(len(audio_files_train) - subset))
+
     audio_text_dataset = AudioTextDataset(
-        audio_files=audio_files_train if subset is None else audio_files_train[:subset],
-        transcript_files=transcript_files_train if subset is None else transcript_files_train[:subset],
+        audio_files=(
+            audio_files_train
+            if subset is None
+            else audio_files_train[start_idx : start_idx + subset]
+        ),
+        transcript_files=(
+            transcript_files_train
+            if subset is None
+            else transcript_files_train[start_idx : start_idx + subset]
+        ),
         tokenizer=tokenizer,
         device=rank,
         n_text_ctx=model_dims.n_text_ctx,
