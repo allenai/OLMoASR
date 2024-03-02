@@ -199,12 +199,20 @@ def main(
         multilingual=True, language="en", task="transcribe"
     )
 
+    if subset is not None:
+        rng = np.random.default_rng(seed=42)
+        start_idx = rng.choice(range(len(audio_files_train) - subset))
+
     audio_text_dataset = AudioTextDataset(
-        audio_files=audio_files_train if subset is None else audio_files_train[:subset],
+        audio_files=(
+            audio_files_train
+            if subset is None
+            else audio_files_train[start_idx : start_idx + subset]
+        ),
         transcript_files=(
             transcript_files_train
             if subset is None
-            else transcript_files_train[:subset]
+            else transcript_files_train[start_idx : start_idx + subset]
         ),
         tokenizer=tokenizer,
         device=rank,
