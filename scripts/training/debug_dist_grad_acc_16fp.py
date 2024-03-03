@@ -18,10 +18,11 @@ from dataclasses import dataclass
 import numpy as np
 import wandb
 from typing import List
-import sys
-import signal
 
-debug = True
+# import signal
+import time
+
+debug = False
 
 # encoder architecture
 n_mels = 80
@@ -179,16 +180,16 @@ def prepare(
     return dataloader
 
 
-def cleanup(dataloader):
-    del dataloader
+def cleanup(train_dataloader, val_dataloader):
+    del train_dataloader
+    del val_dataloader
     torch.cuda.empty_cache()
     dist.destroy_process_group()
-    sys.exit(0)
 
 
-def signal_handler(sig, frame):
-    print("Signal received, stopping...")
-    cleanup()
+# def signal_handler(sig, frame):
+#     print("Signal received, stopping...")
+#     cleanup()
 
 
 audio_files_train = []
@@ -213,6 +214,7 @@ def main(
     eff_size=256,
     train_batch_size=8,
     val_batch_size=8,
+    train_val_split=0.98,
     num_workers=0,
     pin_memory=False,
     persistent_workers=False,
@@ -243,7 +245,7 @@ def main(
         n_text_ctx=model_dims.n_text_ctx,
     )
 
-    train_size = int(0.8 * len(audio_text_dataset))
+    train_size = int(train_val_split * len(audio_text_dataset))
     val_size = len(audio_text_dataset) - train_size
 
     generator = torch.Generator().manual_seed(42)
@@ -281,11 +283,16 @@ def main(
     )
 
     epochs = epochs
-    total_steps = len(train_dataloader) * epochs
-    warmup_steps = 0.0002 * total_steps
+    accumulation_steps = eff_size // (
+        4 * train_batch_size
+    )  # Number of steps over which to accumulate gradients
+    total_steps = int(np.ceil(len(train_dataloader) / accumulation_steps) * epochs)
+    warmup_steps = np.ceil(0.002 * total_steps)
 
     if rank == 0:
         best_val_loss = float("inf")
+        print(f"{len(train_dataloader)=}")
+        print(f"{len(val_dataloader)=}")
 
     def lr_lambda(current_step: int) -> float:
         if current_step < warmup_steps:
@@ -299,8 +306,8 @@ def main(
     scheduler = LambdaLR(optimizer=optimizer, lr_lambda=lr_lambda)
     max_grad_norm = 1.0
 
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    # signal.signal(signal.SIGINT, signal_handler)
+    # signal.signal(signal.SIGTERM, signal_handler)
 
     # model training
     model.train()
@@ -314,18 +321,22 @@ def main(
             "batch_size": train_batch_size,
             "epochs": epochs,
             "total_steps": total_steps,
-            "warmup_steps": "warmup_steps",
+            "warmup_steps": warmup_steps,
+            "train_val_split": train_val_split,
+            "num_workers": num_workers,
         }
+
         tags = [
             "tiny-en",
             "ddp-train",
             "grad-acc",
             "fp16",
-            f"subset={subset}" if subset is not None else "full",
+            f"subset={subset}" if subset is not None else "subset=full",
             f"lr={lr}",
             f"batch_size={train_batch_size}",
             f"workers={num_workers}",
             f"epochs={epochs}",
+            f"train_val_split={train_val_split}",
         ]
 
         if debug:
@@ -333,7 +344,7 @@ def main(
 
         wandb.init(
             project="open_whisper",
-            entity="huongngo-8",
+            entity="open-whisper-team",
             config=config,
             save_code=True,
             job_type="training",
@@ -346,9 +357,6 @@ def main(
         val_res = wandb.Artifact("val_res", type="results")
         val_res_added = False
 
-    accumulation_steps = eff_size / (
-        4 * train_batch_size
-    )  # Number of steps over which to accumulate gradients
     scaler = GradScaler()
 
     try:
@@ -359,6 +367,19 @@ def main(
             batch_text_files = []
             model.train()
             optimizer.zero_grad()
+
+            if rank == 0:
+                columns = [
+                    "audio_file",
+                    "audio_input",
+                    "transcript_file",
+                    "pred_text",
+                    "tgt_text",
+                    "wer",
+                ]
+                train_table = wandb.Table(columns=columns)
+                print("Training")
+                start_time = time.time()
 
             for batch_idx, batch in enumerate(train_dataloader):
                 model.train()
@@ -392,6 +413,7 @@ def main(
                         train_loss / accumulation_steps
                     )  # normalization of loss (gradient accumulation)
 
+                # alerting if loss is nan
                 if rank == 0:
                     if torch.isnan(train_loss):
                         text = f"Loss is NaN for {audio_files} at epoch {epoch} and batch {batch_idx}!"
@@ -400,6 +422,7 @@ def main(
                 probs = F.softmax(logits, dim=-1)
                 pred = torch.argmax(probs, dim=-1)
 
+                # collecting data for logging
                 microbatch_pred_text = []
                 for pred_instance in pred.cpu().numpy():
                     pred_instance_text = tokenizer.decode(list(pred_instance))
@@ -418,7 +441,8 @@ def main(
 
                 scaler.scale(train_loss).backward()  # accumulate gradients
 
-                if batch_idx > 0 and ((batch_idx + 1) % accumulation_steps == 0):
+                # after accumulation_steps, update weights
+                if batch_idx > 0 and ((batch_idx + 1) % accumulation_steps) == 0:
                     train_loss_tensor = train_loss.clone()
                     dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
                     train_loss_all = train_loss_tensor.item() / dist.get_world_size()
@@ -438,6 +462,8 @@ def main(
 
                     if rank == 0:
                         print(f"{epoch=}")
+                        print(f"step={batch_idx + 1}")
+                        print(f"effective step={(batch_idx + 1) // accumulation_steps}")
                         print(f"train_loss: {train_loss_all}")
                         print(f"train_wer: {train_wer_all}")
 
@@ -445,70 +471,64 @@ def main(
                             {"train_loss": train_loss_all, "train_wer": train_wer_all}
                         )
 
-                        with open(
-                            f"logs/training/training_results_{'_'.join(tags)}.txt", "a"
-                        ) as f:
-                            if not train_res_added:  # only once
-                                train_res.add_file(
-                                    f"logs/training/training_results_{'_'.join(tags)}.txt"
-                                )
-                                train_res_added = True
-                                wandb.log_artifact(train_res)
-
-                            if (batch_idx + 1) % (50 * accumulation_steps) == 0:
-                                columns = [
-                                    "audio_file",
-                                    "audio_input",
-                                    "transcript_file",
-                                    "pred_text",
-                                    "tgt_text",
-                                    "wer",
-                                    "epoch",
-                                ]
-                                train_table = wandb.Table(columns=columns)
-
-                            # rng = np.random.default_rng(seed=42)
-                            # pairs_sample = rng.choice(
-                            #     tgt_pred_pairs, size=10, replace=False
-                            # )
-
-                            for i, (tgt_text_instance, pred_text_instance) in enumerate(
-                                tgt_pred_pairs[::4]
-                            ):
-                                f.write(f"{pred_text_instance=}\n")
-                                f.write(f"{len(pred_text_instance)=}\n")
-                                f.write(f"{tgt_text_instance=}\n")
-                                f.write(f"{len(tgt_text_instance)=}\n")
-
-                                if (batch_idx + 1) % (50 * accumulation_steps) == 0:
-                                    # logging to wandb table
-                                    wer = np.round(
-                                        utils.calculate_wer(
-                                            (tgt_text_instance, pred_text_instance)
-                                        ),
-                                        2,
+                        # every 20 steps
+                        if ((batch_idx + 1) % (20 * accumulation_steps)) == 0:
+                            with open(
+                                f"logs/training/training_results_{'_'.join(tags)}.txt",
+                                "a",
+                            ) as f:
+                                if not train_res_added:  # only once
+                                    train_res.add_file(
+                                        f"logs/training/training_results_{'_'.join(tags)}.txt"
                                     )
-                                    train_table.add_data(
-                                        batch_audio_files[i * 4],
-                                        wandb.Audio(
-                                            batch_audio_files[i * 4], sample_rate=16000
-                                        ),
-                                        batch_text_files[i * 4],
-                                        pred_text_instance,
-                                        tgt_text_instance,
-                                        wer,
-                                        epoch,
-                                    )
+                                    train_res_added = True
+                                    wandb.log_artifact(train_res)
 
-                            if (batch_idx + 1) % (50 * accumulation_steps) == 0:
-                                wandb.log(
-                                    {f"train_table_{epoch}_{batch_idx + 1}": train_table}
-                                )
+                                for i, (
+                                    tgt_text_instance,
+                                    pred_text_instance,
+                                ) in enumerate(
+                                    tgt_pred_pairs[::8]  # should log just 8 examples
+                                ):
+                                    f.write(f"{pred_text_instance=}\n")
+                                    f.write(f"{len(pred_text_instance)=}\n")
+                                    f.write(f"{tgt_text_instance=}\n")
+                                    f.write(f"{len(tgt_text_instance)=}\n")
 
-                            f.write(f"{train_wer_all=}\n\n")
+                                    # logging to wandb table after 1000 steps
+                                    if (
+                                        (batch_idx + 1) // (1000 * accumulation_steps)
+                                    ) == 1:
+                                        # logging to wandb table
+                                        wer = np.round(
+                                            utils.calculate_wer(
+                                                (tgt_text_instance, pred_text_instance)
+                                            ),
+                                            2,
+                                        )
+                                        train_table.add_data(
+                                            batch_audio_files[i * 8],
+                                            wandb.Audio(
+                                                batch_audio_files[i * 8],
+                                                sample_rate=16000,
+                                            ),
+                                            batch_text_files[i * 8],
+                                            pred_text_instance,
+                                            tgt_text_instance,
+                                            wer,
+                                        )
 
-                        # checkpointing for every 250 batches
+                                # logging to wandb table after 1000 steps
+                                if (
+                                    (batch_idx + 1) // (1000 * accumulation_steps)
+                                ) == 1:
+                                    wandb.log({f"train_table_{epoch}": train_table})
+
+                                f.write(f"{train_wer_all=}\n\n")
+
+                        # checkpointing for every 250 steps
                         if ((batch_idx + 1) % (250 * accumulation_steps)) == 0:
+                            print("Saving checkpoint (every 250 steps)")
                             ddp_checkpoint = {
                                 "epoch": epoch,
                                 "model_state_dict": model.state_dict(),
@@ -551,6 +571,10 @@ def main(
                     )  # Only update weights after accumulation_steps
                     scaler.update()
                     scheduler.step()  # Adjust learning rate based on accumulated steps
+                    current_lr = optimizer.param_groups[0]["lr"]
+                    # logging learning rate
+                    if rank == 0:
+                        wandb.log({"learning_rate": current_lr})
                     optimizer.zero_grad()  # Reset gradients only after updating weights
 
                     batch_pred_text = []
@@ -561,19 +585,53 @@ def main(
             # If your dataset size is not a multiple of (batch_size * accumulation_steps)
             # Make sure to account for the last set of batches smaller than accumulation_steps
             if len(train_dataloader) % accumulation_steps != 0:
+                if rank == 0:
+                    print(f"{epoch=}")
+                    print(f"step={batch_idx + 1}")
+                    print(f"effective step={(batch_idx + 1) // accumulation_steps}")
+                    print(f"train_loss: {train_loss_all}")
+                    print(f"train_wer: {train_wer_all}")
+
+                    wandb.log(
+                        {"train_loss": train_loss_all, "train_wer": train_wer_all}
+                    )
+                    wandb.log({"learning_rate": current_lr})
+
                 scaler.unscale_(optimizer)
                 clip_grad_norm_(model.parameters(), max_grad_norm)
                 scaler.step(optimizer)
                 scaler.update()
                 scheduler.step()
+                current_lr = optimizer.param_groups[0]["lr"]
                 optimizer.zero_grad()
 
                 batch_pred_text = []
                 batch_tgt_text = []
 
+            if rank == 0:
+                end_time = time.time()
+                with open(f"logs/training/epoch_times_{'_'.join(tags)}.txt", "a") as f:
+                    f.write(
+                        f"train epoch {epoch} took {(end_time - start_time) / 60.0} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
+                    )
+
             # validation
             val_loss = 0.0
             val_wer = 0.0
+
+            if rank == 0:
+                columns = [
+                    "audio_file",
+                    "audio_input",
+                    "transcript_file",
+                    "pred_text",
+                    "tgt_text",
+                    "wer",
+                ]
+                val_table = wandb.Table(columns=columns)
+                print("Validation")
+                start_time = time.time()
+
             for batch_idx, batch in enumerate(val_dataloader):
                 with autocast():
                     model.eval()
@@ -591,6 +649,7 @@ def main(
                     decoder_input = decoder_input.to(rank)
                     text_y = text_y.to(rank)
 
+                    # decoding
                     while active.any():
                         with torch.no_grad():
                             logits = model(
@@ -653,57 +712,55 @@ def main(
                     print(f"val_loss by batch: {batch_val_loss}")
                     print(f"val_wer by batch: {batch_val_wer}")
 
-                    with open(
-                        f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
-                    ) as f:
-                        # rng = np.random.default_rng(seed=42)
-                        # pairs_sample = rng.choice(tgt_pred_pairs, size=10, replace=False)
+                    # every 10 steps
+                    if (batch_idx + 1) % 10 == 0:
+                        with open(
+                            f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
+                        ) as f:
+                            for i, (tgt_text_instance, pred_text_instance) in enumerate(
+                                tgt_pred_pairs
+                            ):
+                                if not val_res_added:  # only once
+                                    val_res.add_file(
+                                        f"logs/training/val_results_{'_'.join(tags)}.txt"
+                                    )
+                                    val_res_added = True
+                                    wandb.log_artifact(val_res)
 
-                        for i, (tgt_text_instance, pred_text_instance) in enumerate(
-                            tgt_pred_pairs
-                        ):
-                            if not val_res_added:  # only once
-                                val_res.add_file(
-                                    f"logs/training/val_results_{'_'.join(tags)}.txt"
-                                )
-                                val_res_added = True
-                                wandb.log_artifact(val_res)
+                                f.write(f"{pred_text_instance=}\n")
+                                f.write(f"{len(pred_text_instance)=}\n")
+                                f.write(f"{tgt_text_instance=}\n")
+                                f.write(f"{len(tgt_text_instance)=}\n")
 
-                            columns = [
-                                "audio_file",
-                                "audio_input",
-                                "transcript_file",
-                                "pred_text",
-                                "tgt_text",
-                                "wer",
-                                "epoch",
-                            ]
-                            val_table = wandb.Table(columns=columns)
+                                # logging to wandb table after 80 steps
+                                if (batch_idx + 1) == 80:
+                                    wer = np.round(
+                                        utils.calculate_wer(
+                                            (tgt_text_instance, pred_text_instance)
+                                        ),
+                                        2,
+                                    )
+                                    val_table.add_data(
+                                        audio_files[i],
+                                        wandb.Audio(audio_files[i], sample_rate=16000),
+                                        transcript_files[i],
+                                        pred_text_instance,
+                                        tgt_text_instance,
+                                        wer,
+                                    )
 
-                            f.write(f"{pred_text_instance=}\n")
-                            f.write(f"{len(pred_text_instance)=}\n")
-                            f.write(f"{tgt_text_instance=}\n")
-                            f.write(f"{len(tgt_text_instance)=}\n")
+                            # logging to wandb table after 80 steps
+                            if (batch_idx + 1) == 80:
+                                wandb.log({f"val_table_{epoch}": val_table})
 
-                            # logging to wandb table
-                            wer = np.round(
-                                utils.calculate_wer(
-                                    (tgt_text_instance, pred_text_instance)
-                                ),
-                                2,
-                            )
-                            val_table.add_data(
-                                audio_files[i],
-                                wandb.Audio(audio_files[i], sample_rate=16000),
-                                transcript_files[i],
-                                pred_text_instance,
-                                tgt_text_instance,
-                                wer,
-                                epoch,
-                            )
+                            f.write(f"{batch_val_wer=}\n\n")
 
-                        wandb.log({f"val_table_{epoch}_{batch_idx}": val_table})
-                        f.write(f"{batch_val_wer=}\n\n")
+            if rank == 0:
+                end_time = time.time()
+                with open(f"logs/training/epoch_times_{'_'.join(tags)}.txt", "a") as f:
+                    f.write(
+                        f"val epoch {epoch} took {(end_time - start_time) / 60.0} minutes\n"
+                    )
 
             ave_val_wer = val_wer / len(val_dataloader)
             ave_val_loss = val_loss / len(val_dataloader)
@@ -721,6 +778,7 @@ def main(
                 print(f"val_wer: {val_wer_all}")
 
                 wandb.log({"val_loss": val_loss_all, "val_wer": val_wer_all})
+
                 if val_loss_all < best_val_loss:
                     best_val_loss = val_loss_all
 
@@ -757,9 +815,9 @@ def main(
                         f"checkpoints/tiny-en-non-ddp_{'_'.join(tags)}.pt",
                     )
 
-        cleanup()
+        cleanup(train_dataloader=train_dataloader, val_dataloader=val_dataloader)
     finally:
-        cleanup()
+        cleanup(train_dataloader=train_dataloader, val_dataloader=val_dataloader)
 
 
 if __name__ == "__main__":
@@ -767,10 +825,11 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
     world_size = 4
     subset = None
-    epochs = 400
+    epochs = 50
     eff_size = 256
     train_batch_size = 8
     val_batch_size = 8
+    train_val_split = 0.99
     num_workers = 24
     pin_memory = False
     persistent_workers = True
@@ -784,6 +843,7 @@ if __name__ == "__main__":
             eff_size,
             train_batch_size,
             val_batch_size,
+            train_val_split,
             num_workers,
             pin_memory,
             persistent_workers,
