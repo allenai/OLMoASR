@@ -830,7 +830,7 @@ if __name__ == "__main__":
     train_batch_size = 8
     val_batch_size = 8
     train_val_split = 0.99
-    num_workers = 24
+    num_workers = 18
     pin_memory = False
     persistent_workers = True
     mp.spawn(
