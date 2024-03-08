@@ -22,7 +22,7 @@ from typing import List
 # import signal
 import time
 
-debug = False
+debug = True
 
 # encoder architecture
 n_mels = 80
@@ -251,7 +251,7 @@ def main(
 
     generator = torch.Generator().manual_seed(42)
     train_dataset, val_dataset = random_split(
-        audio_text_dataset, [train_size, val_size], generator=generator
+        audio_text_dataset, [train_size, val_size]
     )
 
     # prepare the dataloaders
@@ -712,11 +712,11 @@ def main(
             tgt_pred_mask = (text_y != 51864).cpu().numpy()
             tgt_pred_pairs = []
             for i, seq in enumerate(generated_sequences):
-                pred_text_instance = tokenizer.decode(text_y[i][tgt_pred_mask[i]])
+                tgt_text_instance = tokenizer.decode(text_y[i][tgt_pred_mask[i]])
                 if len(tgt_pred_mask[i]) > len(seq):
-                    tgt_text_instance = tokenizer.decode(seq)
+                    pred_text_instance = tokenizer.decode(seq)
                 else:
-                    tgt_text_instance = tokenizer.decode(list(np.array(seq)[tgt_pred_mask[i]]))
+                    pred_text_instance = tokenizer.decode(list(np.array(seq)[tgt_pred_mask[i]]))
                 tgt_pred_pairs.append((tgt_text_instance, pred_text_instance))
 
             # text normalization
