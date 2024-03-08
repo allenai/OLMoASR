@@ -713,7 +713,7 @@ def main(
             tgt_pred_pairs = []
             for i, seq in enumerate(generated_sequences):
                 pred_text_instance = tokenizer.decode(text_y[i][tgt_pred_mask[i]])
-                if len(tgt_pred_mask[i]) < len(seq):
+                if len(tgt_pred_mask[i]) > len(seq):
                     tgt_text_instance = tokenizer.decode(seq)
                 else:
                     tgt_text_instance = tokenizer.decode(list(np.array(seq)[tgt_pred_mask[i]]))
