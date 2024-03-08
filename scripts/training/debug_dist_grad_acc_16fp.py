@@ -937,7 +937,7 @@ def main(
 if __name__ == "__main__":
     # suppose we have 4 gpus
     torch.cuda.empty_cache()
-    world_size = 1
+    world_size = 4 if not debug else 1
     subset = 1000
     epochs = 10
     eff_size = 256
