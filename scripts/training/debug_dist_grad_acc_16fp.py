@@ -710,14 +710,15 @@ def main(
                 val_loss += batch_val_loss
 
             tgt_pred_mask = (text_y != 51864).cpu().numpy()
+            tgt_pred_pairs = []
+            for i, seq in enumerate(generated_sequences):
+                pred_text_instance = tokenizer.decode(text_y[i][tgt_pred_mask[i]])
+                if len(tgt_pred_mask[i]) < len(seq):
+                    tgt_text_instance = tokenizer.decode(seq)
+                else:
+                    tgt_text_instance = tokenizer.decode(list(np.array(seq)[tgt_pred_mask[i]]))
+                tgt_pred_pairs.append((tgt_text_instance, pred_text_instance))
 
-            tgt_pred_pairs = [
-                (
-                    tokenizer.decode(text_y[i][tgt_pred_mask[i]]),
-                    tokenizer.decode(seq[tgt_pred_mask[i]]),
-                )
-                for i, seq in enumerate(generated_sequences)
-            ]
             # text normalization
             tgt_pred_pairs = utils.clean_text(tgt_pred_pairs, "english")
 
