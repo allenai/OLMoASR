@@ -438,9 +438,7 @@ def main(
             microbatch_pred_text = []
             for pred_instance in pred.cpu().numpy():
                 pred_instance_text = tokenizer.decode(list(pred_instance))
-                pred_instance_text = pred_instance_text.rsplit("<|endoftext|>", 1)[
-                    0
-                ]
+                pred_instance_text = pred_instance_text.rsplit("<|endoftext|>", 1)[0]
                 microbatch_pred_text.append(pred_instance_text)
             batch_pred_text.extend(microbatch_pred_text)
 
@@ -482,7 +480,7 @@ def main(
                     )
 
                     # every 20 steps
-                    if ((batch_idx + 1) % (20 * accumulation_steps)) == 0:
+                    if ((batch_idx + 1) % (1 * accumulation_steps)) == 0:
                         with open(
                             f"logs/training/training_results_{'_'.join(tags)}.txt",
                             "a",
@@ -529,9 +527,7 @@ def main(
                                     )
 
                             # logging to wandb table after 1000 steps
-                            if (
-                                (batch_idx + 1) // (1000 * accumulation_steps)
-                            ) == 1:
+                            if ((batch_idx + 1) // (1000 * accumulation_steps)) == 1:
                                 wandb.log({f"train_table_{epoch}": train_table})
 
                             f.write(f"{train_wer_all=}\n\n")
@@ -576,9 +572,7 @@ def main(
                 # Gradient clipping, if necessary, should be done before optimizer.step()
                 scaler.unscale_(optimizer)
                 clip_grad_norm_(model.parameters(), max_grad_norm)
-                scaler.step(
-                    optimizer
-                )  # Only update weights after accumulation_steps
+                scaler.step(optimizer)  # Only update weights after accumulation_steps
                 scaler.update()
                 scheduler.step()  # Adjust learning rate based on accumulated steps
                 current_lr = optimizer.param_groups[0]["lr"]
@@ -603,9 +597,7 @@ def main(
                 print(f"train_loss: {train_loss_all}")
                 print(f"train_wer: {train_wer_all}")
 
-                wandb.log(
-                    {"train_loss": train_loss_all, "train_wer": train_wer_all}
-                )
+                wandb.log({"train_loss": train_loss_all, "train_wer": train_wer_all})
 
             scaler.unscale_(optimizer)
             clip_grad_norm_(model.parameters(), max_grad_norm)
@@ -665,9 +657,7 @@ def main(
                 # decoding
                 while active.any():
                     with torch.no_grad():
-                        logits = model(
-                            audio_input, decoder_input[:, : n_text_ctx - 1]
-                        )
+                        logits = model(audio_input, decoder_input[:, : n_text_ctx - 1])
                         probs = F.softmax(logits, dim=-1)
                         # not a 1-dim tensor! grows as decoding continues
                         next_token_pred = torch.argmax(probs, dim=-1)
@@ -726,15 +716,8 @@ def main(
                 print(f"val_loss by batch: {batch_val_loss}")
                 print(f"val_wer by batch: {batch_val_wer}")
 
-                wandb.log(
-                    {
-                        "val_loss_batch": batch_val_loss,
-                        "val_wer_batch": batch_val_wer,
-                    }
-                )
-
                 # every 10 steps
-                if (batch_idx + 1) % 10 == 0:
+                if (batch_idx + 1) % 1 == 0:
                     with open(
                         f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
                     ) as f:
