@@ -22,7 +22,7 @@ from typing import List
 # import signal
 import time
 
-debug = True
+debug = False
 
 # encoder architecture
 n_mels = 80
@@ -434,20 +434,23 @@ def main(
             probs = F.softmax(logits, dim=-1)
             pred = torch.argmax(probs, dim=-1)
 
+            # only focusing on the non-padding tokens for WER
+            tgt_pred_mask = (text_y != 51864).cpu().numpy()
+
             # collecting data for logging
             microbatch_pred_text = []
-            for pred_instance in pred.cpu().numpy():
+            for i, pred_instance in enumerate(pred.cpu().numpy()):
+                pred_instance = pred_instance[tgt_pred_mask[i]]
                 pred_instance_text = tokenizer.decode(list(pred_instance))
-                pred_instance_text = pred_instance_text.rsplit("<|endoftext|>", 1)[
-                    0
-                ]
+                # pred_instance_text = pred_instance_text.rsplit("<|endoftext|>", 1)[0]
                 microbatch_pred_text.append(pred_instance_text)
             batch_pred_text.extend(microbatch_pred_text)
 
             microbatch_tgt_text = []
-            for text_y_instance in text_y.cpu().numpy():
+            for i, text_y_instance in enumerate(text_y.cpu().numpy()):
+                text_y_instance = text_y_instance[tgt_pred_mask[i]]
                 tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
-                tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
+                # tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
                 microbatch_tgt_text.append(tgt_y_instance_text)
             batch_tgt_text.extend(microbatch_tgt_text)
 
@@ -482,7 +485,7 @@ def main(
                     )
 
                     # every 20 steps
-                    if ((batch_idx + 1) % (20 * accumulation_steps)) == 0:
+                    if ((batch_idx + 1) % (1 * accumulation_steps)) == 0:
                         with open(
                             f"logs/training/training_results_{'_'.join(tags)}.txt",
                             "a",
@@ -529,9 +532,7 @@ def main(
                                     )
 
                             # logging to wandb table after 1000 steps
-                            if (
-                                (batch_idx + 1) // (1000 * accumulation_steps)
-                            ) == 1:
+                            if ((batch_idx + 1) // (1000 * accumulation_steps)) == 1:
                                 wandb.log({f"train_table_{epoch}": train_table})
 
                             f.write(f"{train_wer_all=}\n\n")
@@ -576,9 +577,7 @@ def main(
                 # Gradient clipping, if necessary, should be done before optimizer.step()
                 scaler.unscale_(optimizer)
                 clip_grad_norm_(model.parameters(), max_grad_norm)
-                scaler.step(
-                    optimizer
-                )  # Only update weights after accumulation_steps
+                scaler.step(optimizer)  # Only update weights after accumulation_steps
                 scaler.update()
                 scheduler.step()  # Adjust learning rate based on accumulated steps
                 current_lr = optimizer.param_groups[0]["lr"]
@@ -603,9 +602,7 @@ def main(
                 print(f"train_loss: {train_loss_all}")
                 print(f"train_wer: {train_wer_all}")
 
-                wandb.log(
-                    {"train_loss": train_loss_all, "train_wer": train_wer_all}
-                )
+                wandb.log({"train_loss": train_loss_all, "train_wer": train_wer_all})
 
             scaler.unscale_(optimizer)
             clip_grad_norm_(model.parameters(), max_grad_norm)
@@ -620,6 +617,8 @@ def main(
 
             batch_pred_text = []
             batch_tgt_text = []
+            batch_audio_files = []
+            batch_text_files = []
 
         if rank == 0:
             end_time = time.time()
@@ -665,9 +664,7 @@ def main(
                 # decoding
                 while active.any():
                     with torch.no_grad():
-                        logits = model(
-                            audio_input, decoder_input[:, : n_text_ctx - 1]
-                        )
+                        logits = model(audio_input, decoder_input[:, : n_text_ctx - 1])
                         probs = F.softmax(logits, dim=-1)
                         # not a 1-dim tensor! grows as decoding continues
                         next_token_pred = torch.argmax(probs, dim=-1)
@@ -712,8 +709,13 @@ def main(
 
                 val_loss += batch_val_loss
 
+            tgt_pred_mask = (text_y != 51864).cpu().numpy()
+
             tgt_pred_pairs = [
-                (tokenizer.decode(text_y[i]), tokenizer.decode(seq))
+                (
+                    tokenizer.decode(text_y[i][tgt_pred_mask[i]]),
+                    tokenizer.decode(seq[tgt_pred_mask[i]]),
+                )
                 for i, seq in enumerate(generated_sequences)
             ]
             # text normalization
@@ -734,7 +736,7 @@ def main(
                 )
 
                 # every 10 steps
-                if (batch_idx + 1) % 10 == 0:
+                if (batch_idx + 1) % 1 == 0:
                     with open(
                         f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
                     ) as f:
@@ -842,13 +844,13 @@ def main(
 if __name__ == "__main__":
     # suppose we have 4 gpus
     torch.cuda.empty_cache()
-    world_size = 1
+    world_size = 4 if not debug else 1
     subset = 5000
     epochs = 10
     eff_size = 256
     train_batch_size = 8
     val_batch_size = 8
-    train_val_split = 0.99
+    train_val_split = 0.80
     num_workers = 18
     pin_memory = False
     shuffle = True
