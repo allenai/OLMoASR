@@ -247,7 +247,7 @@ def main(
     train_size = int(train_val_split * len(audio_text_dataset))
     val_size = len(audio_text_dataset) - train_size
 
-    generator = torch.Generator().manual_seed(42)
+    generator = torch.Generator().manual_seed(88)
     train_dataset, val_dataset = random_split(
         audio_text_dataset, [train_size, val_size], generator=generator
     )
@@ -496,10 +496,9 @@ def main(
                             ) in enumerate(
                                 tgt_pred_pairs[::8]  # should log just 8 examples
                             ):
+                                f.write(f"{batch_text_files[i * 8]}\n")
                                 f.write(f"{pred_text_instance=}\n")
-                                f.write(f"{len(pred_text_instance)=}\n")
-                                f.write(f"{tgt_text_instance=}\n")
-                                f.write(f"{len(tgt_text_instance)=}\n")
+                                f.write(f"{tgt_text_instance=}\n\n")
 
                                 # logging to wandb table after 1000 steps
                                 if (
@@ -524,11 +523,12 @@ def main(
                                         wer,
                                     )
 
+                            f.write(f"{train_wer_all=}\n\n")
+                            
                             # logging to wandb table after 1000 steps
                             if ((batch_idx + 1) // (1000 * accumulation_steps)) == 1:
                                 wandb.log({f"train_table_{epoch}": train_table})
 
-                            f.write(f"{train_wer_all=}\n\n")
 
                     # checkpointing for every 250 steps
                     if ((batch_idx + 1) % (250 * accumulation_steps)) == 0:
