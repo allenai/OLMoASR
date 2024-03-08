@@ -290,7 +290,7 @@ def main(
 
     epochs = epochs
     accumulation_steps = eff_size // (
-        4 * train_batch_size
+        world_size * train_batch_size
     )  # Number of steps over which to accumulate gradients
     total_steps = int(np.ceil(len(train_dataloader) / accumulation_steps) * epochs)
     warmup_steps = np.ceil(0.002 * total_steps)
@@ -658,8 +658,8 @@ def main(
                                 tgt_pred_pairs
                             ):
                                 f.write(f"{transcript_files[i]}\n")
-                                f.write(f"{pred_text_instance=}")
-                                f.write(f"{tgt_text_instance=}\n")
+                                f.write(f"{pred_text_instance=}\n")
+                                f.write(f"{tgt_text_instance=}\n\n")
 
                             f.write(f"{batch_val_wer=}\n\n")
 
@@ -679,7 +679,7 @@ def main(
                     print(f"val_loss: {val_loss_all}")
                     print(f"val_wer: {val_wer_all}")
 
-                    wandb.log({"val_loss": val_loss_all, "val_wer": val_wer_all})
+                    wandb.log({"val_loss_post_train_step": val_loss_all, "val_wer_post_train_step": val_wer_all})
 
                 # Gradient clipping, if necessary, should be done before optimizer.step()
                 scaler.unscale_(optimizer)
@@ -938,7 +938,7 @@ if __name__ == "__main__":
     # suppose we have 4 gpus
     torch.cuda.empty_cache()
     world_size = 1
-    subset = 5000
+    subset = 1000
     epochs = 10
     eff_size = 256
     train_batch_size = 8
