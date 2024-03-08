@@ -185,9 +185,7 @@ def prepare(
     return sampler, dataloader
 
 
-def cleanup(train_dataloader, val_dataloader):
-    del train_dataloader
-    del val_dataloader
+def cleanup():
     torch.cuda.empty_cache()
     dist.destroy_process_group()
 
@@ -933,7 +931,7 @@ def main(
         #             f"checkpoints/tiny-en-non-ddp_{'_'.join(tags)}.pt",
         #         )
 
-    cleanup(train_dataloader=train_dataloader, val_dataloader=val_dataloader)
+    cleanup()
 
 
 if __name__ == "__main__":
