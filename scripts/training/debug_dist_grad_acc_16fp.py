@@ -524,11 +524,10 @@ def main(
                                     )
 
                             f.write(f"{train_wer_all=}\n\n")
-                            
+
                             # logging to wandb table after 1000 steps
                             if ((batch_idx + 1) // (1000 * accumulation_steps)) == 1:
                                 wandb.log({f"train_table_{epoch}": train_table})
-
 
                     # checkpointing for every 250 steps
                     if ((batch_idx + 1) % (250 * accumulation_steps)) == 0:
@@ -566,7 +565,7 @@ def main(
                             non_ddp_checkpoint,
                             f"checkpoints/tiny-en-non-ddp_250_{'_'.join(tags)}.pt",
                         )
-                
+
                 # for validation debugging
                 # validation after every training effective step
                 val_loss = 0.0
@@ -592,7 +591,9 @@ def main(
                         # decoding
                         while active.any():
                             with torch.no_grad():
-                                logits = model(audio_input, decoder_input[:, : n_text_ctx - 1])
+                                logits = model(
+                                    audio_input, decoder_input[:, : n_text_ctx - 1]
+                                )
                                 probs = F.softmax(logits, dim=-1)
                                 # not a 1-dim tensor! grows as decoding continues
                                 next_token_pred = torch.argmax(probs, dim=-1)
@@ -605,11 +606,15 @@ def main(
                                         generated_sequences[i].append(
                                             next_token_pred[i][-1].item()
                                         )
-                                        if next_token_pred[i][-1].item() == tokenizer.eot:
+                                        if (
+                                            next_token_pred[i][-1].item()
+                                            == tokenizer.eot
+                                        ):
                                             active[i] = False
                                     elif (
                                         active[i]
-                                        and len(generated_sequences[i]) == n_text_ctx - 1
+                                        and len(generated_sequences[i])
+                                        == n_text_ctx - 1
                                     ):
                                         active[i] = False
 
@@ -617,7 +622,10 @@ def main(
                                     break
 
                                 decoder_input = torch.cat(
-                                    [decoder_input, next_token_pred[:, -1].unsqueeze(1)],
+                                    [
+                                        decoder_input,
+                                        next_token_pred[:, -1].unsqueeze(1),
+                                    ],
                                     dim=-1,
                                 )
 
@@ -650,7 +658,7 @@ def main(
                     if rank == 0:
                         print(f"val_loss by batch: {batch_val_loss}")
                         print(f"val_wer by batch: {batch_val_wer}")
-                        
+
                         with open(
                             f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
                         ) as f:
@@ -662,7 +670,6 @@ def main(
                                 f.write(f"{tgt_text_instance=}\n\n")
 
                             f.write(f"{batch_val_wer=}\n\n")
-
 
                 ave_val_wer = val_wer / len(val_dataloader)
                 ave_val_loss = val_loss / len(val_dataloader)
@@ -679,7 +686,12 @@ def main(
                     print(f"val_loss: {val_loss_all}")
                     print(f"val_wer: {val_wer_all}")
 
-                    wandb.log({"val_loss_post_train_step": val_loss_all, "val_wer_post_train_step": val_wer_all})
+                    wandb.log(
+                        {
+                            "val_loss_post_train_step": val_loss_all,
+                            "val_wer_post_train_step": val_wer_all,
+                        }
+                    )
 
                 # Gradient clipping, if necessary, should be done before optimizer.step()
                 scaler.unscale_(optimizer)
@@ -702,7 +714,25 @@ def main(
         # If your dataset size is not a multiple of (batch_size * accumulation_steps)
         # Make sure to account for the last set of batches smaller than accumulation_steps
         if len(train_dataloader) % accumulation_steps != 0:
+            train_loss_tensor = total_loss.clone()
+            dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
+            train_loss_all = train_loss_tensor.item() / dist.get_world_size()
+
+            # text normalization
+            tgt_pred_pairs = utils.clean_text(
+                list(zip(batch_tgt_text, batch_pred_text)), "english"
+            )
+
+            train_wer = utils.average_wer(tgt_pred_pairs)
+            # Use torch.tensor to work with dist.all_reduce
+            train_wer_tensor = torch.tensor(train_wer, device=rank)
+            # Aggregate WER across all processes
+            dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
+            # Calculate the average WER across all processes
+            train_wer_all = train_wer_tensor.item() / dist.get_world_size()
+
             if rank == 0:
+                print(f"last batch")
                 print(f"{epoch=}")
                 print(f"step={batch_idx + 1}")
                 print(f"effective step={(batch_idx + 1) // accumulation_steps}")
@@ -710,6 +740,22 @@ def main(
                 print(f"train_wer: {train_wer_all}")
 
                 wandb.log({"train_loss": train_loss_all, "train_wer": train_wer_all})
+
+                with open(
+                    f"logs/training/training_results_{'_'.join(tags)}.txt",
+                    "a",
+                ) as f:
+                    for i, (
+                        tgt_text_instance,
+                        pred_text_instance,
+                    ) in enumerate(
+                        tgt_pred_pairs[::8]  # should log just 8 examples
+                    ):
+                        f.write(f"{batch_text_files[i * 8]}\n")
+                        f.write(f"{pred_text_instance=}\n")
+                        f.write(f"{tgt_text_instance=}\n\n")
+
+                    f.write(f"{train_wer_all=}\n\n")
 
             scaler.unscale_(optimizer)
             clip_grad_norm_(model.parameters(), max_grad_norm)
@@ -724,6 +770,8 @@ def main(
 
             batch_pred_text = []
             batch_tgt_text = []
+            batch_audio_files = []
+            batch_text_files = []
 
         if rank == 0:
             end_time = time.time()
