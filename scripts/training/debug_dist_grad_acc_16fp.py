@@ -637,6 +637,7 @@ def main(
                         f.write(f"{pred_text_instance=}\n")
                         f.write(f"{tgt_text_instance=}\n\n")
 
+                    f.write(f"{train_loss_all=}\n")
                     f.write(f"{train_wer_all=}\n\n")
 
             scaler.unscale_(optimizer)
@@ -679,162 +680,167 @@ def main(
             print("Validation")
             start_time = time.time()
 
-        for batch_idx, batch in enumerate(val_dataloader):
-            with autocast():
-                model.eval()
-                (
-                    audio_files,
-                    transcript_files,
-                    audio_input,
-                    text_input,
-                    text_y,
-                    padding_mask,
-                ) = batch
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(val_dataloader):
+                with autocast():
+                    model.eval()
+                    (
+                        audio_files,
+                        transcript_files,
+                        audio_input,
+                        text_input,
+                        text_y,
+                        padding_mask,
+                    ) = batch
 
-                audio_input = audio_input.to(rank)
-                text_input = text_input.to(rank)
-                text_y = text_y.to(rank)
-                padding_mask = padding_mask.to(rank)
+                    audio_input = audio_input.to(rank)
+                    text_input = text_input.to(rank)
+                    text_y = text_y.to(rank)
+                    padding_mask = padding_mask.to(rank)
 
-                logits = model(audio_input, text_input, padding_mask)
+                    logits = model(audio_input, text_input, padding_mask)
 
-                batch_val_loss = F.cross_entropy(
-                    logits.view(-1, logits.shape[-1]),
-                    text_y.view(-1),
-                    ignore_index=51864,
+                    batch_val_loss = F.cross_entropy(
+                        logits.view(-1, logits.shape[-1]),
+                        text_y.view(-1),
+                        ignore_index=51864,
+                    )
+
+                    val_loss += batch_val_loss
+
+                probs = F.softmax(logits, dim=-1)
+                pred = torch.argmax(probs, dim=-1)
+
+                pred_text = []
+                for pred_instance in pred.cpu().numpy():
+                    pred_instance_text = tokenizer.decode(list(pred_instance))
+                    pred_instance_text = pred_instance_text.rsplit("<|endoftext|>", 1)[
+                        0
+                    ]
+                    pred_text.append(pred_instance_text)
+
+                tgt_text = []
+                for text_y_instance in text_y.cpu().numpy():
+                    tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
+                    tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
+                    tgt_text.append(tgt_y_instance_text)
+
+                tgt_pred_pairs = utils.clean_text(
+                    list(zip(tgt_text, pred_text)), "english"
                 )
 
-                val_loss += batch_val_loss
+                batch_val_wer = utils.average_wer(tgt_pred_pairs)
+                val_wer += batch_val_wer
 
-            probs = F.softmax(logits, dim=-1)
-            pred = torch.argmax(probs, dim=-1)
+                if rank == 0:
+                    print(f"{epoch=}")
+                    print(f"val step={batch_idx + 1}")
+                    print(f"val_loss by batch: {batch_val_loss}")
+                    print(f"val_wer by batch: {batch_val_wer}")
 
-            pred_text = []
-            for pred_instance in pred.cpu().numpy():
-                pred_instance_text = tokenizer.decode(list(pred_instance))
-                pred_instance_text = pred_instance_text.rsplit("<|endoftext|>", 1)[0]
-                pred_text.append(pred_instance_text)
+                    # every 10 steps
+                    if (batch_idx + 1) % 1 == 0:
+                        with open(
+                            f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
+                        ) as f:
+                            for i, (tgt_text_instance, pred_text_instance) in enumerate(
+                                tgt_pred_pairs
+                            ):
+                                if not val_res_added:  # only once
+                                    val_res.add_file(
+                                        f"logs/training/val_results_{'_'.join(tags)}.txt"
+                                    )
+                                    val_res_added = True
+                                    wandb.log_artifact(val_res)
 
-            tgt_text = []
-            for text_y_instance in text_y.cpu().numpy():
-                tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
-                tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
-                tgt_text.append(tgt_y_instance_text)
+                                f.write(f"{epoch=}\n")
+                                f.write(f"{transcript_files[i]}\n")
+                                f.write(f"{pred_text_instance=}\n")
+                                f.write(f"{tgt_text_instance=}\n\n")
 
-            tgt_pred_pairs = utils.clean_text(list(zip(tgt_text, pred_text)), "english")
-
-            batch_val_wer = utils.average_wer(tgt_pred_pairs)
-            val_wer += batch_val_wer
-
-            if rank == 0:
-                print(f"{epoch=}")
-                print(f"val step={batch_idx + 1}")
-                print(f"val_loss by batch: {batch_val_loss}")
-                print(f"val_wer by batch: {batch_val_wer}")
-
-                # every 10 steps
-                if (batch_idx + 1) % 1 == 0:
-                    with open(
-                        f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
-                    ) as f:
-                        for i, (tgt_text_instance, pred_text_instance) in enumerate(
-                            tgt_pred_pairs
-                        ):
-                            if not val_res_added:  # only once
-                                val_res.add_file(
-                                    f"logs/training/val_results_{'_'.join(tags)}.txt"
-                                )
-                                val_res_added = True
-                                wandb.log_artifact(val_res)
-
-                            f.write(f"{epoch=}\n")
-                            f.write(f"{transcript_files[i]}\n")
-                            f.write(f"{pred_text_instance=}\n")
-                            f.write(f"{tgt_text_instance=}\n\n")
+                                # logging to wandb table after 80 steps
+                                if (batch_idx + 1) == 80:
+                                    wer = np.round(
+                                        utils.calculate_wer(
+                                            (tgt_text_instance, pred_text_instance)
+                                        ),
+                                        2,
+                                    )
+                                    val_table.add_data(
+                                        audio_files[i],
+                                        wandb.Audio(audio_files[i], sample_rate=16000),
+                                        transcript_files[i],
+                                        pred_text_instance,
+                                        tgt_text_instance,
+                                        wer,
+                                    )
 
                             # logging to wandb table after 80 steps
                             if (batch_idx + 1) == 80:
-                                wer = np.round(
-                                    utils.calculate_wer(
-                                        (tgt_text_instance, pred_text_instance)
-                                    ),
-                                    2,
-                                )
-                                val_table.add_data(
-                                    audio_files[i],
-                                    wandb.Audio(audio_files[i], sample_rate=16000),
-                                    transcript_files[i],
-                                    pred_text_instance,
-                                    tgt_text_instance,
-                                    wer,
-                                )
+                                wandb.log({f"val_table_{epoch}": val_table})
 
-                        # logging to wandb table after 80 steps
-                        if (batch_idx + 1) == 80:
-                            wandb.log({f"val_table_{epoch}": val_table})
+                            f.write(f"{batch_val_loss=}\n")
+                            f.write(f"{batch_val_wer=}\n\n")
 
-                        f.write(f"{batch_val_loss=}\n")
-                        f.write(f"{batch_val_wer=}\n\n")
+            if rank == 0:
+                end_time = time.time()
+                with open(f"logs/training/epoch_times_{'_'.join(tags)}.txt", "a") as f:
+                    f.write(
+                        f"val epoch {epoch} took {(end_time - start_time) / 60.0} minutes\n"
+                    )
 
-        if rank == 0:
-            end_time = time.time()
-            with open(f"logs/training/epoch_times_{'_'.join(tags)}.txt", "a") as f:
-                f.write(
-                    f"val epoch {epoch} took {(end_time - start_time) / 60.0} minutes\n"
-                )
+            ave_val_wer = val_wer / len(val_dataloader)
+            ave_val_loss = val_loss / len(val_dataloader)
 
-        ave_val_wer = val_wer / len(val_dataloader)
-        ave_val_loss = val_loss / len(val_dataloader)
+            ave_val_wer_tensor = torch.tensor(ave_val_wer, device=rank)
+            dist.all_reduce(ave_val_wer_tensor, op=dist.ReduceOp.SUM)
+            val_wer_all = ave_val_wer_tensor.item() / dist.get_world_size()
 
-        ave_val_wer_tensor = torch.tensor(ave_val_wer, device=rank)
-        dist.all_reduce(ave_val_wer_tensor, op=dist.ReduceOp.SUM)
-        val_wer_all = ave_val_wer_tensor.item() / dist.get_world_size()
+            ave_val_loss_tensor = ave_val_loss.clone()
+            dist.all_reduce(ave_val_loss_tensor, op=dist.ReduceOp.SUM)
+            val_loss_all = ave_val_loss_tensor.item() / dist.get_world_size()
 
-        ave_val_loss_tensor = ave_val_loss.clone()
-        dist.all_reduce(ave_val_loss_tensor, op=dist.ReduceOp.SUM)
-        val_loss_all = ave_val_loss_tensor.item() / dist.get_world_size()
+            if rank == 0:
+                print(f"val_loss: {val_loss_all}")
+                print(f"val_wer: {val_wer_all}")
 
-        if rank == 0:
-            print(f"val_loss: {val_loss_all}")
-            print(f"val_wer: {val_wer_all}")
+                wandb.log({"val_loss": val_loss_all, "val_wer": val_wer_all})
 
-            wandb.log({"val_loss": val_loss_all, "val_wer": val_wer_all})
+                if val_loss_all < best_val_loss:
+                    best_val_loss = val_loss_all
 
-            if val_loss_all < best_val_loss:
-                best_val_loss = val_loss_all
+                    ddp_checkpoint = {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "scaler_state_dict": scaler.state_dict(),
+                        # You can also save other items such as scheduler state
+                        "scheduler_state_dict": (
+                            scheduler.state_dict() if scheduler else None
+                        ),
+                        "dims": model_dims.__dict__,
+                        # Include any other information you deem necessary
+                    }
 
-                ddp_checkpoint = {
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scaler_state_dict": scaler.state_dict(),
-                    # You can also save other items such as scheduler state
-                    "scheduler_state_dict": (
-                        scheduler.state_dict() if scheduler else None
-                    ),
-                    "dims": model_dims.__dict__,
-                    # Include any other information you deem necessary
-                }
+                    non_ddp_checkpoint = {
+                        "epoch": epoch,
+                        "model_state_dict": model.module.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "scaler_state_dict": scaler.state_dict(),
+                        # You can also save other items such as scheduler state
+                        "scheduler_state_dict": (
+                            scheduler.state_dict() if scheduler else None
+                        ),
+                        "dims": model_dims.__dict__,
+                    }
 
-                non_ddp_checkpoint = {
-                    "epoch": epoch,
-                    "model_state_dict": model.module.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scaler_state_dict": scaler.state_dict(),
-                    # You can also save other items such as scheduler state
-                    "scheduler_state_dict": (
-                        scheduler.state_dict() if scheduler else None
-                    ),
-                    "dims": model_dims.__dict__,
-                }
-
-                torch.save(
-                    ddp_checkpoint, f"checkpoints/tiny-en-ddp_{'_'.join(tags)}.pt"
-                )
-                torch.save(
-                    non_ddp_checkpoint,
-                    f"checkpoints/tiny-en-non-ddp_{'_'.join(tags)}.pt",
-                )
+                    torch.save(
+                        ddp_checkpoint, f"checkpoints/tiny-en-ddp_{'_'.join(tags)}.pt"
+                    )
+                    torch.save(
+                        non_ddp_checkpoint,
+                        f"checkpoints/tiny-en-non-ddp_{'_'.join(tags)}.pt",
+                    )
 
     cleanup()
 
@@ -843,12 +849,12 @@ if __name__ == "__main__":
     # suppose we have 4 gpus
     torch.cuda.empty_cache()
     world_size = 4 if not debug else 1
-    subset = 2000
-    epochs = 10
+    subset = None
+    epochs = 50
     eff_size = 256
     train_batch_size = 8
     val_batch_size = 8
-    train_val_split = 0.8
+    train_val_split = 0.99
     num_workers = 18
     pin_memory = False
     shuffle = True
