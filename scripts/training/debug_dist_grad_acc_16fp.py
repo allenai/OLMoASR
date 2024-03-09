@@ -478,7 +478,7 @@ def main(
                     )
 
                     # every 20 steps
-                    if ((batch_idx + 1) % (1 * accumulation_steps)) == 0:
+                    if ((batch_idx + 1) % (20 * accumulation_steps)) == 0:
                         with open(
                             f"logs/training/training_results_{'_'.join(tags)}.txt",
                             "a",
@@ -739,7 +739,7 @@ def main(
                     print(f"val_wer by batch: {batch_val_wer}")
 
                     # every 10 steps
-                    if (batch_idx + 1) % 1 == 0:
+                    if (batch_idx + 1) % 10 == 0:
                         with open(
                             f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
                         ) as f:
