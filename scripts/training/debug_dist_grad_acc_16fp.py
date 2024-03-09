@@ -247,7 +247,7 @@ def main(
     train_size = int(train_val_split * len(audio_text_dataset))
     val_size = len(audio_text_dataset) - train_size
 
-    generator = torch.Generator().manual_seed(88)
+    generator = torch.Generator().manual_seed(42)
     train_dataset, val_dataset = random_split(
         audio_text_dataset, [train_size, val_size], generator=generator
     )
@@ -496,6 +496,10 @@ def main(
                             ) in enumerate(
                                 tgt_pred_pairs[::8]  # should log just 8 examples
                             ):
+                                f.write(f"{epoch=}\n")
+                                f.write(
+                                    f"effective step={(batch_idx + 1) // accumulation_steps}\n"
+                                )
                                 f.write(f"{batch_text_files[i * 8]}\n")
                                 f.write(f"{pred_text_instance=}\n")
                                 f.write(f"{tgt_text_instance=}\n\n")
@@ -665,6 +669,7 @@ def main(
                             for i, (tgt_text_instance, pred_text_instance) in enumerate(
                                 tgt_pred_pairs
                             ):
+                                f.write(f"{epoch=}\n")
                                 f.write(f"{transcript_files[i]}\n")
                                 f.write(f"{pred_text_instance=}\n")
                                 f.write(f"{tgt_text_instance=}\n\n")
@@ -735,7 +740,7 @@ def main(
                 print(f"last batch")
                 print(f"{epoch=}")
                 print(f"step={batch_idx + 1}")
-                print(f"effective step={(batch_idx + 1) // accumulation_steps}")
+                print(f"effective step={((batch_idx + 1) // accumulation_steps) + 1}")
                 print(f"train_loss: {train_loss_all}")
                 print(f"train_wer: {train_wer_all}")
 
@@ -751,6 +756,10 @@ def main(
                     ) in enumerate(
                         tgt_pred_pairs[::8]  # should log just 8 examples
                     ):
+                        f.write(f"{epoch=}\n")
+                        f.write(
+                            f"effective step={((batch_idx + 1) // accumulation_steps) + 1}\n"
+                        )
                         f.write(f"{batch_text_files[i * 8]}\n")
                         f.write(f"{pred_text_instance=}\n")
                         f.write(f"{tgt_text_instance=}\n\n")
