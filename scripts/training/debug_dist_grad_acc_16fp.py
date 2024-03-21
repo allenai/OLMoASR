@@ -18,11 +18,10 @@ from dataclasses import dataclass
 import numpy as np
 import wandb
 from typing import List
-
-# import signal
 import time
+import jiwer
 
-debug = False
+debug = True
 
 # encoder architecture
 n_mels = 80
@@ -60,12 +59,10 @@ class AudioTextDataset(Dataset):
         )
 
         audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
-        transcript_file, text_tokens, padding_mask = self.preprocess_text(
+        transcript_file, text_input, text_y, padding_mask = self.preprocess_text(
             self.transcript_files[index], tokenizer
         )
-        # offset
-        text_input = text_tokens[:-1]
-        text_y = text_tokens[1:]
+
         return (
             audio_file,
             transcript_file,
@@ -100,22 +97,30 @@ class AudioTextDataset(Dataset):
 
         text_tokens.append(tokenizer.eot)
 
-        # for transcript lines that are longer than context length
-        # if len(text_tokens) > self.n_text_ctx:
-        #     text_tokens = text_tokens[: self.n_text_ctx - 1] + [self.tokenizer.eot]
+        # offset
+        text_input = text_tokens[:-1]
+        text_y = text_tokens[1:]
 
         padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
-        padding_mask[:, len(text_tokens) :] = -float("inf")
+        padding_mask[:, len(text_input) :] = -float("inf")
 
-        text_tokens = np.pad(
-            text_tokens,
-            pad_width=(0, self.n_text_ctx - len(text_tokens)),
+        text_input = np.pad(
+            text_input,
+            pad_width=(0, self.n_text_ctx - len(text_input)),
+            mode="constant",
+            constant_values=51864,
+        )
+        text_y = np.pad(
+            text_y,
+            pad_width=(0, self.n_text_ctx - len(text_y)),
             mode="constant",
             constant_values=51864,
         )
 
-        text_tokens = torch.tensor(text_tokens, dtype=torch.long)
-        return transcript_file, text_tokens, padding_mask
+        text_input = torch.tensor(text_input, dtype=torch.long)
+        text_y = torch.tensor(text_y, dtype=torch.long)
+
+        return transcript_file, text_input, text_y, padding_mask
 
 
 # model setup
@@ -380,7 +385,13 @@ def main(
                 "audio_input",
                 "transcript_file",
                 "pred_text",
+                "unnorm_pred_text",
                 "tgt_text",
+                "unnorm_tgt_text",
+                "substitutions",
+                "deletions",
+                "insertions",
+                "tgt_text_len",
                 "wer",
             ]
             train_table = wandb.Table(columns=columns)
@@ -454,9 +465,8 @@ def main(
                 train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
                 # text normalization
-                tgt_pred_pairs = utils.clean_text(
-                    list(zip(batch_tgt_text, batch_pred_text)), "english"
-                )
+                unnorm_tgt_pred_pairs = list(zip(batch_tgt_text, batch_pred_text))
+                tgt_pred_pairs = utils.clean_text(unnorm_tgt_pred_pairs, "english")
 
                 train_wer = utils.average_wer(tgt_pred_pairs)
                 # Use torch.tensor to work with dist.all_reduce
@@ -500,9 +510,15 @@ def main(
                                 f.write(
                                     f"effective step={(batch_idx + 1) // accumulation_steps}\n"
                                 )
-                                f.write(f"{batch_text_files[i * 8]}\n")
+                                f.write(f"text_file={batch_text_files[i * 8]}\n")
                                 f.write(f"{pred_text_instance=}\n")
-                                f.write(f"{tgt_text_instance=}\n\n")
+                                f.write(
+                                    f"unnorm_pred_text_instance={unnorm_tgt_pred_pairs[i * 8][1]}\n"
+                                )
+                                f.write(f"{tgt_text_instance=}\n")
+                                f.write(
+                                    f"unnorm_tgt_text_instance={unnorm_tgt_pred_pairs[i * 8][0]}\n\n"
+                                )
 
                                 # logging to wandb table after 1000 steps
                                 if (
@@ -515,6 +531,10 @@ def main(
                                         ),
                                         2,
                                     )
+                                    measures = jiwer.compute_measures(
+                                        tgt_text_instance, pred_text_instance
+                                    )
+
                                     train_table.add_data(
                                         batch_audio_files[i * 8],
                                         wandb.Audio(
@@ -523,7 +543,13 @@ def main(
                                         ),
                                         batch_text_files[i * 8],
                                         pred_text_instance,
+                                        unnorm_tgt_pred_pairs[i * 8][1],
                                         tgt_text_instance,
+                                        unnorm_tgt_pred_pairs[i * 8][0],
+                                        measures["substitutions"],
+                                        measures["deletions"],
+                                        measures["insertions"],
+                                        len(tgt_text_instance.split()),
                                         wer,
                                     )
 
@@ -635,7 +661,13 @@ def main(
                         )
                         f.write(f"{batch_text_files[i * 8]}\n")
                         f.write(f"{pred_text_instance=}\n")
-                        f.write(f"{tgt_text_instance=}\n\n")
+                        f.write(
+                            f"unnorm_pred_text_instance={unnorm_tgt_pred_pairs[i * 8][1]}\n"
+                        )
+                        f.write(f"{tgt_text_instance=}\n")
+                        f.write(
+                            f"unnorm_tgt_text_instance={unnorm_tgt_pred_pairs[i * 8][0]}\n\n"
+                        )
 
                     f.write(f"{train_loss_all=}\n")
                     f.write(f"{train_wer_all=}\n\n")
@@ -673,7 +705,13 @@ def main(
                 "audio_input",
                 "transcript_file",
                 "pred_text",
+                "unnorm_pred_text",
                 "tgt_text",
+                "unnorm_tgt_text",
+                "substitutions",
+                "deletions",
+                "insertions",
+                "tgt_text_len",
                 "wer",
             ]
             val_table = wandb.Table(columns=columns)
@@ -725,9 +763,8 @@ def main(
                     tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
                     tgt_text.append(tgt_y_instance_text)
 
-                tgt_pred_pairs = utils.clean_text(
-                    list(zip(tgt_text, pred_text)), "english"
-                )
+                unnorm_tgt_pred_pairs = list(zip(tgt_text, pred_text))
+                tgt_pred_pairs = utils.clean_text(unnorm_tgt_pred_pairs, "english")
 
                 batch_val_wer = utils.average_wer(tgt_pred_pairs)
                 val_wer += batch_val_wer
@@ -756,7 +793,13 @@ def main(
                                 f.write(f"{epoch=}\n")
                                 f.write(f"{transcript_files[i]}\n")
                                 f.write(f"{pred_text_instance=}\n")
-                                f.write(f"{tgt_text_instance=}\n\n")
+                                f.write(
+                                    f"unnorm_pred_text_instance={unnorm_tgt_pred_pairs[i][1]=}\n"
+                                )
+                                f.write(f"{tgt_text_instance=}\n")
+                                f.write(
+                                    f"unnorm_tgt_text_instance={unnorm_tgt_pred_pairs[i][0]=}\n\n"
+                                )
 
                                 # logging to wandb table after 80 steps
                                 if (batch_idx + 1) == 80:
@@ -766,12 +809,22 @@ def main(
                                         ),
                                         2,
                                     )
+                                    measures = jiwer.compute_measures(
+                                        tgt_text_instance, pred_text_instance
+                                    )
+
                                     val_table.add_data(
                                         audio_files[i],
                                         wandb.Audio(audio_files[i], sample_rate=16000),
                                         transcript_files[i],
                                         pred_text_instance,
+                                        unnorm_tgt_pred_pairs[i][1],
                                         tgt_text_instance,
+                                        unnorm_tgt_pred_pairs[i][0],
+                                        measures["substitutions"],
+                                        measures["deletions"],
+                                        measures["insertions"],
+                                        len(tgt_text_instance.split()),
                                         wer,
                                     )
 
