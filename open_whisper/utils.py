@@ -13,6 +13,22 @@ def exact_div(x, y):
     return x // y
 
 
+def remove_after_endoftext(text):
+    """Removes everything after the first instance of "<|endoftext|>" in a string.
+
+    Args:
+      text: The string to process.
+
+    Returns:
+      The string with everything after the first "<|endoftext|>" removed.
+    """
+    endoftext_index = text.find("<|endoftext|>")
+    if endoftext_index != -1:
+        return text[: endoftext_index + len("<|endoftext|>")]
+    else:
+        return text
+
+
 def convert_to_milliseconds(timestamp: str) -> int:
     h, m, s, ms = map(float, timestamp.replace(".", ":").split(":"))
     return int(h * 3600000 + m * 60000 + s * 1000 + ms)

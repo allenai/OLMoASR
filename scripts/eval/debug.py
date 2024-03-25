@@ -1,23 +1,3 @@
-import whisper
-
-model = whisper.load_model("checkpoints/tiny-en.pt")
-
-# load audio and pad/trim it to fit 30 seconds
-audio = whisper.load_audio(
-    "data/sanity-check/audio/eh77AUKedyM/segments/00:00:01.501_00:00:30.071.m4a"
-)
-audio = whisper.pad_or_trim(audio)
-
-# make log-Mel spectrogram and move to the same device as the model
-mel = whisper.log_mel_spectrogram(audio).to(model.device)
-
-options = whisper.DecodingOptions(language="en", without_timestamps=True)
-
-result = whisper.decode(model, mel, options)
-
-print(result.text)
-
-
 # class AudioTextEval(AudioTextDataset):
 #     def __init__(
 #         self,
@@ -64,30 +44,30 @@ print(result.text)
 #         return text_id, text_tokens
 
 
-data_dirs_val = []
-for root, dirs, files in os.walk("data/eval/LibriSpeech/test-clean"):
-    if len(root.split("/")) == 6:
-        data_dirs_val.append(root)
+# data_dirs_val = []
+# for root, dirs, files in os.walk("data/eval/LibriSpeech/test-clean"):
+#     if len(root.split("/")) == 6:
+#         data_dirs_val.append(root)
 
-transcript_files = []
-audio_files = []
+# transcript_files = []
+# audio_files = []
 
-for d in data_dirs_val:
-    for f in os.listdir(d):
-        if f.endswith("txt"):
-            transcript_files.append(os.path.join(d, f))
-        else:
-            audio_files.append(os.path.join(d, f))
+# for d in data_dirs_val:
+#     for f in os.listdir(d):
+#         if f.endswith("txt"):
+#             transcript_files.append(os.path.join(d, f))
+#         else:
+#             audio_files.append(os.path.join(d, f))
 
-audio_text_dataset_val = AudioTextEval(
-    audio_files=sorted(audio_files),
-    transcript_files=sorted(transcript_files),
-    tokenizer=tokenizer,
-    device=DEVICE,
-    n_text_ctx=448,
-)
+# audio_text_dataset_val = AudioTextEval(
+#     audio_files=sorted(audio_files),
+#     transcript_files=sorted(transcript_files),
+#     tokenizer=tokenizer,
+#     device=DEVICE,
+#     n_text_ctx=448,
+# )
 
-val_batch_size = 8
-audio_text_val_dataloader = DataLoader(
-    audio_text_dataset_val, batch_size=val_batch_size
-)
+# val_batch_size = 8
+# audio_text_val_dataloader = DataLoader(
+#     audio_text_dataset_val, batch_size=val_batch_size
+# )

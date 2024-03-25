@@ -270,7 +270,7 @@ class TextDecoder(nn.Module):
         n_ctx = x.shape[1]
         if padding_mask is not None:
             mask = (
-                torch.empty(n_ctx + 1, n_ctx + 1)
+                torch.empty(n_ctx, n_ctx)
                 .fill_(-np.inf)
                 .triu_(1)
                 .to(device=padding_mask.device)
