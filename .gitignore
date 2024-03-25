@@ -9,6 +9,6 @@ wandb
 *.pex
 .pexing
 whisper
-data/
+data
 checkpoints
 logs
