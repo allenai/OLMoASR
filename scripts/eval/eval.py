@@ -1,7 +1,7 @@
 # using whisper's decoding function
 import whisper
 import open_whisper as ow
-from open_whisper import utils
+from open_whisper import utils, audio
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 import torch.nn.functional as F
