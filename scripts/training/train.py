@@ -54,9 +54,7 @@ class AudioTextDataset(Dataset):
 
     def __getitem__(self, index):
         # not sure if putting it here is bad...
-        tokenizer = ow.tokenizer.get_tokenizer(
-            multilingual=True, language="en", task="transcribe"
-        )
+        tokenizer = ow.tokenizer.get_tokenizer(multilingual=False)
 
         audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
         transcript_file, text_input, text_y, padding_mask = self.preprocess_text(
@@ -227,9 +225,7 @@ def main(
     setup(rank, world_size)
 
     # dataset setup
-    tokenizer = ow.tokenizer.get_tokenizer(
-        multilingual=True, language="en", task="transcribe"
-    )
+    tokenizer = ow.tokenizer.get_tokenizer(multilingual=False)
 
     if subset is not None:
         rng = np.random.default_rng(seed=42)
@@ -531,7 +527,9 @@ def main(
                                 )
 
                                 # logging to wandb table after 1000 steps
-                                if ((batch_idx + 1) // (1000 * accumulation_steps)) == 1:
+                                if (
+                                    (batch_idx + 1) // (1000 * accumulation_steps)
+                                ) == 1:
                                     # logging to wandb table
                                     wer = np.round(
                                         utils.calculate_wer(
@@ -776,7 +774,9 @@ def main(
                 for pred_instance in pred.cpu().numpy():
                     pred_instance_text = tokenizer.decode(list(pred_instance))
                     unnorm_pred_text.append(pred_instance_text)
-                    pred_instance_text = utils.remove_after_endoftext(pred_instance_text)
+                    pred_instance_text = utils.remove_after_endoftext(
+                        pred_instance_text
+                    )
                     pred_text.append(pred_instance_text)
 
                 tgt_text = []
@@ -787,7 +787,9 @@ def main(
                     tgt_text.append(tgt_y_instance_text)
 
                 unnorm_tgt_pred_trip = list(zip(tgt_text, pred_text, unnorm_pred_text))
-                tgt_pred_pairs = utils.clean_text(list(zip(tgt_text, pred_text)), "english")
+                tgt_pred_pairs = utils.clean_text(
+                    list(zip(tgt_text, pred_text)), "english"
+                )
 
                 batch_val_wer = utils.average_wer(tgt_pred_pairs)
                 val_wer += batch_val_wer
