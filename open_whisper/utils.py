@@ -5,12 +5,18 @@ from typing import Dict, Union, Tuple, List, Optional
 import pysrt
 import webvtt
 import jiwer
+import zlib
 from .normalizers import BasicTextNormalizer, EnglishTextNormalizer
 
 
 def exact_div(x, y):
     assert x % y == 0
     return x // y
+
+
+def compression_ratio(text) -> float:
+    text_bytes = text.encode("utf-8")
+    return len(text_bytes) / len(zlib.compress(text_bytes))
 
 
 def remove_after_endoftext(text):
