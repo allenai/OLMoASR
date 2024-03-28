@@ -12,7 +12,7 @@ from open_whisper import (
 from whisper import whisper
 
 # %%
-fp = "/home/ubuntu/open_whisper/checkpoints/whisper/tiny-en-whisper.pt"
+fp = "/home/ubuntu/open_whisper/checkpoints/archive/comic-cloud-73/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99.pt"
 model = whisper.load_model(fp)
 
 # %%
@@ -53,10 +53,6 @@ temp_tokenizer.eot
 decoder_input = torch.full((1, 1), 50258, dtype=torch.long, device=device)
 
 # %%
-generated_sequences = [[]]
-active = torch.ones(1, dtype=torch.bool)
-
-# %%
 logits = model(batch_audio_input, decoder_input)
 probs = F.softmax(logits, dim=-1)
 # not a 1-dim tensor! grows as decoding continues
@@ -87,6 +83,3 @@ probs = F.softmax(logits, dim=-1)
 # not a 1-dim tensor! grows as decoding continues
 next_token_pred = torch.argmax(probs, dim=-1)
 next_token_pred
-
-# %%
-model.eval()
