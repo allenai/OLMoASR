@@ -9,6 +9,7 @@ from open_whisper.model import ModelDimensions, Whisper
 from open_whisper.audio import load_audio, log_mel_spectrogram, pad_or_trim
 
 
+# should add more features (loading in model checkpoints by identifiers with dictionary of checkpoint paths)
 def load_model(
     name: str,
     device: Optional[Union[str, torch.device]] = None,
