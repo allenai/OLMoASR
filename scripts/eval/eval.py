@@ -1,16 +1,15 @@
 # using whisper's decoding function
-import whisper
-import open_whisper as ow
-from open_whisper import utils, audio
+from open_whisper import audio, utils, load_model, decoding
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 from typing import Literal
 import os
 import numpy as np
+import jiwer
 
 
-class librispeech:
+class Librispeech:
     def __init__(self, root_dir):
         self.root_dir = root_dir
 
@@ -27,7 +26,7 @@ class librispeech:
                 for line in f:
                     audio_codes = line.split(" ")[0].split("-")
                     audio_file = os.path.join(
-                        self.rootdir,
+                        self.root_dir,
                         audio_codes[0],
                         audio_codes[1],
                         f"{audio_codes[0]}-{audio_codes[1]}-{audio_codes[2]}.flac",
@@ -37,7 +36,7 @@ class librispeech:
         return list(audio_text.keys()), list(audio_text.values())
 
 
-class artie_bias_corpus:
+class ArtieBiasCorpus:
     def __init__(self, root_dir):
         self.root_dir = root_dir
 
@@ -57,13 +56,18 @@ class artie_bias_corpus:
 class AudioTextDataset(Dataset):
     def __init__(
         self,
-        corpus: Literal["librispeech", "artie_bias_corpus"],
+        corpus: Literal["librispeech-other", "librispeech-clean", "artie-bias-corpus"],
     ):
         self.corpus = corpus
 
-        if corpus == "librispeech":
+        if corpus == "librispeech-clean":
+            librispeech = Librispeech("data/eval/test-clean-librispeech/test-clean")
             audio_files, transcript_texts = librispeech.load()
-        elif corpus == "artie_bias_corpus":
+        elif corpus == "librispeech-other":
+            librispeech = Librispeech("data/eval/test-other-librispeech/test-other")
+            audio_files, transcript_texts = librispeech.load()
+        elif corpus == "artie-bias-corpus":
+            artie_bias_corpus = ArtieBiasCorpus("data/eval/artie-bias-corpus")
             audio_files, transcript_texts = artie_bias_corpus.load()
 
         self.audio_files = audio_files
@@ -91,3 +95,70 @@ class AudioTextDataset(Dataset):
         #     mel_spec_normalized = (mel_spec - mel_spec.mean()) / "mel_spec.std()
         #     mel_spec_scaled = mel_spec_normalized / (mel_spec_normalized.abs().max())
         return audio_file, mel_spec
+
+
+def main(batch_size, num_workers, persistent_workers, corpus, fp):
+    device = torch.device("cuda")
+
+    audio_text_dataset = AudioTextDataset(corpus)
+    dataloader = DataLoader(
+        audio_text_dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        drop_last=False,
+        persistent_workers=persistent_workers,
+    )
+
+    model = load_model(fp, device=device)
+    model.eval()
+    options = decoding.DecodingOptions(language="en", without_timestamps=True)
+    total_wer = 0.0
+
+    for batch_idx, batch in enumerate(dataloader):
+        audio_file, audio_input, text_y = batch
+
+        audio_input = audio_input.to(device)
+
+        results = decoding.decode(model, audio_input, options)
+        text_pred = [result.text for result in results]
+        unnorm_tgt_pred_pairs = list(zip(text_y, text_pred))
+
+        tgt_pred_pairs = utils.clean_text(unnorm_tgt_pred_pairs, "english")
+
+        with open(f"logs/eval/{fp.split('/')[2]}-{corpus}.txt", "a") as f:
+            for i, (tgt, pred) in enumerate(tgt_pred_pairs):
+                f.write(f"Audio File: {audio_file[i]}\n")
+                f.write(f"Target: {unnorm_tgt_pred_pairs[i][0]}\n")
+
+                f.write(f"Prediction: {unnorm_tgt_pred_pairs[i][1]}\n")
+                f.write(f"Cleaned Target: {tgt}\n")
+                f.write(f"Cleaned Prediction: {pred}\n")
+
+                wer = np.round(utils.calculate_wer((tgt, pred)), 2)
+                total_wer += wer
+
+                measures = jiwer.compute_measures(
+                    tgt, pred
+                )
+                subs = measures["substitutions"]
+                dels = measures["deletions"]
+                ins = measures["insertions"]
+
+                f.write(f"WER: {wer}\n")
+                f.write(f"Substitutions: {subs}\n")
+                f.write(f"Deletions: {dels}\n")
+                f.write(f"Insertions: {ins}\n\n")
+
+    with open(f"logs/eval/{fp.split('/')[2]}-{corpus}.txt", "a") as f:
+        avg_wer = total_wer / len(audio_text_dataset)
+        f.write(f"Average WER: {avg_wer}\n")
+        print(f"Average WER: {avg_wer}")
+
+if __name__ == "__main__":
+    main(
+        batch_size=16,
+        num_workers=4,
+        persistent_workers=True,
+        corpus="librispeech-clean",
+        fp="checkpoints/archive/comic-cloud-73/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99.pt",
+    )
