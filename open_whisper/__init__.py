@@ -4,7 +4,7 @@ import io
 import os
 from typing import Optional, Union
 import torch
-from open_whisper import audio, model, preprocess, tokenizer, utils, decoding
+from open_whisper import audio, model, inf_model, preprocess, tokenizer, utils, decoding
 from open_whisper.model import ModelDimensions, Whisper
 from open_whisper.audio import load_audio, log_mel_spectrogram, pad_or_trim
 
@@ -13,6 +13,7 @@ from open_whisper.audio import load_audio, log_mel_spectrogram, pad_or_trim
 def load_model(
     name: str,
     device: Optional[Union[str, torch.device]] = None,
+    inference: bool = False,
     in_memory: bool = False,
 ) -> Whisper:
     """
@@ -50,7 +51,10 @@ def load_model(
     del checkpoint_file
 
     dims = ModelDimensions(**checkpoint["dims"])
-    model = Whisper(dims)
+    if inference:
+        model = inf_model.Whisper(dims)
+    else:
+        model = model.Whisper(dims)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     if alignment_heads is not None:
