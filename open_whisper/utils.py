@@ -186,7 +186,7 @@ def average_wer(pair_list: List[Tuple[str, str]]) -> float:
 
 
 def clean_text(
-    pair_list: List[Tuple[str, str]],
+    text_list: Union[List[Tuple[str, str]], List],
     normalizer: str,
     remove_diacritics: bool = True,
     split_letters: bool = True,
@@ -200,8 +200,12 @@ def clean_text(
     else:
         raise ValueError("Unsupported normalizer")
 
-    normalize = lambda pair: (
-        normalizer.clean(pair[0]) if normalizer == "basic" else normalizer(pair[0]),
-        normalizer.clean(pair[1]) if normalizer == "basic" else normalizer(pair[1]),
-    )
-    return list(map(normalize, pair_list))
+    if len(text_list[0]) == 2: # is tuple
+        normalize = lambda pair: (
+            normalizer.clean(pair[0]) if normalizer == "basic" else normalizer(pair[0]),
+            normalizer.clean(pair[1]) if normalizer == "basic" else normalizer(pair[1]),
+        )
+    else:
+        normalize = lambda text: normalizer.clean(text) if normalizer == "basic" else normalizer(text)
+    
+    return list(map(normalize, text_list))
