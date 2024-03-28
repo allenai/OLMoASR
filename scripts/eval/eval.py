@@ -7,6 +7,7 @@ from typing import Literal
 import os
 import numpy as np
 import jiwer
+import wandb
 
 
 class Librispeech:
@@ -98,6 +99,38 @@ class AudioTextDataset(Dataset):
 
 
 def main(batch_size, num_workers, persistent_workers, corpus, fp):
+    tags = [f"{fp.split('/')[2]}", corpus, "eval"]
+
+    wandb.init(
+        project="open_whisper",
+        entity="open-whisper-team",
+        save_code=True,
+        job_type="inference",
+        tags=(tags),
+        dir="scripts/training",
+    )
+
+    columns = [
+        "audio_file",
+        "audio_input",
+        "pred_text",
+        "pred_text (whisper)",
+        "tgt_text",
+        "tgt_text (whisper)",
+        "unnorm_pred_text",
+        "unnorm_tgt_text",
+        "subs",
+        "subs (whisper)",
+        "del",
+        "del (whisper)",
+        "ins",
+        "ins (whisper)",
+        "tgt_text_len",
+        "wer",
+        "wer (whisper)",
+    ]
+    eval_table = wandb.Table(columns=columns)
+
     device = torch.device("cuda")
 
     audio_text_dataset = AudioTextDataset(corpus)
@@ -109,7 +142,7 @@ def main(batch_size, num_workers, persistent_workers, corpus, fp):
         persistent_workers=persistent_workers,
     )
 
-    model = load_model(fp, device=device)
+    model = load_model(fp, device=device, inference=True)
     model.eval()
     options = decoding.DecodingOptions(language="en", without_timestamps=True)
     total_wer = 0.0
@@ -127,6 +160,7 @@ def main(batch_size, num_workers, persistent_workers, corpus, fp):
 
         with open(f"logs/eval/{fp.split('/')[2]}-{corpus}.txt", "a") as f:
             for i, (tgt, pred) in enumerate(tgt_pred_pairs):
+
                 f.write(f"Audio File: {audio_file[i]}\n")
                 f.write(f"Target: {unnorm_tgt_pred_pairs[i][0]}\n")
 
@@ -137,9 +171,7 @@ def main(batch_size, num_workers, persistent_workers, corpus, fp):
                 wer = np.round(utils.calculate_wer((tgt, pred)), 2)
                 total_wer += wer
 
-                measures = jiwer.compute_measures(
-                    tgt, pred
-                )
+                measures = jiwer.compute_measures(tgt, pred)
                 subs = measures["substitutions"]
                 dels = measures["deletions"]
                 ins = measures["insertions"]
@@ -154,11 +186,12 @@ def main(batch_size, num_workers, persistent_workers, corpus, fp):
         f.write(f"Average WER: {avg_wer}\n")
         print(f"Average WER: {avg_wer}")
 
+
 if __name__ == "__main__":
     main(
         batch_size=16,
         num_workers=4,
         persistent_workers=True,
         corpus="librispeech-clean",
-        fp="checkpoints/archive/comic-cloud-73/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99.pt",
+        fp="checkpoints/archive/comic-cloud-73/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99_inf.pt",
     )
