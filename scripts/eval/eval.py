@@ -8,6 +8,7 @@ import os
 import numpy as np
 import jiwer
 import wandb
+from fire import Fire
 
 
 class Librispeech:
@@ -97,9 +98,8 @@ class AudioTextDataset(Dataset):
         #     mel_spec_scaled = mel_spec_normalized / (mel_spec_normalized.abs().max())
         return audio_file, mel_spec
 
-
-def main(batch_size, num_workers, persistent_workers, corpus, fp):
-    tags = [f"{fp.split('/')[2]}", corpus, "eval"]
+def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
+    tags = [f"{ow_fp.split('/')[2]}", f"{w_fp.split('/')[2]}", corpus, "eval"]
 
     wandb.init(
         project="open_whisper",
@@ -116,8 +116,8 @@ def main(batch_size, num_workers, persistent_workers, corpus, fp):
         "pred_text",
         "pred_text (whisper)",
         "tgt_text",
-        "tgt_text (whisper)",
         "unnorm_pred_text",
+        "unnorm_pred_text (whisper)",
         "unnorm_tgt_text",
         "subs",
         "subs (whisper)",
@@ -130,6 +130,7 @@ def main(batch_size, num_workers, persistent_workers, corpus, fp):
         "wer (whisper)",
     ]
     eval_table = wandb.Table(columns=columns)
+    avg_table = wandb.Table(columns=["model", "avg_wer", "avg_subs", "avg_del", "avg_ins"])
 
     device = torch.device("cuda")
 
@@ -142,56 +143,108 @@ def main(batch_size, num_workers, persistent_workers, corpus, fp):
         persistent_workers=persistent_workers,
     )
 
-    model = load_model(fp, device=device, inference=True)
-    model.eval()
+    ow_model = load_model(ow_fp, device=device, inference=True)
+    w_model = load_model(w_fp, device=device, inference=True)
+    ow_model.eval()
+    w_model.eval()
     options = decoding.DecodingOptions(language="en", without_timestamps=True)
-    total_wer = 0.0
 
-    for batch_idx, batch in enumerate(dataloader):
-        audio_file, audio_input, text_y = batch
+    ow_total_wer = 0.0
+    w_total_wer = 0.0
+    ow_total_subs = 0.0
+    w_total_subs = 0.0
+    ow_total_del = 0.0
+    w_total_del = 0.0
+    ow_total_ins = 0.0
+    w_total_ins = 0.0
 
-        audio_input = audio_input.to(device)
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(dataloader):
+            audio_file, audio_input, text_y = batch
 
-        results = decoding.decode(model, audio_input, options)
-        text_pred = [result.text for result in results]
-        unnorm_tgt_pred_pairs = list(zip(text_y, text_pred))
+            audio_input = audio_input.to(device)
 
-        tgt_pred_pairs = utils.clean_text(unnorm_tgt_pred_pairs, "english")
+            ow_results = decoding.decode(ow_model, audio_input, options)
+            w_results = decoding.decode(w_model, audio_input, options)
+            ow_text_pred = [result.text for result in ow_results]
+            w_text_pred = [result.text for result in w_results]
+            ow_unnorm_tgt_pred_pairs = list(zip(text_y, ow_text_pred))
 
-        with open(f"logs/eval/{fp.split('/')[2]}-{corpus}.txt", "a") as f:
-            for i, (tgt, pred) in enumerate(tgt_pred_pairs):
+            ow_tgt_pred_pairs = utils.clean_text(ow_unnorm_tgt_pred_pairs, "english")
+            w_pred = utils.clean_text(w_text_pred, "english")
 
-                f.write(f"Audio File: {audio_file[i]}\n")
-                f.write(f"Target: {unnorm_tgt_pred_pairs[i][0]}\n")
+            for i, (tgt, pred) in enumerate(ow_tgt_pred_pairs):
+                ow_wer = np.round(utils.calculate_wer((tgt, pred)), 2)
+                w_wer = np.round(utils.calculate_wer((tgt, w_pred[i])), 2)
+                ow_total_wer += ow_wer
+                w_total_wer += w_wer
 
-                f.write(f"Prediction: {unnorm_tgt_pred_pairs[i][1]}\n")
-                f.write(f"Cleaned Target: {tgt}\n")
-                f.write(f"Cleaned Prediction: {pred}\n")
+                ow_measures = jiwer.compute_measures(tgt, pred)
+                ow_subs = ow_measures["substitutions"]
+                ow_del = ow_measures["deletions"]
+                ow_ins = ow_measures["insertions"]
+                ow_total_subs += ow_subs
+                ow_total_del += ow_del
+                ow_total_ins += ow_ins
 
-                wer = np.round(utils.calculate_wer((tgt, pred)), 2)
-                total_wer += wer
+                w_measures = jiwer.compute_measures(tgt, w_pred[i])
+                w_subs = w_measures["substitutions"]
+                w_del = w_measures["deletions"]
+                w_ins = w_measures["insertions"]
+                w_total_subs += w_subs
+                w_total_del += w_del
+                w_total_ins += w_ins
 
-                measures = jiwer.compute_measures(tgt, pred)
-                subs = measures["substitutions"]
-                dels = measures["deletions"]
-                ins = measures["insertions"]
+                print(f"Audio File: {audio_file[i]}\n")
+                print(f"Target: {text_y[i]}\n")
+                print(f"Prediction: {ow_text_pred[i]}\n")
+                print(f"Cleaned Target: {tgt}\n")
+                print(f"Cleaned Prediction: {pred}\n")
+                print(f"WER: {ow_wer}\n\n")
 
-                f.write(f"WER: {wer}\n")
-                f.write(f"Substitutions: {subs}\n")
-                f.write(f"Deletions: {dels}\n")
-                f.write(f"Insertions: {ins}\n\n")
+                eval_table.add_data(audio_file[i], 
+                                    audio_input[i], 
+                                    pred,
+                                    w_pred[i], 
+                                    tgt, 
+                                    ow_text_pred[i], 
+                                    w_text_pred[i], 
+                                    text_y[i], 
+                                    ow_subs, 
+                                    w_subs, 
+                                    ow_del, 
+                                    w_del, 
+                                    ow_ins, 
+                                    w_ins, 
+                                    len(tgt.split()), 
+                                    ow_wer, 
+                                    w_wer)
 
-    with open(f"logs/eval/{fp.split('/')[2]}-{corpus}.txt", "a") as f:
-        avg_wer = total_wer / len(audio_text_dataset)
-        f.write(f"Average WER: {avg_wer}\n")
-        print(f"Average WER: {avg_wer}")
+    ow_avg_wer = ow_total_wer / len(audio_text_dataset)
+    w_avg_wer = w_total_wer / len(audio_text_dataset)
+    print(f"Average WER for {ow_fp.split('/')[2]}: {ow_avg_wer}")
+    print(f"Average WER for {w_fp.split('/')[2]}: {w_avg_wer}")
+
+    ow_avg_subs = ow_total_subs / len(audio_text_dataset)
+    w_avg_subs = w_total_subs / len(audio_text_dataset)
+    ow_avg_del = ow_total_del / len(audio_text_dataset)
+    w_avg_del = w_total_del / len(audio_text_dataset)
+    ow_avg_ins = ow_total_ins / len(audio_text_dataset)
+    w_avg_ins = w_total_ins / len(audio_text_dataset)
+
+    avg_table.add_data(ow_fp.split("/")[2], ow_avg_wer, ow_avg_subs, ow_avg_del, ow_avg_ins)
+    avg_table.add_data(w_fp.split("/")[2], w_avg_wer, w_avg_subs, w_avg_del, w_avg_ins)
+
+    wandb.log({"eval_table": eval_table, "avg_table": avg_table})
 
 
 if __name__ == "__main__":
-    main(
-        batch_size=16,
-        num_workers=4,
-        persistent_workers=True,
-        corpus="librispeech-clean",
-        fp="checkpoints/archive/comic-cloud-73/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99_inf.pt",
-    )
+    Fire(main)
+    # main(
+    #     batch_size=8,
+    #     num_workers=4,
+    #     persistent_workers=True,
+    #     corpus="librispeech-clean",
+    #     ow_fp="checkpoints/archive/comic-cloud-73/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99_inf.pt",
+    #     w_fp="checkpoints/whisper/tiny-en-whisper.pt",
+    # )
