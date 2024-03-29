@@ -516,8 +516,7 @@ class DecodingTask:
 
         language = options.language or "en"
         tokenizer = get_tokenizer(
-            # model.is_multilingual,
-            multilingual=True, # temporary setting - delete later
+            model.is_multilingual,
             num_languages=model.num_languages,
             language=language,
             task=options.task,
