@@ -46,7 +46,7 @@ class ArtieBiasCorpus:
         audio_files = []
         transcript_texts = []
         with open(os.path.join(self.root_dir, "artie-bias-corpus.tsv"), "r") as f:
-            for line in f:
+            for line in f[1:]:
                 audio_file = os.path.join(self.root_dir, line.split("\t")[1].strip())
                 transcript_text = line.split("\t")[2].strip()
                 audio_files.append(audio_file)
