@@ -42,6 +42,12 @@ checkpoint["model_state_dict"]["decoder.token_embedding.weight"] = new_dec_tok_e
 print(checkpoint["model_state_dict"]["decoder.token_embedding.weight"].shape)
 checkpoint["model_state_dict"]["decoder.token_embedding.weight"]
 
+#%%
+checkpoint["dims"]["n_vocab"] = 51865
+
+#%%
+checkpoint["dims"]
+
 # %%
 torch.save(
     checkpoint,

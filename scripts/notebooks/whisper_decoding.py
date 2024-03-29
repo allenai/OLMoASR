@@ -8,6 +8,7 @@ from open_whisper import (
     pad_or_trim,
     Whisper,
     tokenizer,
+    load_model
 )
 from whisper import whisper
 
@@ -22,11 +23,11 @@ device = torch.device("cuda")
 model.to(device)
 
 # %%
-audio = whisper.load_audio(
+audio = load_audio(
     "/home/ubuntu/open_whisper/data/eval/artie-bias-corpus/common_voice_en_250.mp3"
 )
-audio = whisper.pad_or_trim(audio)
-audio_input = whisper.log_mel_spectrogram(audio).to(model.device)
+audio = pad_or_trim(audio)
+audio_input = log_mel_spectrogram(audio).to(device)
 
 # %%
 options = whisper.DecodingOptions(language="en", without_timestamps=True)
