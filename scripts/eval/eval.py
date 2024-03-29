@@ -129,7 +129,6 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
         "wer",
         "wer (whisper)",
     ]
-    eval_table = wandb.Table(columns=columns)
     avg_table = wandb.Table(columns=["model", "avg_wer", "avg_subs", "avg_del", "avg_ins"])
 
     device = torch.device("cuda")
@@ -160,6 +159,7 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(dataloader):
+            eval_table = wandb.Table(columns=columns)
             audio_file, audio_input, text_y = batch
 
             audio_input = audio_input.to(device)
@@ -172,53 +172,59 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
 
             ow_tgt_pred_pairs = utils.clean_text(ow_unnorm_tgt_pred_pairs, "english")
             w_pred = utils.clean_text(w_text_pred, "english")
+        
+            with open(f"logs/eval/{ow_fp.split('/')[2]}-{corpus}.txt", "a") as f:
+                for i, (tgt, pred) in enumerate(ow_tgt_pred_pairs):
+                    ow_wer = np.round(utils.calculate_wer((tgt, pred)), 2)
+                    w_wer = np.round(utils.calculate_wer((tgt, w_pred[i])), 2)
+                    ow_total_wer += ow_wer
+                    w_total_wer += w_wer
 
-            for i, (tgt, pred) in enumerate(ow_tgt_pred_pairs):
-                ow_wer = np.round(utils.calculate_wer((tgt, pred)), 2)
-                w_wer = np.round(utils.calculate_wer((tgt, w_pred[i])), 2)
-                ow_total_wer += ow_wer
-                w_total_wer += w_wer
+                    ow_measures = jiwer.compute_measures(tgt, pred)
+                    ow_subs = ow_measures["substitutions"]
+                    ow_del = ow_measures["deletions"]
+                    ow_ins = ow_measures["insertions"]
+                    ow_total_subs += ow_subs
+                    ow_total_del += ow_del
+                    ow_total_ins += ow_ins
 
-                ow_measures = jiwer.compute_measures(tgt, pred)
-                ow_subs = ow_measures["substitutions"]
-                ow_del = ow_measures["deletions"]
-                ow_ins = ow_measures["insertions"]
-                ow_total_subs += ow_subs
-                ow_total_del += ow_del
-                ow_total_ins += ow_ins
+                    w_measures = jiwer.compute_measures(tgt, w_pred[i])
+                    w_subs = w_measures["substitutions"]
+                    w_del = w_measures["deletions"]
+                    w_ins = w_measures["insertions"]
+                    w_total_subs += w_subs
+                    w_total_del += w_del
+                    w_total_ins += w_ins
 
-                w_measures = jiwer.compute_measures(tgt, w_pred[i])
-                w_subs = w_measures["substitutions"]
-                w_del = w_measures["deletions"]
-                w_ins = w_measures["insertions"]
-                w_total_subs += w_subs
-                w_total_del += w_del
-                w_total_ins += w_ins
+                    f.write(f"Audio File: {audio_file[i]}\n")
+                    f.write(f"Target: {text_y[i]}\n")
+                    f.write(f"Prediction: {ow_text_pred[i]}\n")
+                    f.write(f"Prediction (Whisper): {w_text_pred[i]}\n")
+                    f.write(f"Cleaned Target: {tgt}\n")
+                    f.write(f"Cleaned Prediction: {pred}\n")
+                    f.write(f"Cleaned Prediction (Whisper): {w_pred[i]}\n")
+                    f.write(f"WER: {ow_wer}\n")
+                    f.write(f"WER (Whisper): {w_wer}\n\n")
 
-                print(f"Audio File: {audio_file[i]}\n")
-                print(f"Target: {text_y[i]}\n")
-                print(f"Prediction: {ow_text_pred[i]}\n")
-                print(f"Cleaned Target: {tgt}\n")
-                print(f"Cleaned Prediction: {pred}\n")
-                print(f"WER: {ow_wer}\n\n")
-
-                eval_table.add_data(audio_file[i], 
-                                    audio_input[i], 
-                                    pred,
-                                    w_pred[i], 
-                                    tgt, 
-                                    ow_text_pred[i], 
-                                    w_text_pred[i], 
-                                    text_y[i], 
-                                    ow_subs, 
-                                    w_subs, 
-                                    ow_del, 
-                                    w_del, 
-                                    ow_ins, 
-                                    w_ins, 
-                                    len(tgt.split()), 
-                                    ow_wer, 
-                                    w_wer)
+                    eval_table.add_data(audio_file[i], 
+                                        wandb.Audio(audio_file[i], sample_rate=16000), 
+                                        pred,
+                                        w_pred[i], 
+                                        tgt, 
+                                        ow_text_pred[i], 
+                                        w_text_pred[i], 
+                                        text_y[i], 
+                                        ow_subs, 
+                                        w_subs, 
+                                        ow_del, 
+                                        w_del, 
+                                        ow_ins, 
+                                        w_ins, 
+                                        len(tgt.split()), 
+                                        ow_wer, 
+                                        w_wer)
+            
+            wandb.log({f"eval_table_{batch_idx + 1}": eval_table})
 
     ow_avg_wer = ow_total_wer / len(audio_text_dataset)
     w_avg_wer = w_total_wer / len(audio_text_dataset)
@@ -235,7 +241,9 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
     avg_table.add_data(ow_fp.split("/")[2], ow_avg_wer, ow_avg_subs, ow_avg_del, ow_avg_ins)
     avg_table.add_data(w_fp.split("/")[2], w_avg_wer, w_avg_subs, w_avg_del, w_avg_ins)
 
-    wandb.log({"eval_table": eval_table, "avg_table": avg_table})
+    wandb.log({"avg_table": avg_table})
+
+    wandb.finish()
 
 
 if __name__ == "__main__":
