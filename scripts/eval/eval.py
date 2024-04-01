@@ -171,8 +171,8 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
             w_text_pred = [result.text for result in w_results]
             ow_unnorm_tgt_pred_pairs = list(zip(text_y, ow_text_pred))
 
-            ow_tgt_pred_pairs = utils.clean_text(ow_unnorm_tgt_pred_pairs, "english")
-            w_pred = utils.clean_text(w_text_pred, "english")
+            ow_tgt_pred_pairs = utils.clean_text(ow_unnorm_tgt_pred_pairs, "basic")
+            w_pred = utils.clean_text(w_text_pred, "basic")
         
             with open(f"logs/eval/{ow_fp.split('/')[2]}-{corpus}.txt", "a") as f:
                 for i, (tgt, pred) in enumerate(ow_tgt_pred_pairs):
