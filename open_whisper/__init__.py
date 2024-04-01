@@ -4,7 +4,16 @@ import io
 import os
 from typing import Optional, Union
 import torch
-from open_whisper import audio, model, inf_model, preprocess, tokenizer, utils, decoding
+from open_whisper import (
+    audio,
+    model,
+    inf_model,
+    preprocess,
+    tokenizer,
+    utils,
+    decoding,
+    transcribe,
+)
 from open_whisper.model import ModelDimensions, Whisper
 from open_whisper.audio import load_audio, log_mel_spectrogram, pad_or_trim
 
