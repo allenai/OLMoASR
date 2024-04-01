@@ -249,6 +249,7 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
 
 if __name__ == "__main__":
     Fire(main)
+
     # main(
     #     batch_size=8,
     #     num_workers=4,
