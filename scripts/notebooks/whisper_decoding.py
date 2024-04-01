@@ -8,16 +8,18 @@ from open_whisper import (
     pad_or_trim,
     Whisper,
     tokenizer,
-    load_model
+    load_model, 
+    decoding
 )
 from whisper import whisper
 
 # %%
-fp = "/home/ubuntu/open_whisper/checkpoints/archive/comic-cloud-73/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99.pt"
-model = whisper.load_model(fp)
+device = torch.device("cuda")
 
 # %%
-device = torch.device("cuda")
+fp = "checkpoints/whisper/tiny-en-whisper.pt"
+model = load_model(fp, device=device, inference=True)
+
 
 # %%
 model.to(device)
@@ -30,11 +32,17 @@ audio = pad_or_trim(audio)
 audio_input = log_mel_spectrogram(audio).to(device)
 
 # %%
-options = whisper.DecodingOptions(language="en", without_timestamps=True)
+options = decoding.DecodingOptions(language="en", without_timestamps=True)
 
 # %%
-result = whisper.decode(model, audio_input, options)
+result = decoding.decode(model, audio_input, options)
 result.text
+
+#%%
+# below is code used to figure out that the bug was due to misalignment in choice of token 
+# and vocab size covered by model. using the gpt-tiktoken tokenizer to decode output from
+# model that was trained with the multilingal version of tokenizer (preprocessing) will result
+# in incorrect output
 
 # %%
 batch_audio_input = audio_input.view(1, audio_input.shape[0], -1)

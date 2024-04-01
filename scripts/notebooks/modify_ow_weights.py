@@ -4,7 +4,7 @@ import os
 
 # %%
 checkpoint = torch.load(
-    "checkpoints/archive/comic-cloud-73/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99.pt"
+    "checkpoints/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99.pt"
 )
 checkpoint
 
@@ -38,11 +38,12 @@ new_dec_tok_emb_w = checkpoint["model_state_dict"]["decoder.token_embedding.weig
 new_dec_tok_emb_w
 
 # %%
+# will remove last token embedding from decoder token embedding weight (padding token embedding - not needed for inference)
 checkpoint["model_state_dict"]["decoder.token_embedding.weight"] = new_dec_tok_emb_w
 print(checkpoint["model_state_dict"]["decoder.token_embedding.weight"].shape)
 checkpoint["model_state_dict"]["decoder.token_embedding.weight"]
-
 #%%
+# will change the vocab size
 checkpoint["dims"]["n_vocab"] = 51865
 
 #%%
@@ -51,7 +52,7 @@ checkpoint["dims"]
 # %%
 torch.save(
     checkpoint,
-    "checkpoints/archive/comic-cloud-73/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99_inf.pt",
+    "checkpoints/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99_inf.pt"
 )
 
 # %%
