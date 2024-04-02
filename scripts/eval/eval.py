@@ -1,5 +1,5 @@
 # using whisper's decoding function
-from open_whisper import audio, utils, load_model, decoding
+from open_whisper import audio, utils, load_model, decoding, transcribe
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
@@ -165,10 +165,14 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
 
             audio_input = audio_input.to(device)
 
-            ow_results = decoding.decode(ow_model, audio_input, options)
-            w_results = decoding.decode(w_model, audio_input, options)
-            ow_text_pred = [result.text for result in ow_results]
-            w_text_pred = [result.text for result in w_results]
+            # ow_results = decoding.decode(ow_model, audio_input, options)
+            # w_results = decoding.decode(w_model, audio_input, options)
+            ow_results = transcribe.transcribe(ow_model, audio_input)
+            w_results = transcribe.transcribe(w_model, audio_input)
+            # ow_text_pred = [result.text for result in ow_results]
+            # w_text_pred = [result.text for result in w_results]
+            ow_text_pred = [result["text"] for result in ow_results]
+            w_text_pred = [result["text"] for result in w_results]
             ow_unnorm_tgt_pred_pairs = list(zip(text_y, ow_text_pred))
 
             ow_tgt_pred_pairs = utils.clean_text(ow_unnorm_tgt_pred_pairs, "basic")
