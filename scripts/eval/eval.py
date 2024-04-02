@@ -1,5 +1,5 @@
 # using whisper's decoding function
-from open_whisper import audio, utils, load_model, decoding, transcribe
+from open_whisper import audio, utils, load_model, decoding
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
@@ -99,7 +99,16 @@ class AudioTextDataset(Dataset):
         #     mel_spec_scaled = mel_spec_normalized / (mel_spec_normalized.abs().max())
         return audio_file, mel_spec
 
-def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
+
+def main(
+    batch_size: int,
+    num_workers: int,
+    persistent_workers: int,
+    corpus: Literal["librispeech-other", "librispeech-clean", "artie-bias-corpus"],
+    normalizer: Literal["basic", "english"],
+    ow_fp: str,
+    w_fp: str,
+):
     tags = [f"{ow_fp.split('/')[2]}", f"{w_fp.split('/')[2]}", corpus, "eval"]
 
     wandb.init(
@@ -130,7 +139,9 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
         "wer",
         "wer (whisper)",
     ]
-    avg_table = wandb.Table(columns=["model", "avg_wer", "avg_subs", "avg_del", "avg_ins"])
+    avg_table = wandb.Table(
+        columns=["model", "avg_wer", "avg_subs", "avg_del", "avg_ins"]
+    )
 
     device = torch.device("cuda")
 
@@ -165,20 +176,18 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
 
             audio_input = audio_input.to(device)
 
-            # ow_results = decoding.decode(ow_model, audio_input, options)
-            # w_results = decoding.decode(w_model, audio_input, options)
-            ow_results = transcribe.transcribe(ow_model, audio_input)
-            w_results = transcribe.transcribe(w_model, audio_input)
-            # ow_text_pred = [result.text for result in ow_results]
-            # w_text_pred = [result.text for result in w_results]
-            ow_text_pred = [result["text"] for result in ow_results]
-            w_text_pred = [result["text"] for result in w_results]
+            ow_results = decoding.decode(ow_model, audio_input, options)
+            w_results = decoding.decode(w_model, audio_input, options)
+            ow_text_pred = [result.text for result in ow_results]
+            w_text_pred = [result.text for result in w_results]
             ow_unnorm_tgt_pred_pairs = list(zip(text_y, ow_text_pred))
 
-            ow_tgt_pred_pairs = utils.clean_text(ow_unnorm_tgt_pred_pairs, "basic")
-            w_pred = utils.clean_text(w_text_pred, "basic")
-        
-            with open(f"logs/eval/{ow_fp.split('/')[2]}-{corpus}.txt", "a") as f:
+            ow_tgt_pred_pairs = utils.clean_text(ow_unnorm_tgt_pred_pairs, normalizer)
+            w_pred = utils.clean_text(w_text_pred, normalizer)
+
+            with open(
+                f"logs/eval/{ow_fp.split('/')[2]}-{corpus}-{normalizer}.txt", "a"
+            ) as f:
                 for i, (tgt, pred) in enumerate(ow_tgt_pred_pairs):
                     ow_wer = np.round(utils.calculate_wer((tgt, pred)), 2)
                     w_wer = np.round(utils.calculate_wer((tgt, w_pred[i])), 2)
@@ -211,24 +220,26 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
                     f.write(f"WER: {ow_wer}\n")
                     f.write(f"WER (Whisper): {w_wer}\n\n")
 
-                    eval_table.add_data(audio_file[i], 
-                                        wandb.Audio(audio_file[i], sample_rate=16000), 
-                                        pred,
-                                        w_pred[i], 
-                                        tgt, 
-                                        ow_text_pred[i], 
-                                        w_text_pred[i], 
-                                        text_y[i], 
-                                        ow_subs, 
-                                        w_subs, 
-                                        ow_del, 
-                                        w_del, 
-                                        ow_ins, 
-                                        w_ins, 
-                                        len(tgt.split()), 
-                                        ow_wer, 
-                                        w_wer)
-            
+                    eval_table.add_data(
+                        audio_file[i],
+                        wandb.Audio(audio_file[i], sample_rate=16000),
+                        pred,
+                        w_pred[i],
+                        tgt,
+                        ow_text_pred[i],
+                        w_text_pred[i],
+                        text_y[i],
+                        ow_subs,
+                        w_subs,
+                        ow_del,
+                        w_del,
+                        ow_ins,
+                        w_ins,
+                        len(tgt.split()),
+                        ow_wer,
+                        w_wer,
+                    )
+
             wandb.log({f"eval_table_{batch_idx + 1}": eval_table})
 
     ow_avg_wer = ow_total_wer / len(audio_text_dataset)
@@ -243,7 +254,9 @@ def main(batch_size, num_workers, persistent_workers, corpus, ow_fp, w_fp):
     ow_avg_ins = ow_total_ins / len(audio_text_dataset)
     w_avg_ins = w_total_ins / len(audio_text_dataset)
 
-    avg_table.add_data(ow_fp.split("/")[2], ow_avg_wer, ow_avg_subs, ow_avg_del, ow_avg_ins)
+    avg_table.add_data(
+        ow_fp.split("/")[2], ow_avg_wer, ow_avg_subs, ow_avg_del, ow_avg_ins
+    )
     avg_table.add_data(w_fp.split("/")[2], w_avg_wer, w_avg_subs, w_avg_del, w_avg_ins)
 
     wandb.log({"avg_table": avg_table})
