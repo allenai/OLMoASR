@@ -1,0 +1,1 @@
+python scripts/eval/eval.py --batch_size=32 --num_workers=4 --persistent_workers=True --corpus="librispeech-clean" --ow_fp="checkpoints/archive/sunny-tree-79/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99_inf.pt" --w_fp="checkpoints/whisper/tiny-en-whisper.pt"

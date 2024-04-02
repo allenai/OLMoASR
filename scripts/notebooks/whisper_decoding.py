@@ -2,14 +2,12 @@
 import torch
 import torch.nn.functional as F
 from open_whisper import (
-    ModelDimensions,
     load_audio,
     log_mel_spectrogram,
     pad_or_trim,
-    Whisper,
-    tokenizer,
     load_model, 
-    decoding
+    decoding,
+    transcribe
 )
 from whisper import whisper
 
@@ -17,7 +15,7 @@ from whisper import whisper
 device = torch.device("cuda")
 
 # %%
-fp = "checkpoints/whisper/tiny-en-whisper.pt"
+fp = "checkpoints/archive/sunny-tree-79/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99_inf.pt"
 model = load_model(fp, device=device, inference=True)
 
 
@@ -26,7 +24,7 @@ model.to(device)
 
 # %%
 audio = load_audio(
-    "/home/ubuntu/open_whisper/data/eval/artie-bias-corpus/common_voice_en_250.mp3"
+    "data/eval/test-clean-librispeech/test-clean/1089/134686/1089-134686-0000.flac"
 )
 audio = pad_or_trim(audio)
 audio_input = log_mel_spectrogram(audio).to(device)
