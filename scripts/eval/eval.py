@@ -109,7 +109,13 @@ def main(
     ow_fp: str,
     w_fp: str,
 ):
-    tags = [f"{ow_fp.split('/')[2]}", f"{w_fp.split('/')[2]}", corpus, "eval"]
+    tags = [
+        f"ow_cp={ow_fp.split('/')[2]}",
+        f"w_cp={w_fp.split('/')[2]}",
+        f"corpus={corpus}",
+        "eval",
+        f"normalizer={normalizer}",
+    ]
 
     wandb.init(
         project="open_whisper",
