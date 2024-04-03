@@ -1,7 +1,7 @@
-# from whisper.whisper import load_model, audio
-# from whisper.whisper.normalizers import EnglishTextNormalizer
-from whisper import load_model, audio
-from whisper.normalizers import EnglishTextNormalizer
+from whisper.whisper import load_model, audio
+from whisper.whisper.normalizers import EnglishTextNormalizer
+# from whisper import load_model, audio
+# from whisper.normalizers import EnglishTextNormalizer
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
@@ -118,7 +118,7 @@ def main(
         save_code=True,
         job_type="inference",
         tags=(tags),
-        dir="scripts/training",
+        dir="scripts/eval",
     )
 
     columns = [
