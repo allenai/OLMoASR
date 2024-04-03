@@ -1,0 +1,1 @@
+python scripts/eval/whisper_eval.py --batch_size=1 --num_workers=4 --persistent_workers=True --corpus="librispeech-dev-clean" --compression_ratio_threshold=2.4 --w_fp="tiny.en"
