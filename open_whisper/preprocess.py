@@ -23,6 +23,27 @@ import torch
 def download_transcript(
     video_id: str, lang_code: str, output_dir: str, sub_format: str = "srt"
 ) -> None:
+    """
+    Download transcript of a video from YouTube
+
+    Parameters
+    ----------
+    video_id : str
+        YouTube video ID
+
+    lang_code : str
+        Language code of the transcript
+
+    output_dir : str
+        Directory to download the transcript file
+
+    sub_format : str
+        Format of the subtitle file
+
+    Returns
+    -------
+    None
+    """
     # to not redownload
     if os.path.exists(f"{output_dir}/{video_id}/{video_id}.{lang_code}.{sub_format}"):
         return None
@@ -62,6 +83,24 @@ def parallel_download_transcript(args) -> None:
 
 
 def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
+    """
+    Download audio of a video from YouTube
+
+    Parameters
+    ----------
+    video_id : str
+        YouTube video ID
+
+    output_dir : str
+        Directory to download the audio file
+
+    ext : str
+        Extension of the audio file
+
+    Returns
+    -------
+    None
+    """
     # to not redownload
     if os.path.exists(f"{output_dir}/{video_id}/{video_id}.{ext}"):
         return None
@@ -94,6 +133,18 @@ def parallel_download_audio(args) -> None:
 
 
 def clean_transcript(file_path) -> Union[None, bool]:
+    """
+    Remove unnecessary characters from the transcript file
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the transcript file
+
+    Returns
+    -------
+    None or bool
+    """
     with open(file_path, "r", encoding="utf-8") as file:
         content = file.read()
 
@@ -112,6 +163,21 @@ def clean_transcript(file_path) -> Union[None, bool]:
 
 
 def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
+    """
+    Segment audio and transcript files into <= 30-second chunks
+
+    Parameters
+    ----------
+    transcript_file : str
+        Path to the transcript file
+
+    audio_file : str
+        Path to the audio file
+
+    Returns
+    -------
+    None
+    """
     try:
         cleaned_transcript = clean_transcript(transcript_file)
         if cleaned_transcript is None:
@@ -251,86 +317,3 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
 def parallel_chunk_audio_transcript(args) -> None:
     chunk_audio_transcript(*args)
-
-
-# def get_mel(audio_file):
-#     audio_arr = audio.load_audio(audio_file, sr=16000)
-#     audio_arr = audio.pad_or_trim(audio_arr)
-#     mel_spec = audio.log_mel_spectrogram(audio_arr, device=DEVICE)
-#     return (audio_file, mel_spec)
-
-
-# if __name__ == "__main__":
-#     audio_files = []
-#     for root, dirs, files in os.walk("data/audio"):
-#         if "segments" in root:
-#             audio_files.extend([os.path.join(root, f) for f in os.listdir(root)])
-
-#     with multiprocessing.Pool() as pool:
-#         file_mel = list(
-#             tqdm(
-#                 pool.imap_unordered(get_mel, audio_files[:10]),
-#                 total=len(audio_files[:10]),
-#             )
-#         )
-
-#     audio_files, mel_specs = zip(*file_mel)
-
-#     audio_files = list(audio_files)
-
-#     mel_specs = [mel_spec.numpy() for mel_spec in mel_specs]
-
-#     np.savez_compressed(
-#         "data/mel_specs.npz", audio_file=audio_files, mel_spec=mel_specs
-#     )
-
-
-#     unequal_chunks = []
-#     for root, dirs, files in os.walk("data/transcripts"):
-#         if "segments" not in root:
-#             if "segments" not in os.listdir(root):
-#                 unequal_chunks.append(root.split("/")[-1])
-#     unequal_chunks = unequal_chunks[1:]
-
-#     captions_0000 = pd.read_parquet("data/metadata/captions-0000.parquet")
-#     sample = captions_0000[captions_0000["id"].isin(unequal_chunks)][["id", "manual_caption_languages"]].to_numpy()
-
-#     for i, (id, langs) in enumerate(sample):
-#         if "," in langs:
-#             for lang in langs.split(","):
-#                 if "en" in lang:
-#                     sample[i][1] = lang
-#                     break
-
-#     sample_id, sample_lang = [row[0] for row in sample], [row[1] for row in sample]
-
-#     # transcript and audio file paths for reference when chunking
-#     transcript_file_paths = [
-#         f"data/transcripts/{sample_id[i]}/{sample_id[i]}.{sample_lang[i]}.{'srt'}"
-#         for i in range(len(sample_id))
-#     ]
-
-#     audio_file_paths = [f"data/audio/{id}/{id}.{'m4a'}" for id in sample_id]
-
-#     with multiprocessing.Pool() as pool:
-#         out = list(
-#             tqdm(
-#                 pool.imap_unordered(
-#                     parallel_chunk_audio_transcript,
-#                     zip(
-#                         transcript_file_paths,
-#                         audio_file_paths,
-#                     ),
-#                 ),
-#                 total=len(sample),
-#             )
-#         )
-
-
-#     # video_id = "9OYNyr8enD4"
-#     # lang_code = captions_0000[captions_0000["id"] == video_id]["manual_caption_languages"].values[0]
-#     # download_transcript(video_id, lang_code, "data/sanity-check/transcripts")
-#     # download_audio(video_id, "data/sanity-check/audio")
-#     # transcript_file = f"data/sanity-check/transcripts/{video_id}/{video_id}.{lang_code}.srt"
-#     # audio_file = f"data/sanity-check/audio/{video_id}/{video_id}.m4a"
-#     # chunk_audio_transcript(transcript_file, audio_file)
