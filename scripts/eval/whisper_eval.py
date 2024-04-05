@@ -1,7 +1,7 @@
-from whisper.whisper import load_model, audio
-from whisper.whisper.normalizers import EnglishTextNormalizer
-# from whisper import load_model, audio
-# from whisper.normalizers import EnglishTextNormalizer
+# from whisper.whisper import load_model, audio
+# from whisper.whisper.normalizers import EnglishTextNormalizer
+from whisper import load_model, audio, DecodingOptions
+from whisper.normalizers import EnglishTextNormalizer
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
@@ -85,10 +85,11 @@ class AudioTextDataset(Dataset):
 
     def __getitem__(self, index):
         # not sure if putting it here is bad...
-        audio_file = self.audio_files[index]
+        audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
         text_y = self.transcript_texts[index]
         return (
             audio_file,
+            audio_input,
             text_y,
         )
 
@@ -104,37 +105,6 @@ def main(
     corpus: Literal["librispeech-other", "librispeech-clean", "artie-bias-corpus"],
     compression_ratio_threshold: float = 2.4,
 ):
-    tags = [
-        f"w_cp={w_fp}",
-        f"corpus={corpus}",
-        "eval",
-        f"compression_ratio_threshold={compression_ratio_threshold}",
-        "transcribe",
-    ]
-
-    wandb.init(
-        project="open_whisper",
-        entity="open-whisper-team",
-        save_code=True,
-        job_type="inference",
-        tags=(tags),
-        dir="scripts/eval",
-    )
-
-    columns = [
-        "audio_file",
-        "audio_input",
-        "pred_text",
-        "tgt_text",
-        "unnorm_pred_text",
-        "unnorm_tgt_text",
-        "subs",
-        "del",
-        "ins",
-        "tgt_text_len",
-        "wer",
-    ]
-
     device = torch.device("cuda")
     audio_text_dataset = AudioTextDataset(corpus)
     dataloader = DataLoader(
@@ -149,67 +119,30 @@ def main(
     model = load_model(w_fp, device, "checkpoints", in_memory=True)
     model.eval()
 
+    normalizer = EnglishTextNormalizer()
     total_wer = 0.0
 
     with torch.no_grad():
-        eval_table = wandb.Table(columns=columns)
-        normalizer = EnglishTextNormalizer()
         for batch_idx, batch in enumerate(dataloader):
-            audio_file, text_y = batch
+            audio_file, audio_input, text_y = batch
+            audio_input = audio_input.to(device)
 
-            torch.cuda.manual_seed(42)
-            torch.manual_seed(42)
-            np.random.seed(42)
-            random.seed(42)
+            options = DecodingOptions(language="en", without_timestamps=True)
 
-            result = model.transcribe(audio_file[0])  # using default arguments
-            pred_text = result["text"]
+            results = model.decode(audio_input, options=options)  # using default arguments
+            pred_text = results[0].text
+            tgt_text = text_y[0]
 
             norm_pred_text = normalizer(pred_text)
-            norm_text_y = normalizer(text_y[0])
+            norm_tgt_text = normalizer(tgt_text)
 
-            wer = jiwer.wer(reference=norm_text_y, hypothesis=norm_pred_text) * 100
+            wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text) * 100
+            print(f"{wer=}\n")
             total_wer += wer
-            measures = jiwer.compute_measures(
-                truth=norm_text_y, hypothesis=norm_pred_text
-            )
-
-            with open(
-                f"logs/eval/{w_fp}-{corpus}-{compression_ratio_threshold}.txt",
-                "a",
-            ) as f:
-                f.write(f"Audio File: {audio_file[0]}\n")
-                f.write(f"Pred Text: {pred_text}\n")
-                f.write(f"Norm Pred Text: {norm_pred_text}\n")
-                f.write(f"Text Y: {text_y[0]}\n")
-                f.write(f"Norm Text Y: {norm_text_y}\n")
-                f.write(f"WER: {wer}\n\n")
-
-            with open(
-                f"logs/eval/{w_fp}-{corpus}-{compression_ratio_threshold}.json",
-                "a",
-            ) as f:
-                json.dump(result, f, indent=2)
-
-            eval_table.add_data(
-                audio_file[0],
-                wandb.Audio(audio_file[0], sample_rate=16000),
-                norm_pred_text,
-                norm_text_y,
-                pred_text,
-                text_y[0],
-                measures["substitutions"],
-                measures["deletions"],
-                measures["insertions"],
-                len(text_y[0]),
-                wer,
-            )
 
         avg_wer = total_wer / len(dataloader)
-        wandb.log({"avg_wer": avg_wer})
-        wandb.log({"eval_table": eval_table})
-        print(f"Average WER: {avg_wer}\n")
+        print(f"Average WER: {avg_wer}")
 
 
 if __name__ == "__main__":
-    main(w_fp="tiny.en", corpus="librispeech-clean")
+    main(w_fp="checkpoints/whisper/tiny-en-whisper.pt", corpus="librispeech-clean")
