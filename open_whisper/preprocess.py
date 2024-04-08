@@ -132,35 +132,6 @@ def parallel_download_audio(args) -> None:
     download_audio(*args)
 
 
-def clean_transcript(file_path) -> Union[None, bool]:
-    """
-    Remove unnecessary characters from the transcript file
-
-    Parameters
-    ----------
-    file_path : str
-        Path to the transcript file
-
-    Returns
-    -------
-    None or bool
-    """
-    with open(file_path, "r", encoding="utf-8") as file:
-        content = file.read()
-
-    if content.strip() == "":
-        return None
-
-    # Replace &nbsp; with a space or an empty string
-    modified_content = content.replace("&nbsp;", " ")
-    modified_content = modified_content.replace("\h", "")
-    modified_content = modified_content.replace("\h\h", "")
-
-    with open(file_path, "w", encoding="utf-8") as file:
-        file.write(modified_content)
-
-    return True
-
 
 def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
     """
@@ -179,7 +150,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
     None
     """
     try:
-        cleaned_transcript = clean_transcript(transcript_file)
+        cleaned_transcript = utils.clean_transcript(transcript_file)
         if cleaned_transcript is None:
             with open(f"logs/data/empty_transcripts.txt", "a") as f:
                 f.write(f"{transcript_file}\n")
