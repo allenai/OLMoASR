@@ -7,17 +7,8 @@
 import os
 import shutil
 import subprocess
-import pandas as pd
-import multiprocessing
-from tqdm import tqdm
-from itertools import repeat
-from typing import Union
-from open_whisper import utils, audio
-import numpy as np
-import torch
-
-# for getting mel spectrogram
-# DEVICE = torch.device("cuda:0")
+from open_whisper import utils
+from whisper import audio
 
 
 def download_transcript(
@@ -130,7 +121,6 @@ def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
 
 def parallel_download_audio(args) -> None:
     download_audio(*args)
-
 
 
 def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
