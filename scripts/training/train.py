@@ -1,4 +1,6 @@
-from open_whisper import audio, utils
+from whisper import audio, utils
+from whisper.normalizers import EnglishTextNormalizer
+from whisper.tokenizer import get_tokenizer
 import open_whisper as ow
 
 import torch
@@ -20,7 +22,6 @@ import wandb
 from typing import List
 import time
 import jiwer
-from whisper.normalizers import EnglishTextNormalizer
 
 debug = False
 
@@ -55,7 +56,7 @@ class AudioTextDataset(Dataset):
 
     def __getitem__(self, index):
         # not sure if putting it here is bad...
-        tokenizer = ow.tokenizer.get_tokenizer(multilingual=False)
+        tokenizer = get_tokenizer(multilingual=False)
 
         audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
         transcript_file, text_input, text_y, padding_mask = self.preprocess_text(
@@ -226,7 +227,7 @@ def main(
     setup(rank, world_size)
 
     # dataset setup
-    tokenizer = ow.tokenizer.get_tokenizer(multilingual=False)
+    tokenizer = get_tokenizer(multilingual=False)
     normalizer = EnglishTextNormalizer()
 
     if subset is not None:
