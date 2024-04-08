@@ -122,6 +122,9 @@ def main(
     normalizer = EnglishTextNormalizer()
     total_wer = 0.0
 
+    hypotheses = []
+    references = []
+
     with torch.no_grad():
         for batch_idx, batch in enumerate(dataloader):
             audio_file, audio_input, text_y = batch
@@ -131,18 +134,27 @@ def main(
 
             results = model.decode(audio_input, options=options)  # using default arguments
             pred_text = results[0].text
-            tgt_text = text_y[0]
-
             norm_pred_text = normalizer(pred_text)
+            hypotheses.append(norm_pred_text)
+            print(f"{norm_pred_text=}\n")
+            tgt_text = text_y[0]
             norm_tgt_text = normalizer(tgt_text)
-
+            references.append(norm_tgt_text)
+            print(f"{norm_tgt_text=}\n")
             wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text) * 100
             print(f"{wer=}\n")
-            total_wer += wer
 
-        avg_wer = total_wer / len(dataloader)
+            # norm_pred_text = normalizer(pred_text)
+            # norm_tgt_text = normalizer(tgt_text)
+
+            # wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text) * 100
+            # print(f"{wer=}\n")
+            # total_wer += wer
+
+        # avg_wer = total_wer / len(dataloader)
+        avg_wer = jiwer.wer(references, hypotheses) * 100
         print(f"Average WER: {avg_wer}")
 
 
 if __name__ == "__main__":
-    main(w_fp="checkpoints/whisper/tiny-en-whisper.pt", corpus="librispeech-clean")
+    main(w_fp="checkpoints/whisper/tiny-en-whisper.pt", corpus="artie-bias-corpus")

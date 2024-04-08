@@ -1,21 +1,17 @@
 """Main entry point for the open_whisper package."""
-
 import io
 import os
 from typing import Optional, Union
 import torch
 from open_whisper import (
-    audio,
     model,
     inf_model,
     preprocess,
-    tokenizer,
     utils,
-    decoding,
-    transcribe,
 )
+from whisper import audio, decoding, transcribe
 from open_whisper.model import ModelDimensions, Whisper
-from open_whisper.audio import load_audio, log_mel_spectrogram, pad_or_trim
+from whisper.audio import load_audio, log_mel_spectrogram, pad_or_trim
 
 
 # should add more features (loading in model checkpoints by identifiers with dictionary of checkpoint paths)

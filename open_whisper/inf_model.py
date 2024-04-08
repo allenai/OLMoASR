@@ -1,16 +1,14 @@
-import base64
-import gzip
 from dataclasses import dataclass
-from typing import Dict, Iterable, Optional, Tuple, List
+from typing import Dict, Iterable, Optional 
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from .decoding import decode as decode_function
-from .decoding import detect_language as detect_language_function
-from .transcribe import transcribe as transcribe_function
+from whisper.decoding import decode as decode_function
+from whisper.decoding import detect_language as detect_language_function
+from whisper.transcribe import transcribe as transcribe_function
 
 
 @dataclass
