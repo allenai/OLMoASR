@@ -1,31 +1,31 @@
 import numpy as np
 from datetime import datetime, timedelta
 import subprocess
-from typing import Dict, Union, Tuple, List, Optional
+from typing import Dict, Union, Tuple, List, Optional, Callable, TextIO
 import pysrt
 import webvtt
 import jiwer
 import zlib
+import json
+import os
+import re
+import sys
 from .normalizers import BasicTextNormalizer, EnglishTextNormalizer
 
 
-def exact_div(x, y):
-    assert x % y == 0
-    return x // y
-
-
-def compression_ratio(text) -> float:
-    text_bytes = text.encode("utf-8")
-    return len(text_bytes) / len(zlib.compress(text_bytes))
+CHARS_TO_REMOVE = ["&nbsp;", "\h", "\h\h"]
 
 
 def remove_after_endoftext(text):
-    """Removes everything after the first instance of "<|endoftext|>" in a string.
+    """
+    Removes everything after the first instance of "<|endoftext|>" in a string.
 
-    Args:
+    Parameters
+    ----------
       text: The string to process.
 
-    Returns:
+    Returns
+    -------
       The string with everything after the first "<|endoftext|>" removed.
     """
     endoftext_index = text.find("<|endoftext|>")
@@ -36,17 +36,60 @@ def remove_after_endoftext(text):
 
 
 def convert_to_milliseconds(timestamp: str) -> int:
+    """
+    Convert a timestamp in the format HH:MM:SS.mmm to milliseconds
+
+    Parameters
+    ----------
+    timestamp : str
+        Timestamp in the format HH:MM:SS.mmm
+    
+    Returns
+    -------
+    int
+        Timestamp in milliseconds
+    """
     h, m, s, ms = map(float, timestamp.replace(".", ":").split(":"))
     return int(h * 3600000 + m * 60000 + s * 1000 + ms)
 
 
 def calculate_difference(timestamp1: str, timestamp2: str) -> int:
+    """
+    Calculate the difference between two timestamps in milliseconds
+
+    Parameters
+    ----------
+    timestamp1 : str
+        Timestamp in the format HH:MM:SS.mmm
+    timestamp2 : str
+        Timestamp in the format HH:MM:SS.mmm
+    
+    Returns
+    -------
+    int
+        Difference between the two timestamps in milliseconds
+    """
     time1 = convert_to_milliseconds(timestamp1)
     time2 = convert_to_milliseconds(timestamp2)
     return abs(time2 - time1)
 
 
 def adjust_timestamp(timestamp: str, milliseconds: int) -> str:
+    """
+    Adjust a timestamp by a specified number of milliseconds
+
+    Parameters
+    ----------
+    timestamp : str
+        Timestamp in the format HH:MM:SS.mmm
+    milliseconds : int
+        Number of milliseconds to add or subtract from the timestamp
+
+    Returns
+    -------
+    str
+        Adjusted timestamp in the format HH:MM:SS.mmm
+    """
     # Convert the HH:MM:SS.mmm format to a datetime object
     original_time = datetime.strptime(timestamp, "%H:%M:%S.%f")
 
@@ -68,6 +111,28 @@ def trim_audio(
     end_window: int,
     output_dir: str,
 ) -> None:
+    """
+    Trim an audio file to a specified start and end timestamp
+
+    Parameters
+    ----------
+    audio_file : str
+        Path to the audio file
+    start : str
+        Start timestamp in the format HH:MM:SS.mmm
+    end : str
+        End timestamp in the format HH:MM:SS.mmm
+    start_window : int
+        Number of seconds to add to the start timestamp
+    end_window : int    
+        Number of seconds to add from the end timestamp
+    output_dir : str
+        Directory to save the trimmed audio file
+
+    Returns
+    -------
+    None
+    """
     adjusted_start = adjust_timestamp(timestamp=start, milliseconds=start_window * 1000)
     adjusted_end = adjust_timestamp(timestamp=end, milliseconds=end_window * 1000)
 
@@ -93,6 +158,19 @@ class TranscriptReader:
         self.ext = file_path.split(".")[-1]
 
     def read_vtt(self, file_path: str) -> Union[None, Tuple[Dict, str, str]]:
+        """
+        Read a WebVTT file and return the transcript as a dictionary
+
+        Parameters
+        ----------
+        file_path : str
+            Path to the WebVTT file
+        
+        Returns
+        -------
+        Union[None, Tuple[Dict, str, str]]
+            A tuple containing the transcript, start timestamp, and end timestamp
+        """
         transcript = {}
         captions = webvtt.read(file_path)
 
@@ -110,6 +188,19 @@ class TranscriptReader:
         return transcript, transcript_start, transcript_end
 
     def read_srt(self, file_path: str) -> Union[None, Tuple[Dict, str, str]]:
+        """
+        Read an SRT file and return the transcript as a dictionary
+
+        Parameters
+        ----------
+        file_path : str
+            Path to the SRT file
+        
+        Returns
+        -------
+        Union[None, Tuple[Dict, str, str]]
+            A tuple containing the transcript, start timestamp, and end timestamp
+        """
         transcript = {}
         subs = pysrt.open(file_path)
         if len(subs) == 0:
@@ -126,6 +217,14 @@ class TranscriptReader:
         return transcript, transcript_start, transcript_end
 
     def read(self) -> Union[None, Tuple[Dict, str, str]]:
+        """
+        Read the transcript file and return the transcript as a dictionary
+
+        Returns
+        -------
+        Union[None, Tuple[Dict, str, str]]
+            A tuple containing the transcript, start timestamp, and end timestamp
+        """
         if self.ext == "vtt":
             return self.read_vtt(self.file_path)
         elif self.ext == "srt":
@@ -134,6 +233,19 @@ class TranscriptReader:
             raise ValueError("Unsupported file type")
 
     def extract_text(transcript: Dict) -> Optional[str]:
+        """
+        Extract the text from the transcript
+
+        Parameters
+        ----------
+        transcript : Dict
+            Transcript as a dictionary
+        
+        Returns
+        -------
+        Optional[str]
+            The extracted text
+        """
         transcript_text = ""
         for _, text in transcript.items():
             transcript_text += text.strip() + " "
@@ -143,6 +255,24 @@ class TranscriptReader:
 def write_segment(
     timestamps: List, transcript: Optional[Dict], output_dir: str, ext: str
 ) -> None:
+    """
+    Write a segment of the transcript to a file
+
+    Parameters
+    ----------
+    timestamps : List
+        List of timestamps
+    transcript : Optional[Dict]
+        Transcript as a dictionary
+    output_dir : str
+        Directory to save the transcript file
+    ext : str
+        File extension
+    
+    Returns
+    -------
+    None
+    """
     with open(f"{output_dir}/{timestamps[0][0]}_{timestamps[-1][1]}.{ext}", "w") as f:
         if transcript == None:
             f.write("")
@@ -191,6 +321,25 @@ def clean_text(
     remove_diacritics: bool = True,
     split_letters: bool = True,
 ) -> List[Tuple[str, str]]:
+    """
+    Normalize the text using a specified normalizer
+
+    Parameters
+    ----------
+    text_list : Union[List[Tuple[str, str]], List]
+        List of text pairs or text
+    normalizer : str
+        Normalizer to use
+    remove_diacritics : bool
+        Whether to remove diacritics
+    split_letters : bool
+        Whether to split letters
+
+    Returns
+    -------
+    List[Tuple[str, str]]
+        Normalized text pairs
+    """
     if normalizer == "basic":
         normalizer = BasicTextNormalizer(
             remove_diacritics=remove_diacritics, split_letters=split_letters
@@ -213,13 +362,35 @@ def clean_text(
     return list(map(normalize, text_list))
 
 
-import json
-import os
-import re
-import sys
-import zlib
-from typing import Callable, List, Optional, TextIO
+def clean_transcript(file_path) -> Union[None, bool]:
+    """
+    Remove unnecessary characters from the transcript file
 
+    Parameters
+    ----------
+    file_path : str
+        Path to the transcript file
+
+    Returns
+    -------
+    None or bool
+    """
+    with open(file_path, "r", encoding="utf-8") as file:
+        content = file.read()
+
+    if content.strip() == "":
+        return None
+
+    # Replace &nbsp; with a space or an empty string
+    regex_pattern = f"[{''.join(CHARS_TO_REMOVE)}]"
+    modified_content = re.sub(regex_pattern, "", content)
+
+    with open(file_path, "w", encoding="utf-8") as file:
+        file.write(modified_content)
+
+    return True
+
+# OpenAI code
 system_encoding = sys.getdefaultencoding()
 
 if system_encoding != "utf-8":
@@ -260,7 +431,6 @@ def optional_float(string):
 def compression_ratio(text) -> float:
     text_bytes = text.encode("utf-8")
     return len(text_bytes) / len(zlib.compress(text_bytes))
-
 
 def format_timestamp(
     seconds: float, always_include_hours: bool = False, decimal_marker: str = "."
