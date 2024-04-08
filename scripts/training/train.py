@@ -20,6 +20,7 @@ import wandb
 from typing import List
 import time
 import jiwer
+from whisper.normalizers import EnglishTextNormalizer
 
 debug = False
 
@@ -226,6 +227,7 @@ def main(
 
     # dataset setup
     tokenizer = ow.tokenizer.get_tokenizer(multilingual=False)
+    normalizer = EnglishTextNormalizer()
 
     if subset is not None:
         rng = np.random.default_rng(seed=42)
@@ -466,15 +468,26 @@ def main(
                 dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
                 train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
-                # text normalization
-                unnorm_tgt_pred_trip = list(
-                    zip(batch_tgt_text, batch_pred_text, batch_unnorm_pred_text)
+                norm_batch_tgt_text = [normalizer(text) for text in batch_tgt_text]
+                norm_batch_pred_text = [normalizer(text) for text in batch_pred_text]
+                norm_tgt_pred_pairs = list(
+                    zip(norm_batch_tgt_text, norm_batch_pred_text)
                 )
-                tgt_pred_pairs = utils.clean_text(
-                    list(zip(batch_tgt_text, batch_pred_text)), "english"
-                )
+                # no empty references - for WER calculation
+                batch_tgt_text_full = [
+                    norm_batch_tgt_text[i]
+                    for i in range(len(norm_batch_tgt_text))
+                    if len(norm_batch_tgt_text[i]) > 0
+                ]
+                batch_pred_text_full = [
+                    norm_batch_pred_text[i]
+                    for i in range(len(norm_batch_pred_text))
+                    if len(norm_batch_tgt_text[i]) > 0
+                ]
 
-                train_wer = utils.average_wer(tgt_pred_pairs)
+                train_wer = jiwer.wer(
+                    reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
+                )
                 # Use torch.tensor to work with dist.all_reduce
                 train_wer_tensor = torch.tensor(train_wer, device=rank)
                 # Aggregate WER across all processes
@@ -510,7 +523,7 @@ def main(
                                 tgt_text_instance,
                                 pred_text_instance,
                             ) in enumerate(
-                                tgt_pred_pairs[::8]  # should log just 8 examples
+                                norm_tgt_pred_pairs[::8]  # should log just 8 examples
                             ):
                                 f.write(f"{epoch=}\n")
                                 f.write(
@@ -519,11 +532,11 @@ def main(
                                 f.write(f"text_file={batch_text_files[i * 8]}\n")
                                 f.write(f"{pred_text_instance=}\n")
                                 f.write(
-                                    f"unnorm_pred_text_instance={unnorm_tgt_pred_trip[i * 8][1]}\n"
+                                    f"unnorm_pred_text_instance={batch_pred_text[i * 8]}\n"
                                 )
                                 f.write(f"{tgt_text_instance=}\n")
                                 f.write(
-                                    f"unnorm_tgt_text_instance={unnorm_tgt_pred_trip[i * 8][0]}\n\n"
+                                    f"unnorm_tgt_text_instance={batch_tgt_text[i * 8]}\n\n"
                                 )
 
                                 # logging to wandb table after 1000 steps
@@ -540,7 +553,7 @@ def main(
                                     subs = 0
                                     dels = 0
                                     ins = 0
-                                    if tgt_text_instance == "":
+                                    if len(tgt_text_instance) == 0:
                                         subs = 0
                                         dels = 0
                                         ins = len(pred_text_instance.split())
@@ -560,10 +573,10 @@ def main(
                                         ),
                                         batch_text_files[i * 8],
                                         pred_text_instance,
-                                        unnorm_tgt_pred_trip[i * 8][2],
-                                        unnorm_tgt_pred_trip[i * 8][1],
+                                        batch_unnorm_pred_text[i * 8],
+                                        batch_pred_text[i * 8],
                                         tgt_text_instance,
-                                        unnorm_tgt_pred_trip[i * 8][0],
+                                        batch_tgt_text[i * 8],
                                         subs,
                                         dels,
                                         ins,
@@ -641,11 +654,24 @@ def main(
             dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
-            # text normalization
-            unnorm_tgt_pred_pairs = list(zip(batch_tgt_text, batch_pred_text))
-            tgt_pred_pairs = utils.clean_text(unnorm_tgt_pred_pairs, "english")
+            norm_batch_tgt_text = [normalizer(text) for text in batch_tgt_text]
+            norm_batch_pred_text = [normalizer(text) for text in batch_pred_text]
+            norm_tgt_pred_pairs = list(zip(norm_batch_tgt_text, norm_batch_pred_text))
+            # no empty references - for WER calculation
+            batch_tgt_text_full = [
+                norm_batch_tgt_text[i]
+                for i in range(len(norm_batch_tgt_text))
+                if len(norm_batch_tgt_text[i]) > 0
+            ]
+            batch_pred_text_full = [
+                norm_batch_pred_text[i]
+                for i in range(len(norm_batch_pred_text))
+                if len(norm_batch_tgt_text[i]) > 0
+            ]
 
-            train_wer = utils.average_wer(tgt_pred_pairs)
+            train_wer = jiwer.wer(
+                reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
+            )
             # Use torch.tensor to work with dist.all_reduce
             train_wer_tensor = torch.tensor(train_wer, device=rank)
             # Aggregate WER across all processes
@@ -671,7 +697,7 @@ def main(
                         tgt_text_instance,
                         pred_text_instance,
                     ) in enumerate(
-                        tgt_pred_pairs[::8]  # should log just 8 examples
+                        norm_tgt_pred_pairs[::8]  # should log just 8 examples
                     ):
                         f.write(f"{epoch=}\n")
                         f.write(
@@ -679,13 +705,9 @@ def main(
                         )
                         f.write(f"{batch_text_files[i * 8]}\n")
                         f.write(f"{pred_text_instance=}\n")
-                        f.write(
-                            f"unnorm_pred_text_instance={unnorm_tgt_pred_pairs[i * 8][1]}\n"
-                        )
+                        f.write(f"unnorm_pred_text_instance={batch_pred_text[i * 8]}\n")
                         f.write(f"{tgt_text_instance=}\n")
-                        f.write(
-                            f"unnorm_tgt_text_instance={unnorm_tgt_pred_pairs[i * 8][0]}\n\n"
-                        )
+                        f.write(f"unnorm_tgt_text_instance={batch_tgt_text[i * 8]}\n\n")
 
                     f.write(f"{train_loss_all=}\n")
                     f.write(f"{train_wer_all=}\n\n")
@@ -716,7 +738,8 @@ def main(
 
         # validation
         val_loss = 0.0
-        val_wer = 0.0
+        norm_pred_text = []
+        norm_tgt_text = []
 
         if rank == 0:
             columns = [
@@ -769,7 +792,7 @@ def main(
                 probs = F.softmax(logits, dim=-1)
                 pred = torch.argmax(probs, dim=-1)
 
-                pred_text = []
+                batch_pred_text = []
                 unnorm_pred_text = []
                 for pred_instance in pred.cpu().numpy():
                     pred_instance_text = tokenizer.decode(list(pred_instance))
@@ -777,22 +800,35 @@ def main(
                     pred_instance_text = utils.remove_after_endoftext(
                         pred_instance_text
                     )
-                    pred_text.append(pred_instance_text)
+                    batch_pred_text.append(pred_instance_text)
 
-                tgt_text = []
+                batch_tgt_text = []
                 for text_y_instance in text_y.cpu().numpy():
                     tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
                     tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
                     tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
-                    tgt_text.append(tgt_y_instance_text)
+                    batch_tgt_text.append(tgt_y_instance_text)
 
-                unnorm_tgt_pred_trip = list(zip(tgt_text, pred_text, unnorm_pred_text))
-                tgt_pred_pairs = utils.clean_text(
-                    list(zip(tgt_text, pred_text)), "english"
+                norm_batch_tgt_text = [normalizer(text) for text in batch_tgt_text]
+                norm_batch_pred_text = [normalizer(text) for text in batch_pred_text]
+                norm_tgt_pred_pairs = list(
+                    zip(norm_batch_tgt_text, norm_batch_pred_text)
                 )
+                # no empty references - for WER calculation
+                batch_tgt_text_full = [
+                    norm_batch_tgt_text[i]
+                    for i in range(len(norm_batch_tgt_text))
+                    if len(norm_batch_tgt_text[i]) > 0
+                ]
+                norm_tgt_text.extend(batch_tgt_text_full)
+                batch_pred_text_full = [
+                    norm_batch_pred_text[i]
+                    for i in range(len(norm_batch_pred_text))
+                    if len(norm_batch_tgt_text[i]) > 0
+                ]
+                norm_pred_text.extend(batch_pred_text_full)
 
-                batch_val_wer = utils.average_wer(tgt_pred_pairs)
-                val_wer += batch_val_wer
+                batch_val_wer = jiwer.wer(reference=batch_tgt_text_full, hypothesis=batch_pred_text_full)
 
                 if rank == 0:
                     print(f"{epoch=}")
@@ -806,7 +842,7 @@ def main(
                             f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
                         ) as f:
                             for i, (tgt_text_instance, pred_text_instance) in enumerate(
-                                tgt_pred_pairs
+                                norm_tgt_pred_pairs
                             ):
                                 if not val_res_added:  # only once
                                     val_res.add_file(
@@ -819,11 +855,11 @@ def main(
                                 f.write(f"{transcript_files[i]}\n")
                                 f.write(f"{pred_text_instance=}\n")
                                 f.write(
-                                    f"unnorm_pred_text_instance={unnorm_tgt_pred_trip[i][1]=}\n"
+                                    f"unnorm_pred_text_instance={batch_pred_text[i]=}\n"
                                 )
                                 f.write(f"{tgt_text_instance=}\n")
                                 f.write(
-                                    f"unnorm_tgt_text_instance={unnorm_tgt_pred_trip[i][0]=}\n\n"
+                                    f"unnorm_tgt_text_instance={batch_tgt_text[i]=}\n\n"
                                 )
 
                                 # logging to wandb table after 80 steps
@@ -854,10 +890,10 @@ def main(
                                         wandb.Audio(audio_files[i], sample_rate=16000),
                                         transcript_files[i],
                                         pred_text_instance,
-                                        unnorm_tgt_pred_trip[i][2],
-                                        unnorm_tgt_pred_trip[i][1],
+                                        unnorm_pred_text[i],
+                                        batch_pred_text[i],
                                         tgt_text_instance,
-                                        unnorm_tgt_pred_trip[i][0],
+                                        batch_tgt_text[i],
                                         subs,
                                         dels,
                                         ins,
@@ -879,12 +915,12 @@ def main(
                         f"val epoch {epoch} took {(end_time - start_time) / 60.0} minutes\n"
                     )
 
-            ave_val_wer = val_wer / len(val_dataloader)
+            val_wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text)
             ave_val_loss = val_loss / len(val_dataloader)
 
-            ave_val_wer_tensor = torch.tensor(ave_val_wer, device=rank)
-            dist.all_reduce(ave_val_wer_tensor, op=dist.ReduceOp.SUM)
-            val_wer_all = ave_val_wer_tensor.item() / dist.get_world_size()
+            val_wer_tensor = torch.tensor(val_wer, device=rank)
+            dist.all_reduce(val_wer_tensor, op=dist.ReduceOp.SUM)
+            val_wer_all = val_wer_tensor.item() / dist.get_world_size()
 
             ave_val_loss_tensor = ave_val_loss.clone()
             dist.all_reduce(ave_val_loss_tensor, op=dist.ReduceOp.SUM)
