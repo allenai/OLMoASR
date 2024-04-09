@@ -19,7 +19,7 @@ import os
 from dataclasses import dataclass
 import numpy as np
 import wandb
-from typing import List
+from typing import List, Tuple
 import time
 import jiwer
 
@@ -54,7 +54,32 @@ class AudioTextDataset(Dataset):
     def __len__(self):
         return len(self.audio_files)
 
-    def __getitem__(self, index):
+    def __getitem__(
+        self, index
+    ) -> Tuple[str, str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Returns the preprocessed audio and text data for the model.
+
+        Parameters
+        ----------
+        index : int
+            The index of the audio and text data to retrieve.
+
+        Returns
+        -------
+        audio_file: str
+            Audio file path
+        transcript_file: str
+            Transcript file path
+        audio_input: torch.Tensor
+            Log mel spectrogram of the audio file
+        text_input: torch.Tensor
+            Tokenized and padded text input
+        text_y: torch.Tensor
+            Tokenized and padded text target
+        padding_mask: torch.Tensor
+            Padding mask for the text input
+        """
         # not sure if putting it here is bad...
         tokenizer = get_tokenizer(multilingual=False)
 
@@ -83,13 +108,27 @@ class AudioTextDataset(Dataset):
         return audio_file, mel_spec
 
     def preprocess_text(self, transcript_file, tokenizer):
+        """
+        Preprocesses the text data for the model.
+
+        Parameters
+        ----------
+        transcript_file : str
+            The path to the transcript file.
+        tokenizer : transformers.PreTrainedTokenizer
+            The tokenizer to use for encoding the text data.
+
+        Returns
+        -------
+        str
+        """
         # transcript -> text
-        transcript, *_ = utils.TranscriptReader(file_path=transcript_file).read()
+        transcript, *_ = ow.utils.TranscriptReader(file_path=transcript_file).read()
 
         if transcript == {}:
             text_tokens = [tokenizer.no_speech]
         else:
-            transcript_text = utils.TranscriptReader.extract_text(transcript)
+            transcript_text = ow.utils.TranscriptReader.extract_text(transcript)
 
             text_tokens = tokenizer.encode(transcript_text)
 
@@ -450,7 +489,7 @@ def main(
             for pred_instance in pred.cpu().numpy():
                 pred_instance_text = tokenizer.decode(list(pred_instance))
                 microbatch_unnorm_pred_text.append(pred_instance_text)
-                pred_instance_text = utils.remove_after_endoftext(pred_instance_text)
+                pred_instance_text = ow.utils.remove_after_endoftext(pred_instance_text)
                 microbatch_pred_text.append(pred_instance_text)
             batch_pred_text.extend(microbatch_pred_text)
             batch_unnorm_pred_text.extend(microbatch_unnorm_pred_text)
@@ -546,7 +585,7 @@ def main(
                                 ) == 1:
                                     # logging to wandb table
                                     wer = np.round(
-                                        utils.calculate_wer(
+                                        ow.utils.calculate_wer(
                                             (tgt_text_instance, pred_text_instance)
                                         ),
                                         2,
@@ -798,7 +837,7 @@ def main(
                 for pred_instance in pred.cpu().numpy():
                     pred_instance_text = tokenizer.decode(list(pred_instance))
                     unnorm_pred_text.append(pred_instance_text)
-                    pred_instance_text = utils.remove_after_endoftext(
+                    pred_instance_text = ow.utils.remove_after_endoftext(
                         pred_instance_text
                     )
                     batch_pred_text.append(pred_instance_text)
@@ -829,7 +868,9 @@ def main(
                 ]
                 norm_pred_text.extend(batch_pred_text_full)
 
-                batch_val_wer = jiwer.wer(reference=batch_tgt_text_full, hypothesis=batch_pred_text_full)
+                batch_val_wer = jiwer.wer(
+                    reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
+                )
 
                 if rank == 0:
                     print(f"{epoch=}")
@@ -866,7 +907,7 @@ def main(
                                 # logging to wandb table after 80 steps
                                 if (batch_idx + 1) == 80:
                                     wer = np.round(
-                                        utils.calculate_wer(
+                                        ow.utils.calculate_wer(
                                             (tgt_text_instance, pred_text_instance)
                                         ),
                                         2,
