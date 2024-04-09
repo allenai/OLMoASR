@@ -10,7 +10,7 @@ import json
 import os
 import re
 import sys
-from .normalizers import BasicTextNormalizer, EnglishTextNormalizer
+from whisper.normalizers import BasicTextNormalizer, EnglishTextNormalizer
 from whisper import utils
 
 
@@ -72,7 +72,11 @@ def calculate_difference(timestamp1: str, timestamp2: str) -> int:
     """
     time1 = convert_to_milliseconds(timestamp1)
     time2 = convert_to_milliseconds(timestamp2)
-    return abs(time2 - time1)
+    if time2 < time1:
+        raise ValueError(
+            "Second timestamp is less than the first timestamp. Needs to be greater than the first timestamp."
+        )
+    return time2 - time1
 
 
 def adjust_timestamp(timestamp: str, milliseconds: int) -> str:
@@ -108,9 +112,9 @@ def trim_audio(
     audio_file: str,
     start: str,
     end: str,
-    start_window: int,
-    end_window: int,
     output_dir: str,
+    start_window: int = 0,
+    end_window: int = 0,
 ) -> None:
     """
     Trim an audio file to a specified start and end timestamp
