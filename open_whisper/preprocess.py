@@ -192,12 +192,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                 )
 
                 utils.trim_audio(
-                    audio_file,
-                    timestamps[a][0],
-                    timestamps[b - 1][1],
-                    0,
-                    0,
-                    a_output_dir,
+                    audio_file=audio_file,
+                    start=timestamps[a][0],
+                    end=timestamps[b - 1][1],
+                    output_dir=a_output_dir,
                 )
 
                 init_diff = 0
@@ -234,12 +232,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             transcript_ext,
                         )
                         utils.trim_audio(
-                            audio_file,
-                            start,
-                            end,
-                            0,
-                            0,
-                            a_output_dir,
+                            audio_file=audio_file,
+                            start=start,
+                            end=end,
+                            output_dir=a_output_dir,
                         )
 
                 a = b
@@ -254,12 +250,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                 )
 
                 utils.trim_audio(
-                    audio_file,
-                    timestamps[a][0],
-                    timestamps[b - 1][1],
-                    0,
-                    0,
-                    a_output_dir,
+                    audio_file=audio_file,
+                    start=timestamps[a][0],
+                    end=timestamps[b - 1][1],
+                    output_dir=a_output_dir,
                 )
 
                 break
