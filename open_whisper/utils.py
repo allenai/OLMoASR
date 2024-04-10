@@ -326,53 +326,6 @@ def calculate_wer(pair: Tuple[str, str]) -> float:
         return jiwer.wer(pair[0], pair[1]) * 100.0
 
 
-def clean_text(
-    text_list: Union[List[Tuple[str, str]], List],
-    normalizer: str,
-    remove_diacritics: bool = True,
-    split_letters: bool = True,
-) -> List[Tuple[str, str]]:
-    """
-    Normalize the text using a specified normalizer
-
-    Parameters
-    ----------
-    text_list : Union[List[Tuple[str, str]], List]
-        List of text pairs or text
-    normalizer : str
-        Normalizer to use
-    remove_diacritics : bool
-        Whether to remove diacritics
-    split_letters : bool
-        Whether to split letters
-
-    Returns
-    -------
-    List[Tuple[str, str]]
-        Normalized text pairs
-    """
-    if normalizer == "basic":
-        normalizer = BasicTextNormalizer(
-            remove_diacritics=remove_diacritics, split_letters=split_letters
-        )
-    elif normalizer == "english":
-        normalizer = EnglishTextNormalizer()
-    else:
-        raise ValueError("Unsupported normalizer")
-
-    if len(text_list[0]) == 2:  # is tuple
-        normalize = lambda pair: (
-            normalizer.clean(pair[0]) if normalizer == "basic" else normalizer(pair[0]),
-            normalizer.clean(pair[1]) if normalizer == "basic" else normalizer(pair[1]),
-        )
-    else:
-        normalize = lambda text: (
-            normalizer.clean(text) if normalizer == "basic" else normalizer(text)
-        )
-
-    return list(map(normalize, text_list))
-
-
 def clean_transcript(file_path) -> Union[None, bool]:
     """
     Remove unnecessary characters from the transcript file
