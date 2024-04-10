@@ -272,3 +272,22 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
 def parallel_chunk_audio_transcript(args) -> None:
     chunk_audio_transcript(*args)
+
+
+def standardize_dialects(s: str) -> str:
+    """
+    In the `manual_caption_languages` column in a metadata file, standardize dialects to their base language
+
+    Parameters
+    ----------
+    s : str
+        String containing language codes
+
+    Returns
+    -------
+    str
+        Standardized language codes 
+    """
+    words = s.split(",")
+    transformed_words = [word.split("-")[0] if "-" in word else word for word in words]
+    return ",".join(transformed_words)
