@@ -1,6 +1,7 @@
 from whisper import audio, utils
 from whisper.normalizers import EnglishTextNormalizer
 from whisper.tokenizer import get_tokenizer
+from open_whisper.config.model_dims import VARIANT_TO_DIMS
 import open_whisper as ow
 
 import torch
@@ -23,21 +24,6 @@ from typing import List, Tuple
 import time
 import jiwer
 
-debug = False
-
-# encoder architecture
-n_mels = 80
-n_audio_ctx = 1500
-n_audio_state = 384
-n_audio_head = 6
-n_audio_layer = 4
-
-# decoder architecture
-n_vocab = 51864
-n_text_ctx = 448
-n_text_state = 384
-n_text_head = 6
-n_text_layer = 4
 
 
 class AudioTextDataset(Dataset):
@@ -162,34 +148,6 @@ class AudioTextDataset(Dataset):
         return transcript_file, text_input, text_y, padding_mask
 
 
-# model setup
-@dataclass
-class ModelDimensions:
-    n_mels: int
-    n_audio_ctx: int
-    n_audio_state: int
-    n_audio_head: int
-    n_audio_layer: int
-    n_vocab: int
-    n_text_ctx: int
-    n_text_state: int
-    n_text_head: int
-    n_text_layer: int
-
-
-model_dims = ModelDimensions(
-    n_mels=80,
-    n_audio_ctx=1500,
-    n_audio_state=384,
-    n_audio_head=6,
-    n_audio_layer=4,
-    n_vocab=51864,
-    n_text_ctx=448,
-    n_text_state=384,
-    n_text_head=6,
-    n_text_layer=4,
-)
-
 
 def setup(rank, world_size):
     os.environ["MASTER_ADDR"] = "localhost"
@@ -258,9 +216,10 @@ def main(
     val_batch_size=8,
     train_val_split=0.98,
     num_workers=0,
-    pin_memory=False,
+    pin_memory=True,
     shuffle=True,
     persistent_workers=False,
+    debug=False,
 ):
     # setup the process groups
     setup(rank, world_size)
@@ -524,13 +483,17 @@ def main(
                     for i in range(len(norm_batch_pred_text))
                     if len(norm_batch_tgt_text[i]) > 0
                 ]
-                
+
                 if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
                     train_wer = 0.0
                 else:
-                    train_wer = jiwer.wer(
-                        reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
-                    ) * 100
+                    train_wer = (
+                        jiwer.wer(
+                            reference=batch_tgt_text_full,
+                            hypothesis=batch_pred_text_full,
+                        )
+                        * 100
+                    )
                 # Use torch.tensor to work with dist.all_reduce
                 train_wer_tensor = torch.tensor(train_wer, device=rank)
                 # Aggregate WER across all processes
@@ -715,10 +678,13 @@ def main(
             if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
                 train_wer = 0.0
             else:
-                train_wer = jiwer.wer(
-                    reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
-                ) * 100
-                
+                train_wer = (
+                    jiwer.wer(
+                        reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
+                    )
+                    * 100
+                )
+
             # Use torch.tensor to work with dist.all_reduce
             train_wer_tensor = torch.tensor(train_wer, device=rank)
             # Aggregate WER across all processes
@@ -855,13 +821,13 @@ def main(
                     tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
                     tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
                     batch_tgt_text.append(tgt_y_instance_text)
-                
+
                 norm_batch_tgt_text = [normalizer(text) for text in batch_tgt_text]
                 norm_batch_pred_text = [normalizer(text) for text in batch_pred_text]
                 norm_tgt_pred_pairs = list(
                     zip(norm_batch_tgt_text, norm_batch_pred_text)
                 )
-                
+
                 # no empty references - for WER calculation
                 batch_tgt_text_full = [
                     norm_batch_tgt_text[i]
@@ -879,9 +845,13 @@ def main(
                 if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
                     batch_val_wer = 0.0
                 else:
-                    batch_val_wer = jiwer.wer(
-                        reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
-                    ) * 100
+                    batch_val_wer = (
+                        jiwer.wer(
+                            reference=batch_tgt_text_full,
+                            hypothesis=batch_pred_text_full,
+                        )
+                        * 100
+                    )
 
                 if rank == 0:
                     print(f"{epoch=}")
@@ -971,7 +941,9 @@ def main(
             if len(norm_tgt_text) == 0 and len(norm_pred_text) == 0:
                 val_wer = 0.0
             else:
-                val_wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text) * 100
+                val_wer = (
+                    jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text) * 100
+                )
                 ave_val_loss = val_loss / len(val_dataloader)
 
             val_wer_tensor = torch.tensor(val_wer, device=rank)
@@ -1030,7 +1002,9 @@ def main(
 if __name__ == "__main__":
     # suppose we have 4 gpus
     torch.cuda.empty_cache()
+    debug = False
     world_size = 4 if not debug else 1
+    model_dims = VARIANT_TO_DIMS["tiny"]
     subset = None
     epochs = 25
     eff_size = 256
@@ -1038,7 +1012,7 @@ if __name__ == "__main__":
     val_batch_size = 8
     train_val_split = 0.99
     num_workers = 18
-    pin_memory = False
+    pin_memory = True
     shuffle = True
     persistent_workers = True
     mp.spawn(
@@ -1056,6 +1030,7 @@ if __name__ == "__main__":
             pin_memory,
             shuffle,
             persistent_workers,
+            debug,
         ],
         nprocs=world_size,
     )
