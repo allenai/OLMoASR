@@ -7,20 +7,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from open_whisper.config.model_dims import ModelDimensions
 
-
-@dataclass
-class ModelDimensions:
-    n_mels: int
-    n_audio_ctx: int
-    n_audio_state: int
-    n_audio_head: int
-    n_audio_layer: int
-    n_vocab: int
-    n_text_ctx: int
-    n_text_state: int
-    n_text_head: int
-    n_text_layer: int
 
 
 class LayerNorm(nn.LayerNorm):
