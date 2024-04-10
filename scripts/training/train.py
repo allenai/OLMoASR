@@ -160,7 +160,7 @@ def prepare(
     rank,
     world_size,
     batch_size,
-    pin_memory=False,
+    pin_memory=True,
     shuffle=True,
     num_workers=0,
     persistent_workers=False,
