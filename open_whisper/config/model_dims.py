@@ -15,7 +15,7 @@ class ModelDimensions:
     n_text_layer: int
 
 
-variant_to_dims = {
+VARIANT_TO_DIMS = {
     "tiny": ModelDimensions(
         n_mels=80,
         n_audio_ctx=1500,
