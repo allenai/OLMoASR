@@ -524,10 +524,13 @@ def main(
                     for i in range(len(norm_batch_pred_text))
                     if len(norm_batch_tgt_text[i]) > 0
                 ]
-
-                train_wer = jiwer.wer(
-                    reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
-                )
+                
+                if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
+                    train_wer = 0.0
+                else:
+                    train_wer = jiwer.wer(
+                        reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
+                    ) * 100
                 # Use torch.tensor to work with dist.all_reduce
                 train_wer_tensor = torch.tensor(train_wer, device=rank)
                 # Aggregate WER across all processes
@@ -709,9 +712,13 @@ def main(
                 if len(norm_batch_tgt_text[i]) > 0
             ]
 
-            train_wer = jiwer.wer(
-                reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
-            )
+            if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
+                train_wer = 0.0
+            else:
+                train_wer = jiwer.wer(
+                    reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
+                ) * 100
+                
             # Use torch.tensor to work with dist.all_reduce
             train_wer_tensor = torch.tensor(train_wer, device=rank)
             # Aggregate WER across all processes
@@ -848,12 +855,13 @@ def main(
                     tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
                     tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
                     batch_tgt_text.append(tgt_y_instance_text)
-
+                
                 norm_batch_tgt_text = [normalizer(text) for text in batch_tgt_text]
                 norm_batch_pred_text = [normalizer(text) for text in batch_pred_text]
                 norm_tgt_pred_pairs = list(
                     zip(norm_batch_tgt_text, norm_batch_pred_text)
                 )
+                
                 # no empty references - for WER calculation
                 batch_tgt_text_full = [
                     norm_batch_tgt_text[i]
@@ -868,9 +876,12 @@ def main(
                 ]
                 norm_pred_text.extend(batch_pred_text_full)
 
-                batch_val_wer = jiwer.wer(
-                    reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
-                )
+                if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
+                    batch_val_wer = 0.0
+                else:
+                    batch_val_wer = jiwer.wer(
+                        reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
+                    ) * 100
 
                 if rank == 0:
                     print(f"{epoch=}")
@@ -957,8 +968,11 @@ def main(
                         f"val epoch {epoch} took {(end_time - start_time) / 60.0} minutes\n"
                     )
 
-            val_wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text)
-            ave_val_loss = val_loss / len(val_dataloader)
+            if len(norm_tgt_text) == 0 and len(norm_pred_text) == 0:
+                val_wer = 0.0
+            else:
+                val_wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text) * 100
+                ave_val_loss = val_loss / len(val_dataloader)
 
             val_wer_tensor = torch.tensor(val_wer, device=rank)
             dist.all_reduce(val_wer_tensor, op=dist.ReduceOp.SUM)
