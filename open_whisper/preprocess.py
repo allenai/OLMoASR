@@ -9,6 +9,8 @@ import shutil
 import subprocess
 from open_whisper import utils
 from whisper import audio
+from langdetect import detect
+from typing import Union
 
 
 def download_transcript(
@@ -286,8 +288,32 @@ def standardize_dialects(s: str) -> str:
     Returns
     -------
     str
-        Standardized language codes 
+        Standardized language codes
     """
     words = s.split(",")
     transformed_words = [word.split("-")[0] if "-" in word else word for word in words]
     return ",".join(transformed_words)
+
+
+# for rough filtering of english-only videos
+def detect_en(row) -> Union[int, None]:
+    """
+    Detect whether title is in English or not
+
+    Parameters
+    ----------
+    row: tuple
+        Tuple containing index and data
+
+    Returns
+    -------
+    int or None
+    """
+    idx, data = row
+    try:
+        if detect(data["title"]) == "en":
+            return idx
+        else:
+            return None
+    except:
+        pass
