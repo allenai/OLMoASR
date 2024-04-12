@@ -14,7 +14,7 @@ from whisper.normalizers import BasicTextNormalizer, EnglishTextNormalizer
 from whisper import utils
 
 
-CHARS_TO_REMOVE = ["&nbsp;", "\h", "\h\h"]
+CHARS_TO_REMOVE = ["&nbsp;", "\\h", "\\h\\h"]
 
 
 def remove_after_endoftext(text):
