@@ -14,7 +14,7 @@ from whisper.normalizers import BasicTextNormalizer, EnglishTextNormalizer
 from whisper import utils
 
 
-CHARS_TO_REMOVE = ["&nbsp;", "\\h", "\\h\\h"]
+CHARS_TO_REMOVE = ["&nbsp;", r"\\h", r"\\h\\h"]
 
 
 def remove_after_endoftext(text):
@@ -346,7 +346,7 @@ def clean_transcript(file_path) -> Union[None, bool]:
         return None
 
     # Replace &nbsp; with a space or an empty string
-    regex_pattern = f"[{''.join(CHARS_TO_REMOVE)}]"
+    regex_pattern = "|".join(CHARS_TO_REMOVE)
     modified_content = re.sub(regex_pattern, "", content)
 
     with open(file_path, "w", encoding="utf-8") as file:
