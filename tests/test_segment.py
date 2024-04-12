@@ -3,8 +3,8 @@ import os
 
 
 def test_chunk_audio_transcript():
-    transcript_file = "tests/data/2CWmrpsN41E.en.srt"
-    audio_file = "tests/data/2CWmrpsN41E"
+    transcript_file = "tests/data/transcript/2CWmrpsN41E.en.srt"
+    audio_file = "tests/data/audio/2CWmrpsN41E.m4a"
     chunk_audio_transcript(
         transcript_file=transcript_file,
         audio_file=audio_file,
@@ -34,3 +34,6 @@ def test_chunk_audio_transcript():
     assert all(
         [segment.split(".srt")[0] in transcript_segments for segment in segment_names]
     )
+
+if __name__ == "__main__":
+    test_chunk_audio_transcript()
