@@ -237,7 +237,7 @@ class TranscriptReader:
         else:
             raise ValueError("Unsupported file type")
 
-    def extract_text(self, transcript: Dict) -> Optional[str]:
+    def extract_text(transcript: Dict) -> Optional[str]:
         """
         Extract the text from the transcript
 
