@@ -42,12 +42,6 @@ new_dec_tok_emb_w
 checkpoint["model_state_dict"]["decoder.token_embedding.weight"] = new_dec_tok_emb_w
 print(checkpoint["model_state_dict"]["decoder.token_embedding.weight"].shape)
 checkpoint["model_state_dict"]["decoder.token_embedding.weight"]
-#%%
-# will change the vocab size
-checkpoint["dims"]["n_vocab"] = 51865
-
-#%%
-checkpoint["dims"]
 
 # %%
 torch.save(
