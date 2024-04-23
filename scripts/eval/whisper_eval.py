@@ -1,10 +1,13 @@
 # from whisper.whisper import load_model, audio
 # from whisper.whisper.normalizers import EnglishTextNormalizer
-from whisper import load_model, audio, DecodingOptions
+from whisper import audio, DecodingOptions
 from whisper.normalizers import EnglishTextNormalizer
+from open_whisper import load_model
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
+from torchaudio.datasets import TEDLIUM
+from datasets import load_dataset
 from typing import Literal
 import os
 import numpy as np
@@ -60,10 +63,41 @@ class ArtieBiasCorpus:
         return audio_files, transcript_texts
 
 
+class CommonVoice:
+    def __init__(self, root_dir, split):
+        self.root_dir = root_dir
+        self.split = split
+
+    def load(self):
+        audio_files = []
+        transcript_texts = []
+        with open(os.path.join(self.root_dir, f"{self.split}.tsv"), "r") as f:
+            next(f)
+            for line in f:
+                audio_file = os.path.join(self.root_dir, line.split("\t")[1].strip())
+                transcript_text = line.split("\t")[2].strip()
+                audio_files.append(audio_file)
+                transcript_texts.append(transcript_text)
+
+        return audio_files, transcript_texts
+
+
+class CORAAL:
+    pass
+
+
 class AudioTextDataset(Dataset):
     def __init__(
         self,
-        corpus: Literal["librispeech-other", "librispeech-clean", "artie-bias-corpus"],
+        corpus: Literal[
+            "librispeech-other",
+            "librispeech-clean",
+            "artiebiascorpus",
+            "tedlium",
+            "fleurs-en",
+            "voxpopuli-en",
+            "commonvoice",
+        ],
     ):
         self.corpus = corpus
 
@@ -73,7 +107,7 @@ class AudioTextDataset(Dataset):
         elif corpus == "librispeech-other":
             librispeech = Librispeech("data/eval/test-other-librispeech/test-other")
             audio_files, transcript_texts = librispeech.load()
-        elif corpus == "artie-bias-corpus":
+        elif corpus == "artiebiascorpus":
             artie_bias_corpus = ArtieBiasCorpus("data/eval/artie-bias-corpus")
             audio_files, transcript_texts = artie_bias_corpus.load()
 
@@ -102,21 +136,28 @@ class AudioTextDataset(Dataset):
 
 def main(
     w_fp: str,
-    corpus: Literal["librispeech-other", "librispeech-clean", "artie-bias-corpus"],
-    compression_ratio_threshold: float = 2.4,
+    corpus: Literal[
+        "librispeech-other",
+        "librispeech-clean",
+        "artiebiascorpus",
+        "tedlium",
+        "fleurs-en",
+        "voxpopuli-en",
+        "commonvoice",
+    ],
 ):
     device = torch.device("cuda")
     audio_text_dataset = AudioTextDataset(corpus)
     dataloader = DataLoader(
         audio_text_dataset,
-        batch_size=1,
+        batch_size=32,
         shuffle=False,
         num_workers=4,
         drop_last=False,
         persistent_workers=True,
     )
 
-    model = load_model(w_fp, device, "checkpoints", in_memory=True)
+    model = load_model(name=w_fp, device=device, inference=True, in_memory=True)
     model.eval()
 
     normalizer = EnglishTextNormalizer()
@@ -132,29 +173,26 @@ def main(
 
             options = DecodingOptions(language="en", without_timestamps=True)
 
-            results = model.decode(audio_input, options=options)  # using default arguments
-            pred_text = results[0].text
-            norm_pred_text = normalizer(pred_text)
-            hypotheses.append(norm_pred_text)
+            results = model.decode(
+                audio_input, options=options
+            )  # using default arguments
+            pred_text = [result.text for result in results]
+            norm_pred_text = [normalizer(text) for text in pred_text]
+            hypotheses.extend(norm_pred_text)
             print(f"{norm_pred_text=}\n")
-            tgt_text = text_y[0]
-            norm_tgt_text = normalizer(tgt_text)
-            references.append(norm_tgt_text)
+            tgt_text = list(text_y)
+            norm_tgt_text = [normalizer(text) for text in tgt_text]
+            references.extend(norm_tgt_text)
             print(f"{norm_tgt_text=}\n")
             wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text) * 100
             print(f"{wer=}\n")
 
-            # norm_pred_text = normalizer(pred_text)
-            # norm_tgt_text = normalizer(tgt_text)
-
-            # wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text) * 100
-            # print(f"{wer=}\n")
-            # total_wer += wer
-
-        # avg_wer = total_wer / len(dataloader)
         avg_wer = jiwer.wer(references, hypotheses) * 100
         print(f"Average WER: {avg_wer}")
 
 
 if __name__ == "__main__":
-    main(w_fp="checkpoints/whisper/tiny-en-whisper.pt", corpus="artie-bias-corpus")
+    main(
+        w_fp="checkpoints/whisper/tiny-en-whisper.pt",
+        corpus="librispeech-clean",
+    )
