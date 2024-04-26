@@ -23,6 +23,7 @@ import wandb
 from typing import List, Tuple
 import time
 import jiwer
+from fire import Fire
 
 
 
@@ -109,12 +110,13 @@ class AudioTextDataset(Dataset):
         str
         """
         # transcript -> text
-        transcript, *_ = ow.utils.TranscriptReader(file_path=transcript_file).read()
+        reader = ow.utils.TranscriptReader(file_path=transcript_file)
+        transcript, *_ = reader.read()
 
         if transcript == {}:
             text_tokens = [tokenizer.no_speech]
         else:
-            transcript_text = ow.utils.TranscriptReader.extract_text(transcript)
+            transcript_text = reader.extract_text(transcript=transcript)
 
             text_tokens = tokenizer.encode(transcript_text)
 
@@ -209,6 +211,7 @@ def main(
     rank,
     world_size,
     model_dims,
+    exp_name,
     subset=None,
     epochs=50,
     eff_size=256,
@@ -275,7 +278,7 @@ def main(
         shuffle=shuffle,
     )
 
-    model = ow.model.Whisper(dims=model_dims).to(rank)
+    model = ow.model.Whisper(dims=VARIANT_TO_DIMS[model_dims]).to(rank)
     model = DDP(model, device_ids=[rank], output_device=rank)
 
     lr = 1.5e-3
@@ -291,9 +294,12 @@ def main(
     )
 
     epochs = epochs
-    accumulation_steps = eff_size // (
-        world_size * train_batch_size
-    )  # Number of steps over which to accumulate gradients
+    if eff_size <= (world_size * train_batch_size):
+        accumulation_steps = 1
+    else:
+        accumulation_steps = eff_size // (
+            world_size * train_batch_size
+        )  # Number of steps over which to accumulate gradients
     total_steps = int(np.ceil(len(train_dataloader) / accumulation_steps) * epochs)
     warmup_steps = np.ceil(0.002 * total_steps)
 
@@ -327,7 +333,9 @@ def main(
             "epochs": epochs,
             "total_steps": total_steps,
             "warmup_steps": warmup_steps,
+            "accumulation_steps": accumulation_steps,
             "train_val_split": train_val_split,
+            "world_size": world_size,
             "num_workers": num_workers,
         }
 
@@ -342,6 +350,8 @@ def main(
             f"workers={num_workers}",
             f"epochs={epochs}",
             f"train_val_split={train_val_split}",
+            f"world_size={world_size}",
+            f"accumulation_steps={accumulation_steps}",
         ]
 
         if debug:
@@ -349,11 +359,12 @@ def main(
 
         wandb.init(
             project="open_whisper",
-            entity="open-whisper-team",
+            entity="dogml",
             config=config,
             save_code=True,
             job_type="training",
             tags=(tags),
+            name=exp_name,
             dir="scripts/training",
         )
 
@@ -996,6 +1007,9 @@ def main(
                         f"checkpoints/tiny-en-non-ddp_{'_'.join(tags)}.pt",
                     )
 
+        # evaluation run
+        
+
     cleanup()
 
 
@@ -1003,15 +1017,15 @@ if __name__ == "__main__":
     # suppose we have 4 gpus
     torch.cuda.empty_cache()
     debug = False
-    world_size = 4 if not debug else 1
+    world_size = 6 if not debug else 1
     model_dims = VARIANT_TO_DIMS["tiny"]
     subset = None
     epochs = 25
     eff_size = 256
-    train_batch_size = 8
-    val_batch_size = 8
+    train_batch_size = 64
+    val_batch_size = 64
     train_val_split = 0.99
-    num_workers = 18
+    num_workers = 30
     pin_memory = True
     shuffle = True
     persistent_workers = True
