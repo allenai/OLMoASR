@@ -5,17 +5,9 @@ from whisper.normalizers import EnglishTextNormalizer
 from open_whisper import load_model
 import torch
 from torch.utils.data import Dataset, DataLoader
-import torch.nn.functional as F
-from torchaudio.datasets import TEDLIUM
-from datasets import load_dataset
 from typing import Literal
 import os
-import numpy as np
-import random
 import jiwer
-import wandb
-import json
-from fire import Fire
 
 
 class Librispeech:
@@ -62,30 +54,6 @@ class ArtieBiasCorpus:
 
         return audio_files, transcript_texts
 
-
-class CommonVoice:
-    def __init__(self, root_dir, split):
-        self.root_dir = root_dir
-        self.split = split
-
-    def load(self):
-        audio_files = []
-        transcript_texts = []
-        with open(os.path.join(self.root_dir, f"{self.split}.tsv"), "r") as f:
-            next(f)
-            for line in f:
-                audio_file = os.path.join(self.root_dir, line.split("\t")[1].strip())
-                transcript_text = line.split("\t")[2].strip()
-                audio_files.append(audio_file)
-                transcript_texts.append(transcript_text)
-
-        return audio_files, transcript_texts
-
-
-class CORAAL:
-    pass
-
-
 class AudioTextDataset(Dataset):
     def __init__(
         self,
@@ -93,10 +61,6 @@ class AudioTextDataset(Dataset):
             "librispeech-other",
             "librispeech-clean",
             "artiebiascorpus",
-            "tedlium",
-            "fleurs-en",
-            "voxpopuli-en",
-            "commonvoice",
         ],
     ):
         self.corpus = corpus
@@ -133,17 +97,12 @@ class AudioTextDataset(Dataset):
         mel_spec = audio.log_mel_spectrogram(audio_arr)
         return audio_file, mel_spec
 
-
 def main(
     w_fp: str,
     corpus: Literal[
         "librispeech-other",
         "librispeech-clean",
         "artiebiascorpus",
-        "tedlium",
-        "fleurs-en",
-        "voxpopuli-en",
-        "commonvoice",
     ],
 ):
     device = torch.device("cuda")
