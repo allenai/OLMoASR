@@ -12,3 +12,4 @@ whisper
 data
 checkpoints
 logs
+*.out
