@@ -1007,9 +1007,6 @@ def main(
                         f"checkpoints/tiny-en-non-ddp_{'_'.join(tags)}.pt",
                     )
 
-        # evaluation run
-        
-
     cleanup()
 
 
