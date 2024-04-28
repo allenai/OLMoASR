@@ -34,8 +34,10 @@ torchrun --nnodes 1 --nproc_per_node 4 scripts/training/train.py \
     --eff_size=256 \
     --train_batch_size=8 \
     --val_batch_size=8 \
+    --eval_batch_size=32 \
     --train_val_split=0.99 \
     --num_workers=40 \
     --pin_memory=True \
     --shuffle=True \
-    --persistent_workers=True
+    --persistent_workers=True \
+    --run_eval=True
