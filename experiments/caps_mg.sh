@@ -6,7 +6,7 @@
 #SBATCH --mem=250G
 #SBATCH --gres=gpu:6
 #SBATCH --cpus-per-gpu 6
-#SBATCH --time=10:00:00
+#SBATCH --time=72:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=hvn2002@uw.edu
 

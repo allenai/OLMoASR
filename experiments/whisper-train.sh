@@ -3,8 +3,8 @@
 #SBATCH --partition=gpu-a40
 #SBATCH --account=efml
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=50
-#SBATCH --mem=300G
+#SBATCH --cpus-per-task=6
+#SBATCH --mem=250G
 #SBATCH --gres=gpu:6
 #SBATCH --time=72:00:00
 #SBATCH --mail-type=ALL
