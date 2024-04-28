@@ -29,6 +29,9 @@ from scripts.eval.libri_artie import AudioTextDataset as EvalAudioTextDataset
 from scripts.data.filtering.get_filter_mechs import get_baseline_data
 from scripts.training import for_logging
 
+TRAIN_WRITE_FILE_FREQ = 20
+TRAIN_LOG_WANDB_FREQ = 1000
+
 
 class AudioTextDataset(Dataset):
     def __init__(
@@ -370,6 +373,7 @@ def setup_wandb(
 def train(
     rank: int,
     epoch: int,
+    train_batch_size: int,
     train_sampler: torch.utils.data.distributed.DistributedSampler,
     train_dataloader: torch.utils.data.DataLoader,
     scaler: torch.cuda.amp.GradScaler,
@@ -394,6 +398,8 @@ def train(
         The rank of the current process.
     epoch : int
         The current epoch number.
+    train_batch_size : int
+        The batch size for training.
     train_sampler : torch.utils.data.distributed.DistributedSampler
         The training sampler.
     train_dataloader : torch.utils.data.DataLoader
@@ -426,10 +432,11 @@ def train(
     batch_unnorm_pred_text = []
     batch_audio_files = []
     batch_text_files = []
+    logging_steps = (train_batch_size * accumulation_steps) // 8
+    total_loss = 0.0
     train_sampler.set_epoch(epoch)
     model.train()
     optimizer.zero_grad()
-    total_loss = 0.0
 
     if rank == 0:
         train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
@@ -545,8 +552,7 @@ def train(
 
                 wandb.log({"train_loss": train_loss_all, "train_wer": train_wer_all})
 
-                # every 20 steps
-                if ((batch_idx + 1) % (20 * accumulation_steps)) == 0:
+                if ((batch_idx + 1) % (TRAIN_WRITE_FILE_FREQ * accumulation_steps)) == 0:
                     with open(
                         f"logs/training/training_results_{'_'.join(tags)}.txt",
                         "a",
@@ -562,24 +568,23 @@ def train(
                             tgt_text_instance,
                             pred_text_instance,
                         ) in enumerate(
-                            norm_tgt_pred_pairs[::4]  # should log just 8 examples
+                            norm_tgt_pred_pairs[::logging_steps]  # should log just 8 examples
                         ):
                             f.write(f"{epoch=}\n")
                             f.write(
                                 f"effective step={(batch_idx + 1) // accumulation_steps}\n"
                             )
-                            f.write(f"text_file={batch_text_files[i * 4]}\n")
+                            f.write(f"text_file={batch_text_files[i * logging_steps]}\n")
                             f.write(f"{pred_text_instance=}\n")
                             f.write(
-                                f"unnorm_pred_text_instance={batch_pred_text[i * 4]}\n"
+                                f"unnorm_pred_text_instance={batch_pred_text[i * logging_steps]}\n"
                             )
                             f.write(f"{tgt_text_instance=}\n")
                             f.write(
-                                f"unnorm_tgt_text_instance={batch_tgt_text[i * 4]}\n\n"
+                                f"unnorm_tgt_text_instance={batch_tgt_text[i * logging_steps]}\n\n"
                             )
 
-                            # logging to wandb table after 1000 steps
-                            if ((batch_idx + 1) // (1000 * accumulation_steps)) == 1:
+                            if ((batch_idx + 1) // (TRAIN_LOG_WANDB_FREQ * accumulation_steps)) == 1:
                                 # logging to wandb table
                                 wer = np.round(
                                     ow.utils.calculate_wer(
@@ -603,17 +608,17 @@ def train(
                                     ins = measures["insertions"]
 
                                 train_table.add_data(
-                                    batch_audio_files[i * 4],
+                                    batch_audio_files[i * logging_steps],
                                     wandb.Audio(
-                                        batch_audio_files[i * 4],
+                                        batch_audio_files[i * logging_steps],
                                         sample_rate=16000,
                                     ),
-                                    batch_text_files[i * 4],
+                                    batch_text_files[i * logging_steps],
                                     pred_text_instance,
-                                    batch_unnorm_pred_text[i * 4],
-                                    batch_pred_text[i * 4],
+                                    batch_unnorm_pred_text[i * logging_steps],
+                                    batch_pred_text[i * logging_steps],
                                     tgt_text_instance,
-                                    batch_tgt_text[i * 4],
+                                    batch_tgt_text[i * logging_steps],
                                     subs,
                                     dels,
                                     ins,
@@ -624,8 +629,7 @@ def train(
                         f.write(f"{train_loss_all=}\n")
                         f.write(f"{train_wer_all=}\n\n")
 
-                        # logging to wandb table after 1000 steps
-                        if ((batch_idx + 1) // (1000 * accumulation_steps)) == 1:
+                        if ((batch_idx + 1) // (TRAIN_LOG_WANDB_FREQ * accumulation_steps)) == 1:
                             wandb.log({f"train_table_{epoch}": train_table})
 
                 # checkpointing for every 250 steps
