@@ -18,22 +18,24 @@ cd /mmfs1/gscratch/efml/hvn2002/open_whisper
 cat $0
 echo "--------------------"
 
-torchrun --nnodes 1 --nproc_per_node 8 scripts/training/train.py \
+torchrun --nnodes 1 --nproc_per_node 4 scripts/training/train.py \
     --model_variant=tiny \
     --exp_name=whisper-tiny \
     --job_type=train \
+    --rank=None \
+    --world_size=None \
     --lr=1.5e-3 \
     --betas="(0.9, 0.98)" \
     --eps=1e-6 \
     --weight_decay=0.1 \
     --max_grad_norm=1.0 \
-    --subset=None \
+    --subset=5000 \
     --epochs=8 \
     --eff_size=256 \
     --train_batch_size=8 \
     --val_batch_size=8 \
     --train_val_split=0.99 \
-    --num_workers=48 \
+    --num_workers=40 \
     --pin_memory=True \
     --shuffle=True \
     --persistent_workers=True
