@@ -343,14 +343,13 @@ def setup_wandb(
         "world_size": world_size,
         "num_workers": num_workers,
         "model_variant": model_variant,
+        "subset": subset,
     }
 
     tags = [
-        f"model_variant={model_variant}",
         "ddp-train",
         "grad-acc",
         "fp16",
-        f"subset={subset}" if subset is not None else "subset=full",
     ]
 
     wandb.init(
@@ -373,7 +372,15 @@ def setup_wandb(
 
 
 def save_ckpt(
-    epoch: int, model, optimizer, scaler, scheduler, model_dims, tags, file_name: str
+    epoch: int,
+    model,
+    optimizer,
+    scaler,
+    scheduler,
+    model_dims,
+    tags,
+    model_variant,
+    file_name: str,
 ):
     ddp_checkpoint = {
         "epoch": epoch,
@@ -398,11 +405,11 @@ def save_ckpt(
 
     torch.save(
         ddp_checkpoint,
-        f"checkpoints/{file_name}_{epoch=}_{'_'.join(tags)}_ddp.pt",
+        f"checkpoints/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_ddp.pt",
     )
     torch.save(
         non_ddp_checkpoint,
-        f"checkpoints/{file_name}_{epoch=}_{'_'.join(tags)}_non_ddp.pt",
+        f"checkpoints/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
     )
 
 
@@ -755,18 +762,20 @@ def train(
                 for i, (
                     tgt_text_instance,
                     pred_text_instance,
-                ) in enumerate(
-                    norm_tgt_pred_pairs[::logging_steps]
-                ):
+                ) in enumerate(norm_tgt_pred_pairs[::logging_steps]):
                     f.write(f"{epoch=}\n")
                     f.write(
                         f"effective step={((batch_idx + 1) // accumulation_steps) + 1}\n"
                     )
                     f.write(f"{batch_text_files[i * logging_steps]}\n")
                     f.write(f"{pred_text_instance=}\n")
-                    f.write(f"unnorm_pred_text_instance={batch_pred_text[i * logging_steps]}\n")
+                    f.write(
+                        f"unnorm_pred_text_instance={batch_pred_text[i * logging_steps]}\n"
+                    )
                     f.write(f"{tgt_text_instance=}\n")
-                    f.write(f"unnorm_tgt_text_instance={batch_tgt_text[i * logging_steps]}\n\n")
+                    f.write(
+                        f"unnorm_tgt_text_instance={batch_tgt_text[i * logging_steps]}\n\n"
+                    )
 
                 f.write(f"{train_loss_all=}\n")
                 f.write(f"{train_wer_all=}\n\n")
@@ -1229,16 +1238,18 @@ def main(
             tags=tags if rank == 0 else None,
         )
 
-        save_ckpt(
-            epoch=epoch,
-            model=model,
-            optimizer=optimizer,
-            scaler=scaler,
-            scheduler=scheduler,
-            model_dims=model_dims,
-            tags=tags,
-            file_name="latest_train",
-        )
+        if rank == 0:
+            save_ckpt(
+                epoch=epoch,
+                model=model,
+                optimizer=optimizer,
+                scaler=scaler,
+                scheduler=scheduler,
+                model_dims=model_dims,
+                tags=tags,
+                model_variant=model_variant,
+                file_name="latest_train",
+            )
 
         validate(
             rank=rank,
@@ -1267,7 +1278,7 @@ def main(
                     num_workers=num_workers,
                     model=model,
                     normalizer=normalizer,
-                    tags=tags if rank == 0 else None,
+                    tags=tags,
                 )
 
     cleanup()
