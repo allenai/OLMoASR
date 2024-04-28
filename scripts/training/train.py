@@ -31,6 +31,7 @@ from scripts.training import for_logging
 
 TRAIN_WRITE_FILE_FREQ = 20
 TRAIN_LOG_WANDB_FREQ = 1000
+WANBD_EXAMPLES = 8
 
 
 class AudioTextDataset(Dataset):
@@ -464,7 +465,7 @@ def train(
     batch_unnorm_pred_text = []
     batch_audio_files = []
     batch_text_files = []
-    logging_steps = (train_batch_size * accumulation_steps) // 8
+    logging_steps = (train_batch_size * accumulation_steps) // WANBD_EXAMPLES
     total_loss = 0.0
     train_sampler.set_epoch(epoch)
     model.train()
@@ -752,17 +753,17 @@ def train(
                     tgt_text_instance,
                     pred_text_instance,
                 ) in enumerate(
-                    norm_tgt_pred_pairs[::4]  # should log just 8 examples
+                    norm_tgt_pred_pairs[::logging_steps]
                 ):
                     f.write(f"{epoch=}\n")
                     f.write(
                         f"effective step={((batch_idx + 1) // accumulation_steps) + 1}\n"
                     )
-                    f.write(f"{batch_text_files[i * 4]}\n")
+                    f.write(f"{batch_text_files[i * logging_steps]}\n")
                     f.write(f"{pred_text_instance=}\n")
-                    f.write(f"unnorm_pred_text_instance={batch_pred_text[i * 4]}\n")
+                    f.write(f"unnorm_pred_text_instance={batch_pred_text[i * logging_steps]}\n")
                     f.write(f"{tgt_text_instance=}\n")
-                    f.write(f"unnorm_tgt_text_instance={batch_tgt_text[i * 4]}\n\n")
+                    f.write(f"unnorm_tgt_text_instance={batch_tgt_text[i * logging_steps]}\n\n")
 
                 f.write(f"{train_loss_all=}\n")
                 f.write(f"{train_wer_all=}\n\n")
@@ -1211,6 +1212,7 @@ def main(
         model, optimizer, scaler, scheduler = train(
             rank=rank,
             epoch=epoch,
+            train_batch_size=train_batch_size,
             train_sampler=train_sampler,
             train_dataloader=train_dataloader,
             scaler=scaler,
