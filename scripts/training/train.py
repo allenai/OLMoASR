@@ -29,13 +29,6 @@ from scripts.eval.libri_artie import AudioTextDataset as EvalAudioTextDataset
 from scripts.data.filtering.get_filter_mechs import get_baseline_data
 from scripts.training import for_logging
 
-TRAIN_WRITE_FILE_FREQ = 20
-VAL_WRITE_FILE_FREQ = 4
-TRAIN_LOG_WANDB_FREQ = 1000
-VAL_LOG_WANDB_FREQ = 8
-EVAL_LOG_WANDB_FREQ = 20
-WANBD_EXAMPLES = 8
-
 
 class AudioTextDataset(Dataset):
     def __init__(
@@ -403,6 +396,15 @@ def save_ckpt(
         "dims": model_dims.__dict__,
     }
 
+    if epoch != 0:
+        prev_epoch = epoch - 1
+        os.remove(
+            f"checkpoints/{file_name}_epoch={prev_epoch}_{model_variant}_{'_'.join(tags)}_ddp.pt"
+        )
+        os.remove(
+            f"checkpoints/{file_name}_epoch={prev_epoch}_{model_variant}_{'_'.join(tags)}_non_ddp.pt"
+        )
+
     torch.save(
         ddp_checkpoint,
         f"checkpoints/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_ddp.pt",
@@ -596,7 +598,11 @@ def train(
                 wandb.log({"train_loss": train_loss_all, "train_wer": train_wer_all})
 
                 if (
-                    (batch_idx + 1) % (TRAIN_WRITE_FILE_FREQ * accumulation_steps)
+                    (batch_idx + 1)
+                    % (
+                        int(np.ceil((len(train_dataloader) / accumulation_steps) / 10))
+                        * accumulation_steps
+                    )
                 ) == 0:
                     with open(
                         f"logs/training/training_results_{'_'.join(tags)}.txt",
@@ -633,59 +639,58 @@ def train(
                                 f"unnorm_tgt_text_instance={batch_tgt_text[i * logging_steps]}\n\n"
                             )
 
-                            if (
-                                (batch_idx + 1)
-                                // (TRAIN_LOG_WANDB_FREQ * accumulation_steps)
-                            ) == 1:
-                                # logging to wandb table
-                                wer = np.round(
-                                    ow.utils.calculate_wer(
-                                        (tgt_text_instance, pred_text_instance)
-                                    ),
-                                    2,
-                                )
-                                subs = 0
-                                dels = 0
-                                ins = 0
-                                if len(tgt_text_instance) == 0:
-                                    subs = 0
-                                    dels = 0
-                                    ins = len(pred_text_instance.split())
-                                else:
-                                    measures = jiwer.compute_measures(
-                                        tgt_text_instance, pred_text_instance
-                                    )
-                                    subs = measures["substitutions"]
-                                    dels = measures["deletions"]
-                                    ins = measures["insertions"]
-
-                                train_table.add_data(
-                                    batch_audio_files[i * logging_steps],
-                                    wandb.Audio(
-                                        batch_audio_files[i * logging_steps],
-                                        sample_rate=16000,
-                                    ),
-                                    batch_text_files[i * logging_steps],
-                                    pred_text_instance,
-                                    batch_unnorm_pred_text[i * logging_steps],
-                                    batch_pred_text[i * logging_steps],
-                                    tgt_text_instance,
-                                    batch_tgt_text[i * logging_steps],
-                                    subs,
-                                    dels,
-                                    ins,
-                                    len(tgt_text_instance.split()),
-                                    wer,
-                                )
-
                         f.write(f"{train_loss_all=}\n")
                         f.write(f"{train_wer_all=}\n\n")
 
-                        if (
-                            (batch_idx + 1)
-                            // (TRAIN_LOG_WANDB_FREQ * accumulation_steps)
-                        ) == 1:
-                            wandb.log({f"train_table_{epoch}": train_table})
+                if (batch_idx + 1) == (
+                    int((len(train_dataloader) / accumulation_steps) / 2)
+                    * accumulation_steps
+                ):
+                    for i, (
+                        tgt_text_instance,
+                        pred_text_instance,
+                    ) in enumerate(norm_tgt_pred_pairs[::logging_steps]):
+                        wer = np.round(
+                            ow.utils.calculate_wer(
+                                (tgt_text_instance, pred_text_instance)
+                            ),
+                            2,
+                        )
+                        subs = 0
+                        dels = 0
+                        ins = 0
+                        if len(tgt_text_instance) == 0:
+                            subs = 0
+                            dels = 0
+                            ins = len(pred_text_instance.split())
+                        else:
+                            measures = jiwer.compute_measures(
+                                tgt_text_instance, pred_text_instance
+                            )
+                            subs = measures["substitutions"]
+                            dels = measures["deletions"]
+                            ins = measures["insertions"]
+
+                        train_table.add_data(
+                            batch_audio_files[i * logging_steps],
+                            wandb.Audio(
+                                batch_audio_files[i * logging_steps],
+                                sample_rate=16000,
+                            ),
+                            batch_text_files[i * logging_steps],
+                            pred_text_instance,
+                            batch_unnorm_pred_text[i * logging_steps],
+                            batch_pred_text[i * logging_steps],
+                            tgt_text_instance,
+                            batch_tgt_text[i * logging_steps],
+                            subs,
+                            dels,
+                            ins,
+                            len(tgt_text_instance.split()),
+                            wer,
+                        )
+
+                    wandb.log({f"train_table_{epoch}": train_table})
 
             # Gradient clipping, if necessary, should be done before optimizer.step()
             scaler.unscale_(optimizer)
@@ -804,7 +809,7 @@ def train(
                 f"train epoch {epoch} took {(end_time - start_time) / 60.0} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
             )
 
-    return model, optimizer, scaler, scheduler
+    return model, optimizer, scaler, scheduler, train_res_added
 
 
 def validate(
@@ -820,6 +825,7 @@ def validate(
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LambdaLR,
     model_dims,
+    model_variant,
     val_res: Optional[wandb.Artifact],
     val_res_added: Optional[bool],
     tags: Optional[List[str]],
@@ -914,7 +920,7 @@ def validate(
                 print(f"val_loss by batch: {batch_val_loss}")
                 print(f"val_wer by batch: {batch_val_wer}")
 
-                if (batch_idx + 1) % VAL_WRITE_FILE_FREQ == 0:
+                if (batch_idx + 1) % int(np.ceil(len(val_dataloader) / 10)) == 0:
                     with open(
                         f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
                     ) as f:
@@ -939,49 +945,51 @@ def validate(
                                 f"unnorm_tgt_text_instance={batch_tgt_text[i]=}\n\n"
                             )
 
-                            if (batch_idx + 1) == VAL_LOG_WANDB_FREQ:
-                                wer = np.round(
-                                    ow.utils.calculate_wer(
-                                        (tgt_text_instance, pred_text_instance)
-                                    ),
-                                    2,
-                                )
-                                subs = 0
-                                dels = 0
-                                ins = 0
-                                if tgt_text_instance == "":
-                                    subs = 0
-                                    dels = 0
-                                    ins = len(pred_text_instance.split())
-                                else:
-                                    measures = jiwer.compute_measures(
-                                        tgt_text_instance, pred_text_instance
-                                    )
-                                    subs = measures["substitutions"]
-                                    dels = measures["deletions"]
-                                    ins = measures["insertions"]
-
-                                val_table.add_data(
-                                    audio_files[i],
-                                    wandb.Audio(audio_files[i], sample_rate=16000),
-                                    transcript_files[i],
-                                    pred_text_instance,
-                                    unnorm_pred_text[i],
-                                    batch_pred_text[i],
-                                    tgt_text_instance,
-                                    batch_tgt_text[i],
-                                    subs,
-                                    dels,
-                                    ins,
-                                    len(tgt_text_instance.split()),
-                                    wer,
-                                )
-
-                        if (batch_idx + 1) == VAL_LOG_WANDB_FREQ:
-                            wandb.log({f"val_table_{epoch}": val_table})
-
                         f.write(f"{batch_val_loss=}\n")
                         f.write(f"{batch_val_wer=}\n\n")
+
+                if (batch_idx + 1) == (len(val_dataloader) // 2):
+                    for i, (tgt_text_instance, pred_text_instance) in enumerate(
+                        norm_tgt_pred_pairs
+                    ):
+                        wer = np.round(
+                            ow.utils.calculate_wer(
+                                (tgt_text_instance, pred_text_instance)
+                            ),
+                            2,
+                        )
+                        subs = 0
+                        dels = 0
+                        ins = 0
+                        if tgt_text_instance == "":
+                            subs = 0
+                            dels = 0
+                            ins = len(pred_text_instance.split())
+                        else:
+                            measures = jiwer.compute_measures(
+                                tgt_text_instance, pred_text_instance
+                            )
+                            subs = measures["substitutions"]
+                            dels = measures["deletions"]
+                            ins = measures["insertions"]
+
+                        val_table.add_data(
+                            audio_files[i],
+                            wandb.Audio(audio_files[i], sample_rate=16000),
+                            transcript_files[i],
+                            pred_text_instance,
+                            unnorm_pred_text[i],
+                            batch_pred_text[i],
+                            tgt_text_instance,
+                            batch_tgt_text[i],
+                            subs,
+                            dels,
+                            ins,
+                            len(tgt_text_instance.split()),
+                            wer,
+                        )
+
+                    wandb.log({f"val_table_{epoch}": val_table})
 
         if rank == 0:
             end_time = time.time()
@@ -1023,16 +1031,17 @@ def validate(
                     scheduler=scheduler,
                     model_dims=model_dims,
                     tags=tags,
+                    model_variant=model_variant,
                     file_name="best_val",
                 )
 
-    return None
+    return val_res_added
 
 
 def evaluate(
     rank: int,
     epoch: int,
-    val_batch_size: int,
+    eval_batch_size: int,
     num_workers: int,
     model,
     normalizer: whisper.normalizers.EnglishTextNormalizer,
@@ -1051,9 +1060,9 @@ def evaluate(
 
         eval_dataloader = DataLoader(
             eval_dataset,
-            batch_size=val_batch_size,
-            shuffle=True,
-            num_workers=num_workers // 6,
+            batch_size=eval_batch_size,
+            shuffle=False,
+            num_workers=num_workers,
             drop_last=False,
             persistent_workers=True,
         )
@@ -1076,14 +1085,14 @@ def evaluate(
                 norm_tgt_text = [normalizer(text) for text in tgt_text]
                 references.extend(norm_tgt_text)
 
-                if (batch_idx + 1) % EVAL_LOG_WANDB_FREQ == 0:
+                if (batch_idx + 1) % int(np.ceil(len(eval_dataloader) / 10)) == 0:
                     for i in range(0, len(pred_text), 8):
                         wer = np.round(
                             jiwer.wer(
                                 reference=norm_tgt_text[i], hypothesis=norm_pred_text[i]
                             ),
                             2,
-                        )
+                        ) * 100
                         eval_table.add_data(
                             corpi,
                             audio_files[i],
@@ -1139,12 +1148,13 @@ def main(
     eff_size=256,
     train_batch_size=8,
     val_batch_size=8,
+    eval_batch_size=32,
     train_val_split=0.99,
     num_workers=10,
     pin_memory=True,
     shuffle=True,
     persistent_workers=True,
-    evaluate=False,
+    run_eval=False,
 ):
     model_dims = VARIANT_TO_DIMS[model_variant]
 
@@ -1218,7 +1228,7 @@ def main(
     scaler = GradScaler()
 
     for epoch in range(epochs):
-        model, optimizer, scaler, scheduler = train(
+        model, optimizer, scaler, scheduler, train_res_added = train(
             rank=rank,
             epoch=epoch,
             train_batch_size=train_batch_size,
@@ -1251,7 +1261,7 @@ def main(
                 file_name="latest_train",
             )
 
-        validate(
+        val_res_added = validate(
             rank=rank,
             epoch=epoch,
             best_val_loss=best_val_loss if rank == 0 else None,
@@ -1264,25 +1274,33 @@ def main(
             optimizer=optimizer,
             scheduler=scheduler,
             model_dims=model_dims,
+            model_variant=model_variant,
             val_res=val_res if rank == 0 else None,
             val_res_added=val_res_added if rank == 0 else None,
             tags=tags if rank == 0 else None,
         )
 
-        if evaluate:
+        if run_eval:
+            if rank != 0:
+                dist.barrier()
+
             if rank == 0:
                 evaluate(
                     rank=rank,
                     epoch=epoch,
-                    val_batch_size=val_batch_size,
+                    eval_batch_size=eval_batch_size,
                     num_workers=num_workers,
                     model=model,
                     normalizer=normalizer,
                     tags=tags,
                 )
 
+            if rank == 0:
+                dist.barrier()
+
     cleanup()
 
 
 if __name__ == "__main__":
+    torch.cuda.empty_cache()
     Fire(main)
