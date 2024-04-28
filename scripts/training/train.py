@@ -1136,6 +1136,7 @@ def main(
     pin_memory=True,
     shuffle=True,
     persistent_workers=True,
+    evaluate=False,
 ):
     model_dims = VARIANT_TO_DIMS[model_variant]
 
@@ -1258,16 +1259,17 @@ def main(
             tags=tags if rank == 0 else None,
         )
 
-        if rank == 0:
-            evaluate(
-                rank=rank,
-                epoch=epoch,
-                val_batch_size=val_batch_size,
-                num_workers=num_workers,
-                model=model,
-                normalizer=normalizer,
-                tags=tags if rank == 0 else None,
-            )
+        if evaluate:
+            if rank == 0:
+                evaluate(
+                    rank=rank,
+                    epoch=epoch,
+                    val_batch_size=val_batch_size,
+                    num_workers=num_workers,
+                    model=model,
+                    normalizer=normalizer,
+                    tags=tags if rank == 0 else None,
+                )
 
     cleanup()
 
