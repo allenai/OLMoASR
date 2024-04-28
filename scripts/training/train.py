@@ -30,7 +30,10 @@ from scripts.data.filtering.get_filter_mechs import get_baseline_data
 from scripts.training import for_logging
 
 TRAIN_WRITE_FILE_FREQ = 20
+VAL_WRITE_FILE_FREQ = 4
 TRAIN_LOG_WANDB_FREQ = 1000
+VAL_LOG_WANDB_FREQ = 8
+EVAL_LOG_WANDB_FREQ = 20
 WANBD_EXAMPLES = 8
 
 
@@ -902,8 +905,7 @@ def validate(
                 print(f"val_loss by batch: {batch_val_loss}")
                 print(f"val_wer by batch: {batch_val_wer}")
 
-                # every 10 steps
-                if (batch_idx + 1) % 10 == 0:
+                if (batch_idx + 1) % VAL_WRITE_FILE_FREQ == 0:
                     with open(
                         f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
                     ) as f:
@@ -928,8 +930,7 @@ def validate(
                                 f"unnorm_tgt_text_instance={batch_tgt_text[i]=}\n\n"
                             )
 
-                            # logging to wandb table after 10 steps
-                            if (batch_idx + 1) == 10:
+                            if (batch_idx + 1) == VAL_LOG_WANDB_FREQ:
                                 wer = np.round(
                                     ow.utils.calculate_wer(
                                         (tgt_text_instance, pred_text_instance)
@@ -967,8 +968,7 @@ def validate(
                                     wer,
                                 )
 
-                        # logging to wandb table after 10 steps
-                        if (batch_idx + 1) == 10:
+                        if (batch_idx + 1) == VAL_LOG_WANDB_FREQ:
                             wandb.log({f"val_table_{epoch}": val_table})
 
                         f.write(f"{batch_val_loss=}\n")
@@ -1067,8 +1067,7 @@ def evaluate(
                 norm_tgt_text = [normalizer(text) for text in tgt_text]
                 references.extend(norm_tgt_text)
 
-                # logging eval results every 20 steps
-                if (batch_idx + 1) % 20 == 0:
+                if (batch_idx + 1) % EVAL_LOG_WANDB_FREQ == 0:
                     for i in range(0, len(pred_text), 8):
                         wer = np.round(
                             jiwer.wer(
