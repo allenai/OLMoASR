@@ -25,8 +25,9 @@ from typing import List, Tuple, Union, Optional
 import time
 import jiwer
 from fire import Fire
-from scripts import for_logging, EvalAudioTextDataset
-from scripts import get_baseline_data
+from scripts.eval.libri_artie import AudioTextDataset as EvalAudioTextDataset
+from scripts.data.filtering.get_filter_mechs import get_baseline_data
+from scripts.training import for_logging
 
 
 class AudioTextDataset(Dataset):
@@ -249,6 +250,8 @@ def prepare_data(
         batch_size=val_batch_size,
         pin_memory=pin_memory,
         shuffle=shuffle,
+        num_workers=num_workers,
+        persistent_workers=persistent_workers,
     )
 
     return train_sampler, train_dataloader, val_sampler, val_dataloader
@@ -361,7 +364,7 @@ def setup_wandb(
     val_res = wandb.Artifact("val_res", type="results")
     val_res_added = False
 
-    return tags, train_res, val_res
+    return tags, train_res, val_res, train_res_added, val_res_added
 
 
 def train(
@@ -378,8 +381,9 @@ def train(
     model_dims,
     accumulation_steps: int,
     max_grad_norm: float,
-    train_res: wandb.Artifact,
-    tags: List[str],
+    train_res: Optional[wandb.Artifact],
+    train_res_added: Optional[bool],
+    tags: Optional[List[str]],
 ):
     """
     Training loop for one epoch.
@@ -782,6 +786,7 @@ def train(
 def validate(
     rank: int,
     epoch: int,
+    best_val_loss: float,
     val_sampler: torch.utils.data.distributed.DistributedSampler,
     val_dataloader: torch.utils.data.DataLoader,
     scaler: torch.cuda.amp.GradScaler,
@@ -791,8 +796,9 @@ def validate(
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LambdaLR,
     model_dims,
-    val_res: wandb.Artifact,
-    tags: List[str],
+    val_res: Optional[wandb.Artifact],
+    val_res_added: Optional[bool],
+    tags: Optional[List[str]],
 ):
     val_sampler.set_epoch(epoch)
     val_loss = 0.0
@@ -1126,7 +1132,7 @@ def main(
     rank: int = None,
     world_size: int = None,
     lr: float = 1.5e-3,
-    betas: str = "(0.9, 0.98)",
+    betas: tuple = (0.9, 0.98),
     eps: float = 1e-6,
     weight_decay: float = 0.1,
     max_grad_norm=1.0,
@@ -1141,7 +1147,6 @@ def main(
     shuffle=True,
     persistent_workers=True,
 ):
-    betas = tuple(float(beta) for beta in betas.strip("()").split(","))
     model_dims = VARIANT_TO_DIMS[model_variant]
 
     if rank is None and world_size is None:
@@ -1158,18 +1163,17 @@ def main(
 
     # prepare dataset
     train_sampler, train_dataloader, val_sampler, val_dataloader = prepare_data(
-        rank,
-        world_size,
-        model_dims,
-        train_val_split,
-        train_batch_size,
-        val_batch_size,
-        n_text_ctx,
-        pin_memory,
-        shuffle,
-        num_workers,
-        persistent_workers,
-        subset,
+        rank=rank,
+        world_size=world_size,
+        train_val_split=train_val_split,
+        train_batch_size=train_batch_size,
+        val_batch_size=val_batch_size,
+        n_text_ctx=n_text_ctx,
+        pin_memory=pin_memory,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        persistent_workers=persistent_workers,
+        subset=subset,
     )
 
     # model instantiation
@@ -1177,68 +1181,91 @@ def main(
     model = DDP(model, device_ids=[rank], output_device=rank)
 
     # optimizer and scheduler instantiation
-    optimizer = prepare_optim(model, lr, betas, eps, weight_decay)
+    optimizer = prepare_optim(
+        model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
+    )
     scheduler, accumulation_steps, warmup_steps, total_steps = prepare_sched(
-        train_dataloader, world_size, train_batch_size, eff_size, epochs, optimizer
+        train_dataloader=train_dataloader,
+        world_size=world_size,
+        train_batch_size=train_batch_size,
+        eff_size=eff_size,
+        epochs=epochs,
+        optimizer=optimizer,
     )
 
     # setting up wandb for logging
     if rank == 0:
-        tags, train_res, val_res = setup_wandb(
-            exp_name,
-            job_type,
-            subset,
-            model_variant,
-            lr,
-            betas,
-            eps,
-            weight_decay,
-            train_batch_size,
-            epochs,
-            total_steps,
-            warmup_steps,
-            accumulation_steps,
-            train_val_split,
-            world_size,
-            num_workers,
+        tags, train_res, val_res, train_res_added, val_res_added = setup_wandb(
+            exp_name=exp_name,
+            job_type=job_type,
+            subset=subset,
+            model_variant=model_variant,
+            lr=lr,
+            betas=betas,
+            eps=eps,
+            weight_decay=weight_decay,
+            train_batch_size=train_batch_size,
+            epochs=epochs,
+            total_steps=total_steps,
+            warmup_steps=warmup_steps,
+            accumulation_steps=accumulation_steps,
+            train_val_split=train_val_split,
+            world_size=world_size,
+            num_workers=num_workers,
         )
+
+        best_val_loss = float("inf")
 
     scaler = GradScaler()
 
     for epoch in range(epochs):
         model, optimizer, scaler, scheduler = train(
-            rank,
-            epoch,
-            train_sampler,
-            train_dataloader,
-            scaler,
-            model,
-            tokenizer,
-            normalizer,
-            optimizer,
-            scheduler,
-            model_dims,
-            accumulation_steps,
-            max_grad_norm,
-            train_res,
-            tags,
+            rank=rank,
+            epoch=epoch,
+            train_sampler=train_sampler,
+            train_dataloader=train_dataloader,
+            scaler=scaler,
+            model=model,
+            tokenizer=tokenizer,
+            normalizer=normalizer,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            model_dims=model_dims,
+            accumulation_steps=accumulation_steps,
+            max_grad_norm=max_grad_norm,
+            train_res=train_res if rank == 0 else None,
+            train_res_added=train_res_added if rank == 0 else None,
+            tags=tags if rank == 0 else None,
         )
 
         validate(
-            rank,
-            epoch,
-            val_sampler,
-            val_dataloader,
-            scaler,
-            model,
-            tokenizer,
-            normalizer,
-            optimizer,
-            scheduler,
-            model_dims,
-            val_res,
-            tags,
+            rank=rank,
+            epoch=epoch,
+            best_val_loss=best_val_loss if rank == 0 else None,
+            val_sampler=val_sampler,
+            val_dataloader=val_dataloader,
+            scaler=scaler,
+            model=model,
+            tokenizer=tokenizer,
+            normalizer=normalizer,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            model_dims=model_dims,
+            val_res=val_res if rank == 0 else None,
+            val_res_added=val_res_added if rank == 0 else None,
+            tags=tags if rank == 0 else None,
         )
+
+        if rank == 0:
+            evaluate(
+                rank=rank,
+                epoch=epoch,
+                val_batch_size=val_batch_size,
+                num_workers=num_workers,
+                model=model,
+                normalizer=normalizer,
+                tags=tags if rank == 0 else None,
+            )
 
     cleanup()
 
