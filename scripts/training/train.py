@@ -157,8 +157,6 @@ class AudioTextDataset(Dataset):
 
 
 def setup(rank, world_size):
-    # os.environ["MASTER_ADDR"] = "localhost"
-    # os.environ["MASTER_PORT"] = "12356"
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 
@@ -344,7 +342,7 @@ def setup_wandb(
     }
 
     tags = [
-        "tiny-en",
+        f"model_variant={model_variant}",
         "ddp-train",
         "grad-acc",
         "fp16",
@@ -368,6 +366,40 @@ def setup_wandb(
     val_res_added = False
 
     return tags, train_res, val_res, train_res_added, val_res_added
+
+
+def save_ckpt(
+    epoch: int, model, optimizer, scaler, scheduler, model_dims, tags, file_name: str
+):
+    ddp_checkpoint = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scaler_state_dict": scaler.state_dict(),
+        # You can also save other items such as scheduler state
+        "scheduler_state_dict": (scheduler.state_dict() if scheduler else None),
+        "dims": model_dims.__dict__,
+        # Include any other information you deem necessary
+    }
+
+    non_ddp_checkpoint = {
+        "epoch": epoch,
+        "model_state_dict": model.module.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scaler_state_dict": scaler.state_dict(),
+        # You can also save other items such as scheduler state
+        "scheduler_state_dict": (scheduler.state_dict() if scheduler else None),
+        "dims": model_dims.__dict__,
+    }
+
+    torch.save(
+        ddp_checkpoint,
+        f"checkpoints/{file_name}_{epoch=}_{'_'.join(tags)}_ddp.pt",
+    )
+    torch.save(
+        non_ddp_checkpoint,
+        f"checkpoints/{file_name}_{epoch=}_{'_'.join(tags)}_non_ddp.pt",
+    )
 
 
 def train(
@@ -552,7 +584,9 @@ def train(
 
                 wandb.log({"train_loss": train_loss_all, "train_wer": train_wer_all})
 
-                if ((batch_idx + 1) % (TRAIN_WRITE_FILE_FREQ * accumulation_steps)) == 0:
+                if (
+                    (batch_idx + 1) % (TRAIN_WRITE_FILE_FREQ * accumulation_steps)
+                ) == 0:
                     with open(
                         f"logs/training/training_results_{'_'.join(tags)}.txt",
                         "a",
@@ -568,13 +602,17 @@ def train(
                             tgt_text_instance,
                             pred_text_instance,
                         ) in enumerate(
-                            norm_tgt_pred_pairs[::logging_steps]  # should log just 8 examples
+                            norm_tgt_pred_pairs[
+                                ::logging_steps
+                            ]  # should log just 8 examples
                         ):
                             f.write(f"{epoch=}\n")
                             f.write(
                                 f"effective step={(batch_idx + 1) // accumulation_steps}\n"
                             )
-                            f.write(f"text_file={batch_text_files[i * logging_steps]}\n")
+                            f.write(
+                                f"text_file={batch_text_files[i * logging_steps]}\n"
+                            )
                             f.write(f"{pred_text_instance=}\n")
                             f.write(
                                 f"unnorm_pred_text_instance={batch_pred_text[i * logging_steps]}\n"
@@ -584,7 +622,10 @@ def train(
                                 f"unnorm_tgt_text_instance={batch_tgt_text[i * logging_steps]}\n\n"
                             )
 
-                            if ((batch_idx + 1) // (TRAIN_LOG_WANDB_FREQ * accumulation_steps)) == 1:
+                            if (
+                                (batch_idx + 1)
+                                // (TRAIN_LOG_WANDB_FREQ * accumulation_steps)
+                            ) == 1:
                                 # logging to wandb table
                                 wer = np.round(
                                     ow.utils.calculate_wer(
@@ -629,45 +670,11 @@ def train(
                         f.write(f"{train_loss_all=}\n")
                         f.write(f"{train_wer_all=}\n\n")
 
-                        if ((batch_idx + 1) // (TRAIN_LOG_WANDB_FREQ * accumulation_steps)) == 1:
+                        if (
+                            (batch_idx + 1)
+                            // (TRAIN_LOG_WANDB_FREQ * accumulation_steps)
+                        ) == 1:
                             wandb.log({f"train_table_{epoch}": train_table})
-
-                # checkpointing for every 250 steps
-                if ((batch_idx + 1) % (250 * accumulation_steps)) == 0:
-                    print("Saving checkpoint (every 250 steps)")
-                    ddp_checkpoint = {
-                        "epoch": epoch,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "scaler_state_dict": scaler.state_dict(),
-                        # You can also save other items such as scheduler state
-                        "scheduler_state_dict": (
-                            scheduler.state_dict() if scheduler else None
-                        ),
-                        "dims": model_dims.__dict__,
-                        # Include any other information you deem necessary
-                    }
-
-                    non_ddp_checkpoint = {
-                        "epoch": epoch,
-                        "model_state_dict": model.module.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "scaler_state_dict": scaler.state_dict(),
-                        # You can also save other items such as scheduler state
-                        "scheduler_state_dict": (
-                            scheduler.state_dict() if scheduler else None
-                        ),
-                        "dims": model_dims.__dict__,
-                    }
-
-                    torch.save(
-                        ddp_checkpoint,
-                        f"checkpoints/tiny-en-ddp_250_{'_'.join(tags)}.pt",
-                    )
-                    torch.save(
-                        non_ddp_checkpoint,
-                        f"checkpoints/tiny-en-non-ddp_250_{'_'.join(tags)}.pt",
-                    )
 
             # Gradient clipping, if necessary, should be done before optimizer.step()
             scaler.unscale_(optimizer)
@@ -998,37 +1005,15 @@ def validate(
             if val_loss_all < best_val_loss:
                 best_val_loss = val_loss_all
 
-                ddp_checkpoint = {
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scaler_state_dict": scaler.state_dict(),
-                    # You can also save other items such as scheduler state
-                    "scheduler_state_dict": (
-                        scheduler.state_dict() if scheduler else None
-                    ),
-                    "dims": model_dims.__dict__,
-                    # Include any other information you deem necessary
-                }
-
-                non_ddp_checkpoint = {
-                    "epoch": epoch,
-                    "model_state_dict": model.module.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scaler_state_dict": scaler.state_dict(),
-                    # You can also save other items such as scheduler state
-                    "scheduler_state_dict": (
-                        scheduler.state_dict() if scheduler else None
-                    ),
-                    "dims": model_dims.__dict__,
-                }
-
-                torch.save(
-                    ddp_checkpoint, f"checkpoints/tiny-en-ddp_{'_'.join(tags)}.pt"
-                )
-                torch.save(
-                    non_ddp_checkpoint,
-                    f"checkpoints/tiny-en-non-ddp_{'_'.join(tags)}.pt",
+                save_ckpt(
+                    epoch=epoch,
+                    model=model,
+                    optimizer=optimizer,
+                    scaler=scaler,
+                    scheduler=scheduler,
+                    model_dims=model_dims,
+                    tags=tags,
+                    file_name="best_val",
                 )
 
     return None
@@ -1240,6 +1225,17 @@ def main(
             train_res=train_res if rank == 0 else None,
             train_res_added=train_res_added if rank == 0 else None,
             tags=tags if rank == 0 else None,
+        )
+
+        save_ckpt(
+            epoch=epoch,
+            model=model,
+            optimizer=optimizer,
+            scaler=scaler,
+            scheduler=scheduler,
+            model_dims=model_dims,
+            tags=tags,
+            file_name="latest_train",
         )
 
         validate(
