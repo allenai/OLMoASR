@@ -29,6 +29,8 @@ from scripts.eval.libri_artie import AudioTextDataset as EvalAudioTextDataset
 from scripts.data.filtering.get_filter_mechs import get_baseline_data
 from scripts.training import for_logging
 
+WANDB_EXAMPLES = 8
+
 
 class AudioTextDataset(Dataset):
     def __init__(
@@ -308,6 +310,7 @@ def setup_wandb(
     exp_name,
     job_type,
     subset,
+    dataset_size,
     model_variant,
     lr,
     betas,
@@ -337,6 +340,7 @@ def setup_wandb(
         "num_workers": num_workers,
         "model_variant": model_variant,
         "subset": subset,
+        "dataset_size": dataset_size,
     }
 
     tags = [
@@ -477,7 +481,7 @@ def train(
     batch_unnorm_pred_text = []
     batch_audio_files = []
     batch_text_files = []
-    logging_steps = (train_batch_size * accumulation_steps) // WANBD_EXAMPLES
+    logging_steps = (train_batch_size * accumulation_steps) // WANDB_EXAMPLES
     total_loss = 0.0
     train_sampler.set_epoch(epoch)
     model.train()
@@ -1087,12 +1091,16 @@ def evaluate(
 
                 if (batch_idx + 1) % int(np.ceil(len(eval_dataloader) / 10)) == 0:
                     for i in range(0, len(pred_text), 8):
-                        wer = np.round(
-                            jiwer.wer(
-                                reference=norm_tgt_text[i], hypothesis=norm_pred_text[i]
-                            ),
-                            2,
-                        ) * 100
+                        wer = (
+                            np.round(
+                                jiwer.wer(
+                                    reference=norm_tgt_text[i],
+                                    hypothesis=norm_pred_text[i],
+                                ),
+                                2,
+                            )
+                            * 100
+                        )
                         eval_table.add_data(
                             corpi,
                             audio_files[i],
@@ -1208,6 +1216,7 @@ def main(
             exp_name=exp_name,
             job_type=job_type,
             subset=subset,
+            dataset_size=len(audio_files_train),
             model_variant=model_variant,
             lr=lr,
             betas=betas,
