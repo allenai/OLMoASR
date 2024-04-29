@@ -1365,7 +1365,6 @@ def main(
 
         best_val_loss = float("inf")
 
-    scaler = GradScaler()
 
     for epoch in range(epochs):
         model, optimizer, scaler, scheduler, train_res_added = train(
