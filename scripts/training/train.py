@@ -294,13 +294,12 @@ def prepare_sched(
     total_steps = int(np.ceil(len(train_dataloader) / accumulation_steps) * epochs)
     warmup_steps = np.ceil(0.002 * total_steps)
 
-    def lr_lambda(current_step: int) -> float:
-        if current_step < warmup_steps:
-            return float(current_step) / float(max(1, warmup_steps))
+    def lr_lambda(batch_idx: int) -> float:
+        if batch_idx < warmup_steps:
+            return float(batch_idx) / float(max(1, warmup_steps))
         return max(
             0.0,
-            float(total_steps - current_step)
-            / float(max(1, total_steps - warmup_steps)),
+            float(total_steps - batch_idx) / float(max(1, total_steps - warmup_steps)),
         )
 
     scheduler = LambdaLR(optimizer=optimizer, lr_lambda=lr_lambda)
