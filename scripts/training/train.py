@@ -1148,10 +1148,11 @@ def validate(
                     tags=tags,
                     model_variant=model_variant,
                     exp_name=exp_name,
+                    run_id=run_id,
                     file_name="best_val",
                 )
 
-    return val_res_added
+    return best_val_loss, val_res_added
 
 
 def evaluate(
@@ -1399,10 +1400,11 @@ def main(
                 tags=tags,
                 model_variant=model_variant,
                 exp_name=exp_name,
+                run_id=run_id,
                 file_name="latest_train",
             )
 
-        val_res_added = validate(
+        best_val_loss, val_res_added = validate(
             rank=rank,
             epoch=epoch,
             best_val_loss=best_val_loss if rank == 0 else None,
