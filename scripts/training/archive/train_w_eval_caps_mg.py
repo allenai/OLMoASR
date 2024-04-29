@@ -198,23 +198,31 @@ def cleanup():
 
 
 audio_files_train = []
-for root, *_ in os.walk("data/audio"):
-    if "segments" in root:
-        for f in os.listdir(root):
-            audio_files_train.append(os.path.join(root, f))
+with open("logs/data/filtering/manual_audio.txt", "r") as f:
+    for line in f:
+        audio_files_train.append(line.strip())
+
+# for root, *_ in os.walk("data/audio"):
+#     if "segments" in root:
+#         for f in os.listdir(root):
+#             audio_files_train.append(os.path.join(root, f))
 
 transcript_files_train = []
-for root, *_ in os.walk("data/transcripts"):
-    if "segments" in root:
-        for f in os.listdir(root):
-            transcript_files_train.append(os.path.join(root, f))
+with open("logs/data/filtering/manual_text.txt", "r") as f:
+    for line in f:
+        transcript_files_train.append(line.strip())
 
+# for root, *_ in os.walk("data/transcripts"):
+#     if "segments" in root:
+#         for f in os.listdir(root):
+#             transcript_files_train.append(os.path.join(root, f))
 
 def main(
     rank,
     world_size,
     model_variant,
     exp_name,
+    dataset_size=0,
     subset=None,
     epochs=50,
     eff_size=256,
@@ -284,7 +292,7 @@ def main(
     )
 
     # eval corpi
-    eval_corpi = ["librispeech-other", "librispeech-clean", "artiebiascorpus"]
+    eval_corpi = ["librispeech-other", "librispeech-clean"]
 
     model = ow.model.Whisper(dims=model_dims).to(rank)
     model = DDP(model, device_ids=[rank], output_device=rank)
@@ -353,6 +361,7 @@ def main(
             "grad-acc",
             "fp16",
             f"subset={subset}" if subset is not None else "subset=full",
+            f"dataset_size={dataset_size}",
             f"lr={lr}",
             f"batch_size={train_batch_size}",
             f"workers={num_workers}",
@@ -548,20 +557,20 @@ def main(
                                 tgt_text_instance,
                                 pred_text_instance,
                             ) in enumerate(
-                                norm_tgt_pred_pairs[::8]  # should log just 8 examples
+                                norm_tgt_pred_pairs[::4]  # should log just 8 examples
                             ):
                                 f.write(f"{epoch=}\n")
                                 f.write(
                                     f"effective step={(batch_idx + 1) // accumulation_steps}\n"
                                 )
-                                f.write(f"text_file={batch_text_files[i * 8]}\n")
+                                f.write(f"text_file={batch_text_files[i * 4]}\n")
                                 f.write(f"{pred_text_instance=}\n")
                                 f.write(
-                                    f"unnorm_pred_text_instance={batch_pred_text[i * 8]}\n"
+                                    f"unnorm_pred_text_instance={batch_pred_text[i * 4]}\n"
                                 )
                                 f.write(f"{tgt_text_instance=}\n")
                                 f.write(
-                                    f"unnorm_tgt_text_instance={batch_tgt_text[i * 8]}\n\n"
+                                    f"unnorm_tgt_text_instance={batch_tgt_text[i * 4]}\n\n"
                                 )
 
                                 # logging to wandb table after 1000 steps
@@ -591,17 +600,17 @@ def main(
                                         ins = measures["insertions"]
 
                                     train_table.add_data(
-                                        batch_audio_files[i * 8],
+                                        batch_audio_files[i * 4],
                                         wandb.Audio(
-                                            batch_audio_files[i * 8],
+                                            batch_audio_files[i * 4],
                                             sample_rate=16000,
                                         ),
-                                        batch_text_files[i * 8],
+                                        batch_text_files[i * 4],
                                         pred_text_instance,
-                                        batch_unnorm_pred_text[i * 8],
-                                        batch_pred_text[i * 8],
+                                        batch_unnorm_pred_text[i * 4],
+                                        batch_pred_text[i * 4],
                                         tgt_text_instance,
-                                        batch_tgt_text[i * 8],
+                                        batch_tgt_text[i * 4],
                                         subs,
                                         dels,
                                         ins,
@@ -729,17 +738,17 @@ def main(
                         tgt_text_instance,
                         pred_text_instance,
                     ) in enumerate(
-                        norm_tgt_pred_pairs[::8]  # should log just 8 examples
+                        norm_tgt_pred_pairs[::4]  # should log just 8 examples
                     ):
                         f.write(f"{epoch=}\n")
                         f.write(
                             f"effective step={((batch_idx + 1) // accumulation_steps) + 1}\n"
                         )
-                        f.write(f"{batch_text_files[i * 8]}\n")
+                        f.write(f"{batch_text_files[i * 4]}\n")
                         f.write(f"{pred_text_instance=}\n")
-                        f.write(f"unnorm_pred_text_instance={batch_pred_text[i * 8]}\n")
+                        f.write(f"unnorm_pred_text_instance={batch_pred_text[i * 4]}\n")
                         f.write(f"{tgt_text_instance=}\n")
-                        f.write(f"unnorm_tgt_text_instance={batch_tgt_text[i * 8]}\n\n")
+                        f.write(f"unnorm_tgt_text_instance={batch_tgt_text[i * 4]}\n\n")
 
                     f.write(f"{train_loss_all=}\n")
                     f.write(f"{train_wer_all=}\n\n")
@@ -904,8 +913,8 @@ def main(
                                     f"unnorm_tgt_text_instance={batch_tgt_text[i]=}\n\n"
                                 )
 
-                                # logging to wandb table after 80 steps
-                                if (batch_idx + 1) == 80:
+                                # logging to wandb table after 10 steps
+                                if (batch_idx + 1) == 10:
                                     wer = np.round(
                                         ow.utils.calculate_wer(
                                             (tgt_text_instance, pred_text_instance)
@@ -943,8 +952,8 @@ def main(
                                         wer,
                                     )
 
-                            # logging to wandb table after 80 steps
-                            if (batch_idx + 1) == 80:
+                            # logging to wandb table after 10 steps
+                            if (batch_idx + 1) == 10:
                                 wandb.log({f"val_table_{epoch}": val_table})
 
                             f.write(f"{batch_val_loss=}\n")
@@ -1066,25 +1075,29 @@ def main(
                             norm_tgt_text = [normalizer(text) for text in tgt_text]
                             references.extend(norm_tgt_text)
 
-                            for i in range(0, len(pred_text), 8):
-                                wer = np.round(
-                                    jiwer.wer(reference=norm_tgt_text[i], hypothesis=norm_pred_text[i]), 2,
-                                )
-                                eval_table.add_data(
-                                    corpi,
-                                    audio_files[i],
-                                    wandb.Audio(audio_files[i], sample_rate=16000),
-                                    pred_text[i],
-                                    norm_pred_text[i],
-                                    norm_tgt_text[i],
-                                    wer
-                                )
+                            # logging eval results every 20 steps
+                            if (batch_idx + 1) % 20 == 0:
+                                for i in range(0, len(pred_text), 8):
+                                    wer = np.round(
+                                        jiwer.wer(reference=norm_tgt_text[i], hypothesis=norm_pred_text[i]), 2,
+                                    )
+                                    eval_table.add_data(
+                                        corpi,
+                                        audio_files[i],
+                                        wandb.Audio(audio_files[i], sample_rate=16000),
+                                        pred_text[i],
+                                        norm_pred_text[i],
+                                        norm_tgt_text[i],
+                                        wer
+                                    )
 
-                            wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text) * 100
-                            print(f"{corpi} batch WER: {wer}\n")
+                                wer = jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text) * 100
+                                with open(f"logs/training/eval_results_{'_'.join(tags)}.txt", "a") as f:
+                                    f.write(f"{corpi} batch {batch_idx} WER: {wer}\n")
                             
                         avg_wer = jiwer.wer(references, hypotheses) * 100
-                        print(f"{corpi} average WER: {avg_wer}\n")
+                        with open(f"logs/training/eval_results_{'_'.join(tags)}.txt", "a") as f:
+                            f.write(f"{corpi} average WER: {avg_wer}\n")
                         wandb.log({f"{corpi}_wer": avg_wer})
 
                 wandb.log({f"eval_table_{epoch}": eval_table})
@@ -1106,6 +1119,7 @@ if __name__ == "__main__":
     world_size = 6 if not debug else 1
     model_variant = "tiny"
     exp_name = "caps-mg"
+    dataset_size = len(audio_files_train)
     subset = None
     epochs = 8
     eff_size = 256
@@ -1122,6 +1136,7 @@ if __name__ == "__main__":
             world_size,
             model_variant,
             exp_name,
+            dataset_size,
             subset,
             epochs,
             eff_size,
