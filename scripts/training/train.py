@@ -30,6 +30,7 @@ from scripts.data.filtering.get_filter_mechs import get_baseline_data
 from scripts.training import for_logging
 
 WANDB_EXAMPLES = 8
+os.environ["WANDB__SERVICE_WAIT"] = "300"
 
 
 class AudioTextDataset(Dataset):
@@ -307,6 +308,7 @@ def prepare_sched(
 
 
 def setup_wandb(
+    run_id,
     exp_name,
     job_type,
     subset,
@@ -348,8 +350,13 @@ def setup_wandb(
         "grad-acc",
         "fp16",
     ]
+    
+    if run_id is None:
+        run_id = wandb.util.generate_id()
 
     wandb.init(
+        id=run_id,
+        resume="allow",
         project="open_whisper",
         entity="dogml",
         config=config,
@@ -357,7 +364,7 @@ def setup_wandb(
         job_type=job_type,
         tags=(tags),
         name=exp_name,
-        dir="scripts/training",
+        dir="logs/training",
     )
 
     train_res = wandb.Artifact("train_res", type="results")
@@ -365,7 +372,7 @@ def setup_wandb(
     val_res = wandb.Artifact("val_res", type="results")
     val_res_added = False
 
-    return tags, train_res, val_res, train_res_added, val_res_added
+    return run_id, tags, train_res, val_res, train_res_added, val_res_added
 
 
 def save_ckpt(
@@ -377,6 +384,7 @@ def save_ckpt(
     model_dims,
     tags,
     model_variant,
+    exp_name: str,
     file_name: str,
 ):
     ddp_checkpoint = {
@@ -408,14 +416,16 @@ def save_ckpt(
         os.remove(
             f"checkpoints/{file_name}_epoch={prev_epoch}_{model_variant}_{'_'.join(tags)}_non_ddp.pt"
         )
+    
+    os.makedirs(f"checkpoints/{exp_name}", exist_ok=True)
 
     torch.save(
         ddp_checkpoint,
-        f"checkpoints/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_ddp.pt",
+        f"checkpoints/{exp_name}/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_ddp.pt",
     )
     torch.save(
         non_ddp_checkpoint,
-        f"checkpoints/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
+        f"checkpoints/{exp_name}/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
     )
 
 
@@ -437,6 +447,7 @@ def train(
     train_res: Optional[wandb.Artifact],
     train_res_added: Optional[bool],
     tags: Optional[List[str]],
+    exp_name: str,
 ):
     """
     Training loop for one epoch.
@@ -475,6 +486,8 @@ def train(
         The artifact to store training results.
     tags : List[str]
         The tags to use for logging.
+    exp_name : str
+        The experiment name.
     """
     batch_pred_text = []
     batch_tgt_text = []
@@ -608,13 +621,14 @@ def train(
                         * accumulation_steps
                     )
                 ) == 0:
+                    os.makedirs(f"logs/training/{exp_name}", exist_ok=True)
                     with open(
-                        f"logs/training/training_results_{'_'.join(tags)}.txt",
+                        f"logs/training/{exp_name}/training_results_{'_'.join(tags)}.txt",
                         "a",
                     ) as f:
                         if not train_res_added:  # only once
                             train_res.add_file(
-                                f"logs/training/training_results_{'_'.join(tags)}.txt"
+                                f"logs/training/{exp_name}/training_results_{'_'.join(tags)}.txt"
                             )
                             train_res_added = True
                             wandb.log_artifact(train_res)
@@ -765,7 +779,7 @@ def train(
             wandb.log({"train_loss": train_loss_all, "train_wer": train_wer_all})
 
             with open(
-                f"logs/training/training_results_{'_'.join(tags)}.txt",
+                f"logs/training/{exp_name}/training_results_{'_'.join(tags)}.txt",
                 "a",
             ) as f:
                 for i, (
@@ -808,7 +822,7 @@ def train(
 
     if rank == 0:
         end_time = time.time()
-        with open(f"logs/training/epoch_times_{'_'.join(tags)}.txt", "a") as f:
+        with open(f"logs/training/{exp_name}/epoch_times_{'_'.join(tags)}.txt", "a") as f:
             f.write(
                 f"train epoch {epoch} took {(end_time - start_time) / 60.0} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
             )
@@ -833,6 +847,7 @@ def validate(
     val_res: Optional[wandb.Artifact],
     val_res_added: Optional[bool],
     tags: Optional[List[str]],
+    exp_name: str,
 ):
     val_sampler.set_epoch(epoch)
     val_loss = 0.0
@@ -926,14 +941,14 @@ def validate(
 
                 if (batch_idx + 1) % int(np.ceil(len(val_dataloader) / 10)) == 0:
                     with open(
-                        f"logs/training/val_results_{'_'.join(tags)}.txt", "a"
+                        f"logs/training/{exp_name}/val_results_{'_'.join(tags)}.txt", "a"
                     ) as f:
                         for i, (tgt_text_instance, pred_text_instance) in enumerate(
                             norm_tgt_pred_pairs
                         ):
                             if not val_res_added:  # only once
                                 val_res.add_file(
-                                    f"logs/training/val_results_{'_'.join(tags)}.txt"
+                                    f"logs/training/{exp_name}/val_results_{'_'.join(tags)}.txt"
                                 )
                                 val_res_added = True
                                 wandb.log_artifact(val_res)
@@ -997,7 +1012,7 @@ def validate(
 
         if rank == 0:
             end_time = time.time()
-            with open(f"logs/training/epoch_times_{'_'.join(tags)}.txt", "a") as f:
+            with open(f"logs/training/{exp_name}/epoch_times_{'_'.join(tags)}.txt", "a") as f:
                 f.write(
                     f"val epoch {epoch} took {(end_time - start_time) / 60.0} minutes\n"
                 )
@@ -1036,6 +1051,7 @@ def validate(
                     model_dims=model_dims,
                     tags=tags,
                     model_variant=model_variant,
+                    exp_name=exp_name,
                     file_name="best_val",
                 )
 
@@ -1050,6 +1066,7 @@ def evaluate(
     model,
     normalizer: whisper.normalizers.EnglishTextNormalizer,
     tags: List[str],
+    exp_name: str,
 ):
     eval_corpi = ["librispeech-other", "librispeech-clean"]
     eval_table = wandb.Table(columns=for_logging.EVAL_TABLE_COLS)
@@ -1116,19 +1133,19 @@ def evaluate(
                         * 100
                     )
                     with open(
-                        f"logs/training/eval_results_{'_'.join(tags)}.txt", "a"
+                        f"logs/training/{exp_name}/eval_results_{'_'.join(tags)}.txt", "a"
                     ) as f:
                         f.write(f"{corpi} batch {batch_idx} WER: {wer}\n")
 
             avg_wer = jiwer.wer(references, hypotheses) * 100
-            with open(f"logs/training/eval_results_{'_'.join(tags)}.txt", "a") as f:
+            with open(f"logs/training/{exp_name}/eval_results_{'_'.join(tags)}.txt", "a") as f:
                 f.write(f"{corpi} average WER: {avg_wer}\n")
             wandb.log({f"{corpi}_wer": avg_wer})
 
     wandb.log({f"eval_table_{epoch}": eval_table})
 
     end_time = time.time()
-    with open(f"logs/training/epoch_times_{'_'.join(tags)}.txt", "a") as f:
+    with open(f"logs/training/{exp_name}/epoch_times_{'_'.join(tags)}.txt", "a") as f:
         f.write(f"eval epoch {epoch} took {(end_time - start_time) / 60.0} minutes\n")
 
 
@@ -1144,6 +1161,7 @@ def main(
     model_variant,
     exp_name,
     job_type,
+    run_id: str = None,
     rank: int = None,
     world_size: int = None,
     lr: float = 1.5e-3,
@@ -1212,7 +1230,8 @@ def main(
 
     # setting up wandb for logging
     if rank == 0:
-        tags, train_res, val_res, train_res_added, val_res_added = setup_wandb(
+        run_id, tags, train_res, val_res, train_res_added, val_res_added = setup_wandb(
+            run_id=run_id,
             exp_name=exp_name,
             job_type=job_type,
             subset=subset,
@@ -1255,6 +1274,7 @@ def main(
             train_res=train_res if rank == 0 else None,
             train_res_added=train_res_added if rank == 0 else None,
             tags=tags if rank == 0 else None,
+            exp_name=exp_name,
         )
 
         if rank == 0:
@@ -1267,6 +1287,7 @@ def main(
                 model_dims=model_dims,
                 tags=tags,
                 model_variant=model_variant,
+                exp_name=exp_name,
                 file_name="latest_train",
             )
 
@@ -1287,6 +1308,7 @@ def main(
             val_res=val_res if rank == 0 else None,
             val_res_added=val_res_added if rank == 0 else None,
             tags=tags if rank == 0 else None,
+            exp_name=exp_name,
         )
 
         if run_eval:
@@ -1302,6 +1324,7 @@ def main(
                     model=model,
                     normalizer=normalizer,
                     tags=tags,
+                    exp_name=exp_name,
                 )
 
             if rank == 0:
