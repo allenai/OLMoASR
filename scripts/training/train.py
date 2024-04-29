@@ -377,6 +377,7 @@ def setup_wandb(
 
 def save_ckpt(
     epoch: int,
+    best_val_loss: int,
     model,
     optimizer,
     scaler,
@@ -390,6 +391,7 @@ def save_ckpt(
 ):
     ddp_checkpoint = {
         "epoch": epoch,
+        "best_val_loss": best_val_loss,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scaler_state_dict": scaler.state_dict(),
@@ -464,6 +466,8 @@ def load_ckpt(
     -------
     current_epoch: int
         The current epoch.
+    best_val_loss: float
+        The best validation loss.
     model
         The model.
     optimizer : torch.optim.Optimizer   
@@ -489,6 +493,8 @@ def load_ckpt(
 
     current_epoch = ckpt["epoch"]
 
+    best_val_loss = ckpt["best_val_loss"]
+
     model.load_state_dict(ckpt["model_state_dict"])
 
     optimizer = AdamW(model.parameters())
@@ -509,6 +515,7 @@ def load_ckpt(
 
     return (
         current_epoch,
+        best_val_loss,
         model,
         optimizer,
         scaler,
@@ -1140,6 +1147,7 @@ def validate(
 
                 save_ckpt(
                     epoch=epoch,
+                    best_val_loss=best_val_loss,
                     model=model,
                     optimizer=optimizer,
                     scaler=scaler,
@@ -1313,7 +1321,7 @@ def main(
 
     # model instantiation
     if run_id is not None:
-        current_epoch, model, optimizer, scaler, scheduler, accumulation_steps, warmup_steps, total_steps = load_ckpt(
+        current_epoch, best_val_loss, model, optimizer, scaler, scheduler, accumulation_steps, warmup_steps, total_steps = load_ckpt(
             exp_name=exp_name,
             run_id=run_id,
             rank=rank,
@@ -1368,7 +1376,8 @@ def main(
             num_workers=num_workers,
         )
 
-        best_val_loss = float("inf")
+        if run_id is None:
+            best_val_loss = float("inf")
 
 
     for epoch in range(current_epoch, epochs):
