@@ -386,6 +386,7 @@ def save_ckpt(
     tags,
     model_variant,
     exp_name: str,
+    run_id: str,
     file_name: str,
 ):
     ddp_checkpoint = {
@@ -417,12 +418,12 @@ def save_ckpt(
         os.remove(
             f"checkpoints/{file_name}_epoch={prev_epoch}_{model_variant}_{'_'.join(tags)}_non_ddp.pt"
         )
-    
-    os.makedirs(f"checkpoints/{exp_name}", exist_ok=True)
+
+    os.makedirs(f"checkpoints/{exp_name}_{run_id}", exist_ok=True)
 
     torch.save(
         ddp_checkpoint,
-        f"checkpoints/{exp_name}/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_ddp.pt",
+        f"checkpoints/{exp_name}_{run_id}/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_ddp.pt",
     )
     torch.save(
         non_ddp_checkpoint,
@@ -940,6 +941,7 @@ def validate(
     val_res_added: Optional[bool],
     tags: Optional[List[str]],
     exp_name: str,
+    run_id: str,
 ):
     val_sampler.set_epoch(epoch)
     val_loss = 0.0
@@ -1419,6 +1421,7 @@ def main(
             val_res_added=val_res_added if rank == 0 else None,
             tags=tags if rank == 0 else None,
             exp_name=exp_name,
+            run_id=run_id,
         )
 
         if run_eval:
