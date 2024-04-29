@@ -1331,6 +1331,7 @@ def main(
         optimizer = prepare_optim(
             model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
         )
+
         scheduler, accumulation_steps, warmup_steps, total_steps = prepare_sched(
             train_dataloader=train_dataloader,
             world_size=world_size,
@@ -1339,6 +1340,10 @@ def main(
             epochs=epochs,
             optimizer=optimizer,
         )
+        
+        scaler = GradScaler()
+        
+        current_epoch = 0
 
     # setting up wandb for logging
     if rank == 0:
@@ -1366,7 +1371,7 @@ def main(
         best_val_loss = float("inf")
 
 
-    for epoch in range(epochs):
+    for epoch in range(current_epoch, epochs):
         model, optimizer, scaler, scheduler, train_res_added = train(
             rank=rank,
             epoch=epoch,
