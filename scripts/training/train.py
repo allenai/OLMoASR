@@ -19,6 +19,7 @@ import torch.multiprocessing as mp
 from torch.cuda.amp import GradScaler, autocast
 
 import os
+import glob
 import numpy as np
 import wandb
 from typing import List, Tuple, Union, Optional
@@ -350,7 +351,7 @@ def setup_wandb(
         "grad-acc",
         "fp16",
     ]
-    
+
     if run_id is None:
         run_id = wandb.util.generate_id()
 
@@ -425,7 +426,96 @@ def save_ckpt(
     )
     torch.save(
         non_ddp_checkpoint,
-        f"checkpoints/{exp_name}/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
+        f"checkpoints/{exp_name}_{run_id}/{file_name}_{epoch=}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
+    )
+
+
+def load_ckpt(
+    exp_name: str,
+    run_id: str,
+    rank: int,
+    world_size: int,
+    epochs: int,
+    train_batch_size: int,
+    eff_size: int,
+    train_dataloader,
+):
+    """
+    Parameters
+    ----------
+    exp_name : str
+        The experiment name.
+    run_id : str
+        The run ID.
+    rank : int
+        The rank of the current process.
+    world_size : int
+        The world size.
+    epochs : int
+        The number of epochs.
+    train_batch_size : int
+        The batch size for training.
+    eff_size : int
+        The effective size.
+    train_dataloader : torch.utils.data.DataLoader
+        The training dataloader.
+    
+    Returns
+    -------
+    current_epoch: int
+        The current epoch.
+    model
+        The model.
+    optimizer : torch.optim.Optimizer   
+        The optimizer.
+    scaler : torch.cuda.amp.GradScaler 
+        The gradient scaler.
+    scheduler : torch.optim.lr_scheduler.LambdaLR
+        The scheduler.
+    accumulation_steps : int
+        The number of steps over which to accumulate gradients.
+    warmup_steps : int
+        The number of warmup steps.
+    total_steps : int
+        The total number of steps.
+    """
+    map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
+
+    ckpt_file = glob.glob(f"checkpoints/{exp_name}_{run_id}/latest_train_*_ddp.pt")[0]
+    ckpt = torch.load(ckpt_file, map_location=map_location)
+
+    model = ow.model.Whisper(dims=ckpt["dims"]).to(rank)
+    model = DDP(model, device_ids=[rank], output_device=rank)
+
+    current_epoch = ckpt["epoch"]
+
+    model.load_state_dict(ckpt["model_state_dict"])
+
+    optimizer = AdamW(model.parameters())
+    optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+
+    scaler = GradScaler()
+    scaler.load_state_dict(ckpt["scaler_state_dict"])
+
+    scheduler, accumulation_steps, warmup_steps, total_steps = prepare_sched(
+        train_dataloader=train_dataloader,
+        world_size=world_size,
+        train_batch_size=train_batch_size,
+        eff_size=eff_size,
+        epochs=epochs,
+        optimizer=optimizer,
+    )
+    scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+
+    return (
+        current_epoch,
+        model,
+        optimizer,
+        scaler,
+        scheduler,
+        accumulation_steps,
+        warmup_steps,
+        total_steps,
     )
 
 
@@ -822,7 +912,9 @@ def train(
 
     if rank == 0:
         end_time = time.time()
-        with open(f"logs/training/{exp_name}/epoch_times_{'_'.join(tags)}.txt", "a") as f:
+        with open(
+            f"logs/training/{exp_name}/epoch_times_{'_'.join(tags)}.txt", "a"
+        ) as f:
             f.write(
                 f"train epoch {epoch} took {(end_time - start_time) / 60.0} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
             )
@@ -941,7 +1033,8 @@ def validate(
 
                 if (batch_idx + 1) % int(np.ceil(len(val_dataloader) / 10)) == 0:
                     with open(
-                        f"logs/training/{exp_name}/val_results_{'_'.join(tags)}.txt", "a"
+                        f"logs/training/{exp_name}/val_results_{'_'.join(tags)}.txt",
+                        "a",
                     ) as f:
                         for i, (tgt_text_instance, pred_text_instance) in enumerate(
                             norm_tgt_pred_pairs
@@ -1012,7 +1105,9 @@ def validate(
 
         if rank == 0:
             end_time = time.time()
-            with open(f"logs/training/{exp_name}/epoch_times_{'_'.join(tags)}.txt", "a") as f:
+            with open(
+                f"logs/training/{exp_name}/epoch_times_{'_'.join(tags)}.txt", "a"
+            ) as f:
                 f.write(
                     f"val epoch {epoch} took {(end_time - start_time) / 60.0} minutes\n"
                 )
@@ -1133,12 +1228,15 @@ def evaluate(
                         * 100
                     )
                     with open(
-                        f"logs/training/{exp_name}/eval_results_{'_'.join(tags)}.txt", "a"
+                        f"logs/training/{exp_name}/eval_results_{'_'.join(tags)}.txt",
+                        "a",
                     ) as f:
                         f.write(f"{corpi} batch {batch_idx} WER: {wer}\n")
 
             avg_wer = jiwer.wer(references, hypotheses) * 100
-            with open(f"logs/training/{exp_name}/eval_results_{'_'.join(tags)}.txt", "a") as f:
+            with open(
+                f"logs/training/{exp_name}/eval_results_{'_'.join(tags)}.txt", "a"
+            ) as f:
                 f.write(f"{corpi} average WER: {avg_wer}\n")
             wandb.log({f"{corpi}_wer": avg_wer})
 
@@ -1212,21 +1310,33 @@ def main(
     )
 
     # model instantiation
-    model = ow.model.Whisper(dims=model_dims).to(rank)
-    model = DDP(model, device_ids=[rank], output_device=rank)
+    if run_id is not None:
+        current_epoch, model, optimizer, scaler, scheduler, accumulation_steps, warmup_steps, total_steps = load_ckpt(
+            exp_name=exp_name,
+            run_id=run_id,
+            rank=rank,
+            world_size=world_size,
+            epochs=epochs,
+            train_batch_size=train_batch_size,
+            eff_size=eff_size,
+            train_dataloader=train_dataloader,
+        )
+    else:
+        model = ow.model.Whisper(dims=model_dims).to(rank)
+        model = DDP(model, device_ids=[rank], output_device=rank)
 
-    # optimizer and scheduler instantiation
-    optimizer = prepare_optim(
-        model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
-    )
-    scheduler, accumulation_steps, warmup_steps, total_steps = prepare_sched(
-        train_dataloader=train_dataloader,
-        world_size=world_size,
-        train_batch_size=train_batch_size,
-        eff_size=eff_size,
-        epochs=epochs,
-        optimizer=optimizer,
-    )
+        # optimizer and scheduler instantiation
+        optimizer = prepare_optim(
+            model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
+        )
+        scheduler, accumulation_steps, warmup_steps, total_steps = prepare_sched(
+            train_dataloader=train_dataloader,
+            world_size=world_size,
+            train_batch_size=train_batch_size,
+            eff_size=eff_size,
+            epochs=epochs,
+            optimizer=optimizer,
+        )
 
     # setting up wandb for logging
     if rank == 0:
