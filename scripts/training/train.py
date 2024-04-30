@@ -400,7 +400,7 @@ def save_ckpt(
         "scaler_state_dict": scaler.state_dict(),
         # You can also save other items such as scheduler state
         "scheduler_state_dict": (scheduler.state_dict() if scheduler else None),
-        "dims": model_dims.__dict__,
+        "dims": model_dims,
         # Include any other information you deem necessary
     }
 
@@ -411,7 +411,7 @@ def save_ckpt(
         "scaler_state_dict": scaler.state_dict(),
         # You can also save other items such as scheduler state
         "scheduler_state_dict": (scheduler.state_dict() if scheduler else None),
-        "dims": model_dims.__dict__,
+        "dims": model_dims,
     }
 
     if epoch != 0:
