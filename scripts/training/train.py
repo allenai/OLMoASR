@@ -1381,6 +1381,9 @@ def main(
 
     # setting up wandb for logging
     if rank == 0:
+        if run_id is None:
+            best_val_loss = float("inf")
+            
         run_id, tags, train_res, val_res, train_res_added, val_res_added = setup_wandb(
             run_id=run_id,
             exp_name=exp_name,
@@ -1402,8 +1405,6 @@ def main(
             num_workers=num_workers,
         )
 
-        if run_id is None:
-            best_val_loss = float("inf")
 
     for epoch in range(current_epoch, epochs):
         model, optimizer, scaler, scheduler, train_res_added = train(
