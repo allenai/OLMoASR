@@ -489,12 +489,14 @@ def load_ckpt(
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
 
     ckpt_file = glob.glob(f"checkpoints/{exp_name}_{run_id}/latest_train_*_ddp.pt")[0]
+    print(ckpt_file)
     ckpt = torch.load(ckpt_file, map_location=map_location)
 
     model = ow.model.Whisper(dims=ckpt["dims"]).to(rank)
     model = DDP(model, device_ids=[rank], output_device=rank)
 
-    current_epoch = ckpt["epoch"]
+    # if end at training epoch i, then start at epoch i+1 when resuming
+    current_epoch = ckpt["epoch"] + 1
 
     best_val_loss = ckpt["best_val_loss"]
 
