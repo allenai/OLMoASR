@@ -13,3 +13,4 @@ data
 checkpoints
 logs
 *.out
+demo
