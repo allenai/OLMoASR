@@ -34,7 +34,7 @@ torchrun --nnodes 1 --nproc_per_node 5 scripts/training/train.py \
     --subset=5000 \
     --epochs=8 \
     --eff_size=256 \
-    --train_batch_size=64 \
+    --train_batch_size=32 \
     --val_batch_size=32 \
     --eval_batch_size=32 \
     --train_val_split=0.99 \
