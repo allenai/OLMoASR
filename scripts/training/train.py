@@ -605,6 +605,9 @@ def train(
         start_time = time.time()
 
     for batch_idx, batch in enumerate(train_dataloader):
+        if rank == 0:
+            start_step = time.time()
+
         with autocast():
             (
                 audio_files,
@@ -712,7 +715,7 @@ def train(
                 print(f"train_loss: {train_loss_all}")
                 print(f"train_wer: {train_wer_all}")
 
-                wandb.log({"train_loss": train_loss_all, "train_wer": train_wer_all})
+                wandb.log({"train/train_loss": train_loss_all, "train/train_wer": train_wer_all})
 
                 if (
                     (batch_idx + 1)
@@ -819,7 +822,7 @@ def train(
             current_lr = optimizer.param_groups[0]["lr"]
             # logging learning rate
             if rank == 0:
-                wandb.log({"learning_rate": current_lr})
+                wandb.log({"train/learning_rate": current_lr})
             optimizer.zero_grad()  # Reset gradients only after updating weights
             total_loss = 0.0
 
@@ -828,6 +831,10 @@ def train(
             batch_unnorm_pred_text = []
             batch_audio_files = []
             batch_text_files = []
+
+            if rank == 0:
+                end_step = time.time()
+                wandb.log({"train/time_step": (end_step - start_step) / 60.0})
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
@@ -876,7 +883,7 @@ def train(
             print(f"train_loss: {train_loss_all}")
             print(f"train_wer: {train_wer_all}")
 
-            wandb.log({"train_loss": train_loss_all, "train_wer": train_wer_all})
+            wandb.log({"train/train_loss": train_loss_all, "train/train_wer": train_wer_all})
 
             with open(
                 f"logs/training/{exp_name}/training_results_{'_'.join(tags)}.txt",
@@ -910,7 +917,7 @@ def train(
         scheduler.step()
         current_lr = optimizer.param_groups[0]["lr"]
         if rank == 0:
-            wandb.log({"learning_rate": current_lr})
+            wandb.log({"train/learning_rate": current_lr})
         optimizer.zero_grad()
         total_loss = 0.0
 
@@ -928,6 +935,7 @@ def train(
             f.write(
                 f"train epoch {epoch} took {(end_time - start_time) / 60.0} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
             )
+            wandb.log({"train/time_epoch": (end_time - start_time) / 60.0})
 
     return model, optimizer, scaler, scheduler, train_res_added
 
@@ -1122,6 +1130,7 @@ def validate(
                 f.write(
                     f"val epoch {epoch} took {(end_time - start_time) / 60.0} minutes\n"
                 )
+                wandb.log({"val/time_epoch": (end_time - start_time) / 60.0})
 
         if len(norm_tgt_text) == 0 and len(norm_pred_text) == 0:
             val_wer = 0.0
@@ -1143,7 +1152,7 @@ def validate(
             print(f"val_loss: {val_loss_all}")
             print(f"val_wer: {val_wer_all}")
 
-            wandb.log({"val_loss": val_loss_all, "val_wer": val_wer_all})
+            wandb.log({"val/val_loss": val_loss_all, "val/val_wer": val_wer_all})
 
             if val_loss_all < best_val_loss:
                 best_val_loss = val_loss_all
@@ -1251,13 +1260,14 @@ def evaluate(
                 f"logs/training/{exp_name}/eval_results_{'_'.join(tags)}.txt", "a"
             ) as f:
                 f.write(f"{corpi} average WER: {avg_wer}\n")
-            wandb.log({f"{corpi}_wer": avg_wer})
+            wandb.log({f"eval/{corpi}_wer": avg_wer})
 
     wandb.log({f"eval_table_{epoch}": eval_table})
 
     end_time = time.time()
     with open(f"logs/training/{exp_name}/epoch_times_{'_'.join(tags)}.txt", "a") as f:
         f.write(f"eval epoch {epoch} took {(end_time - start_time) / 60.0} minutes\n")
+        wandb.log({"eval/time_epoch": (end_time - start_time) / 60.0})
 
 
 def cleanup():
@@ -1364,9 +1374,9 @@ def main(
             epochs=epochs,
             optimizer=optimizer,
         )
-        
+
         scaler = GradScaler()
-        
+
         current_epoch = 0
 
     # setting up wandb for logging
