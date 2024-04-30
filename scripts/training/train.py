@@ -417,10 +417,10 @@ def save_ckpt(
     if epoch != 0:
         prev_epoch = epoch - 1
         os.remove(
-            f"checkpoints/{file_name}_epoch={prev_epoch}_{model_variant}_{'_'.join(tags)}_ddp.pt"
+            f"checkpoints/{exp_name}_{run_id}/{file_name}_epoch={prev_epoch}_{model_variant}_{'_'.join(tags)}_ddp.pt"
         )
         os.remove(
-            f"checkpoints/{file_name}_epoch={prev_epoch}_{model_variant}_{'_'.join(tags)}_non_ddp.pt"
+            f"checkpoints/{exp_name}_{run_id}/{file_name}_epoch={prev_epoch}_{model_variant}_{'_'.join(tags)}_non_ddp.pt"
         )
 
     os.makedirs(f"checkpoints/{exp_name}_{run_id}", exist_ok=True)
@@ -1383,7 +1383,7 @@ def main(
     if rank == 0:
         if run_id is None:
             best_val_loss = float("inf")
-            
+
         run_id, tags, train_res, val_res, train_res_added, val_res_added = setup_wandb(
             run_id=run_id,
             exp_name=exp_name,
