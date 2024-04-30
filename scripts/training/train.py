@@ -489,7 +489,7 @@ def load_ckpt(
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
 
     ckpt_file = glob.glob(f"checkpoints/{exp_name}_{run_id}/latest_train_*_fp16_ddp.pt")[0]
-    print(ckpt_file)
+
     ckpt = torch.load(ckpt_file, map_location=map_location)
 
     model = ow.model.Whisper(dims=ckpt["dims"]).to(rank)
