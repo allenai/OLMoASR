@@ -22,16 +22,17 @@ import os
 import glob
 import numpy as np
 import wandb
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Literal
 import time
 import jiwer
 from fire import Fire
 from scripts.eval.libri_artie import AudioTextDataset as EvalAudioTextDataset
-from scripts.data.filtering.get_filter_mechs import get_baseline_data
+from scripts.data.filtering.get_filter_mechs import get_baseline_data, get_manual_data
 from scripts.training import for_logging
 
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"
+name_to_filter_func = {"baseline": get_baseline_data, "manual": get_manual_data}
 
 
 class AudioTextDataset(Dataset):
@@ -197,6 +198,8 @@ def prepare_dataloader(
 def prepare_data(
     rank: int,
     world_size: int,
+    audio_files_train: List,
+    transcript_files_train: List,
     train_val_split: int,
     train_batch_size: int,
     val_batch_size: int,
@@ -461,7 +464,7 @@ def load_ckpt(
         The effective size.
     train_dataloader : torch.utils.data.DataLoader
         The training dataloader.
-    
+
     Returns
     -------
     current_epoch: int
@@ -472,7 +475,7 @@ def load_ckpt(
         The model.
     optimizer : torch.optim.Optimizer   
         The optimizer.
-    scaler : torch.cuda.amp.GradScaler 
+    scaler : torch.cuda.amp.GradScaler
         The gradient scaler.
     scheduler : torch.optim.lr_scheduler.LambdaLR
         The scheduler.
@@ -1262,13 +1265,11 @@ def cleanup():
     dist.destroy_process_group()
 
 
-audio_files_train, transcript_files_train = get_baseline_data()
-
-
 def main(
     model_variant,
     exp_name,
     job_type,
+    filter: Literal["baseline", "manual"] = "baseline",
     run_id: str = None,
     rank: int = None,
     world_size: int = None,
@@ -1290,6 +1291,9 @@ def main(
     persistent_workers=True,
     run_eval=False,
 ):
+    filter_func = name_to_filter_func[filter]
+    audio_files_train, transcript_files_train = filter_func()
+
     model_dims = VARIANT_TO_DIMS[model_variant]
 
     if rank is None and world_size is None:
@@ -1308,6 +1312,8 @@ def main(
     train_sampler, train_dataloader, val_sampler, val_dataloader = prepare_data(
         rank=rank,
         world_size=world_size,
+        audio_files_train=audio_files_train,
+        transcript_files_train=transcript_files_train,
         train_val_split=train_val_split,
         train_batch_size=train_batch_size,
         val_batch_size=val_batch_size,
@@ -1321,7 +1327,17 @@ def main(
 
     # model instantiation
     if run_id is not None:
-        current_epoch, best_val_loss, model, optimizer, scaler, scheduler, accumulation_steps, warmup_steps, total_steps = load_ckpt(
+        (
+            current_epoch,
+            best_val_loss,
+            model,
+            optimizer,
+            scaler,
+            scheduler,
+            accumulation_steps,
+            warmup_steps,
+            total_steps,
+        ) = load_ckpt(
             exp_name=exp_name,
             run_id=run_id,
             rank=rank,
@@ -1379,7 +1395,6 @@ def main(
         if run_id is None:
             best_val_loss = float("inf")
 
-
     for epoch in range(current_epoch, epochs):
         model, optimizer, scaler, scheduler, train_res_added = train(
             rank=rank,
@@ -1405,6 +1420,7 @@ def main(
         if rank == 0:
             save_ckpt(
                 epoch=epoch,
+                best_val_loss=best_val_loss,
                 model=model,
                 optimizer=optimizer,
                 scaler=scaler,
