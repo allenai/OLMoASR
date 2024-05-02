@@ -66,7 +66,7 @@ def download_transcript(
     if not os.path.exists(
         f"{output_dir}/{video_id}/{video_id}.{lang_code}.{sub_format}"
     ):
-        with open(f"logs/data/failed_download_t.txt", "a") as f:
+        with open(f"logs/data/download/failed_download_t.txt", "a") as f:
             f.write(f"{video_id}\n")
         return None
 
