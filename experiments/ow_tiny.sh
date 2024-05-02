@@ -3,9 +3,9 @@
 #SBATCH --partition=gpu-a40
 #SBATCH --account=efml
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
 #SBATCH --mem=180G
 #SBATCH --gres=gpu:5
+#SBATCH --cpus-per-gpu=9
 #SBATCH --time=120:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=hvn2002@uw.edu
@@ -31,14 +31,14 @@ torchrun --nnodes 1 --nproc_per_node 5 scripts/training/train.py \
     --eps=1e-6 \
     --weight_decay=0.1 \
     --max_grad_norm=1.0 \
-    --subset=5000 \
+    --subset=None \
     --epochs=8 \
     --eff_size=256 \
     --train_batch_size=32 \
     --val_batch_size=32 \
     --eval_batch_size=32 \
     --train_val_split=0.99 \
-    --num_workers=40 \
+    --num_workers=45 \
     --pin_memory=True \
     --shuffle=True \
     --persistent_workers=True \
