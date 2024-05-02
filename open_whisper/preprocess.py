@@ -105,6 +105,8 @@ def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
         f"bestaudio[ext={ext}]",
         "--audio-quality",
         "0",
+        "--postprocessor-args",
+        "ffmpeg:ffmpeg -ar 16000 -ac 1",
         "-o",
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
     ]
@@ -116,7 +118,7 @@ def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
 
     # if after downloading, the file doesn't exist
     if not os.path.exists(f"{output_dir}/{video_id}/{video_id}.{ext}"):
-        with open(f"logs/data/failed_download_a.txt", "a") as f:
+        with open(f"logs/data/download/failed_download_a.txt", "a") as f:
             f.write(f"{video_id}\n")
         return None
 
