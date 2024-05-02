@@ -1,7 +1,5 @@
 from open_whisper.preprocess import (
     parallel_download_transcript,
-    standardize_dialects,
-    detect_en,
 )
 import pandas as pd
 import multiprocessing
