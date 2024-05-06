@@ -11,6 +11,7 @@ from open_whisper import utils
 from whisper import audio
 from langdetect import detect
 from typing import Union
+import sys
 
 
 def download_transcript(
@@ -109,16 +110,24 @@ def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
         "ffmpeg:ffmpeg -ar 16000 -ac 1",
         "-o",
         f"{output_dir}/%(id)s/%(id)s.%(ext)s",
+        "--downloader",
+        "aria2c",
+        "-N",
+        "5",
     ]
 
     if ext == "wav":
         command.extend(["--extract-audio", "--audio-format", "wav"])
 
-    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
 
-    # if after downloading, the file doesn't exist
-    if not os.path.exists(f"{output_dir}/{video_id}/{video_id}.{ext}"):
-        with open(f"logs/data/download/failed_download_a.txt", "a") as f:
+    if result.stderr == "ERROR: unable to download video data: HTTP Error 403: Forbidden\n":
+        with open(f"logs/data/download/blocked_ip.txt", "a") as f:
+            f.write(f"{video_id}\n")
+        sys.exit("Script stopped because IP address has been blocked.")
+        return None
+    elif result.stderr == f"ERROR: [youtube] {video_id}: Video unavailable\n":
+        with open(f"logs/data/download/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
         return None
 
