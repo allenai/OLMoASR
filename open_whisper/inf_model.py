@@ -1,36 +1,43 @@
 from dataclasses import dataclass
-from typing import Dict, Iterable, Optional 
+from typing import Dict, Iterable, Optional
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from open_whisper.config.model_dims import ModelDimensions
 
 from whisper.decoding import decode as decode_function
 from whisper.decoding import detect_language as detect_language_function
 from whisper.transcribe import transcribe as transcribe_function
 
 
-@dataclass
-class ModelDimensions:
-    n_mels: int
-    n_audio_ctx: int
-    n_audio_state: int
-    n_audio_head: int
-    n_audio_layer: int
-    n_vocab: int
-    n_text_ctx: int
-    n_text_state: int
-    n_text_head: int
-    n_text_layer: int
-
-
 class LayerNorm(nn.LayerNorm):
+    """
+    This function is from OpenAI's Whisper repository.
+    The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L30
+    References:
+        - Author: OpenAI
+        - Source: Whisper GitHub Repository
+        - License: MIT License
+        - Date of Access: Novemeber 10, 2024
+    """
+
     def forward(self, x: Tensor) -> Tensor:
         return super().forward(x.float()).type(x.dtype)
 
 
 class Linear(nn.Linear):
+    """
+    This class is from OpenAI's Whisper repository.
+    The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L35
+    References:
+        - Author: OpenAI
+        - Source: Whisper GitHub Repository
+        - License: MIT License
+        - Date of Access: Novemeber 10, 2024
+    """
+
     def __init__(
         self,
         in_features: int,
@@ -54,6 +61,16 @@ class Linear(nn.Linear):
 
 
 class Conv1d(nn.Conv1d):
+    """
+    This class is from OpenAI's Whisper repository.
+    The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L44
+    References:
+        - Author: OpenAI
+        - Source: Whisper GitHub Repository
+        - License: MIT License
+        - Date of Access: Novemeber 10, 2024
+    """
+
     def __init__(
         self,
         in_channels: int,
@@ -94,6 +111,15 @@ class Conv1d(nn.Conv1d):
 
 # don't really understand the positional embeddings and the intuition behind it
 def sinusoids(length, channels, max_timescale=10000):
+    """
+    This function is from OpenAI's Whisper repository.
+    The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L53
+    References:
+        - Author: OpenAI
+        - Source: Whisper GitHub Repository
+        - License: MIT License
+        - Date of Access: Novemeber 10, 2024
+    """
     """Returns sinusoids for positional embedding"""
     assert channels % 2 == 0
     log_timescale_increment = np.log(max_timescale) / (channels // 2 - 1)
@@ -103,6 +129,16 @@ def sinusoids(length, channels, max_timescale=10000):
 
 
 class MultiHeadAttention(nn.Module):
+    """
+    This class is from OpenAI's Whisper repository.
+    The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L62
+    References:
+        - Author: OpenAI
+        - Source: Whisper GitHub Repository
+        - License: MIT License
+        - Date of Access: Novemeber 10, 2024
+    """
+
     def __init__(self, n_state: int, n_head: int):
         super().__init__()
         self.n_head = n_head
@@ -161,6 +197,16 @@ class MultiHeadAttention(nn.Module):
 
 
 class ResidualAttentionBlock(nn.Module):
+    """
+    This class is from OpenAI's Whisper repository.
+    The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L111
+    References:
+        - Author: OpenAI
+        - Source: Whisper GitHub Repository
+        - License: MIT License
+        - Date of Access: Novemeber 10, 2024
+    """
+
     def __init__(self, n_state: int, n_head: int, cross_attention: bool = False):
         super().__init__()
 
@@ -193,6 +239,16 @@ class ResidualAttentionBlock(nn.Module):
 
 
 class AudioEncoder(nn.Module):
+    """
+    This class is from OpenAI's Whisper repository.
+    The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L143
+    References:
+        - Author: OpenAI
+        - Source: Whisper GitHub Repository
+        - License: MIT License
+        - Date of Access: Novemeber 10, 2024
+    """
+
     def __init__(
         self, n_mels: int, n_ctx: int, n_state: int, n_head: int, n_layer: int
     ):
@@ -226,6 +282,18 @@ class AudioEncoder(nn.Module):
 
 
 class TextDecoder(nn.Module):
+    """
+    This class is based on an implementation by OpenAI from the Whisper repository.
+    Modifications were made to work with the training code.
+
+    The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L176
+    References:
+        - Author: OpenAI
+        - Source: Whisper GitHub Repository
+        - License: MIT License
+        - Date of Access: Novemeber 10, 2024
+    """
+
     def __init__(
         self, n_vocab: int, n_ctx: int, n_state: int, n_head: int, n_layer: int
     ):
@@ -295,6 +363,16 @@ class TextDecoder(nn.Module):
 
 
 class Whisper(nn.Module):
+    """
+    This class is from OpenAI's Whisper repository.
+    The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L221
+    References:
+        - Author: OpenAI
+        - Source: Whisper GitHub Repository
+        - License: MIT License
+        - Date of Access: Novemeber 10, 2024
+    """
+
     def __init__(self, dims: ModelDimensions):
         super().__init__()
         self.dims = dims
