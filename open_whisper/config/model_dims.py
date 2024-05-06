@@ -3,6 +3,16 @@ from dataclasses import dataclass
 
 @dataclass
 class ModelDimensions:
+    """
+    This class is from OpenAI's Whisper repository.
+    The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L17
+    References:
+        - Author: OpenAI
+        - Source: Whisper GitHub Repository
+        - License: MIT License
+        - Date of Access: Novemeber 10, 2024
+    """
+
     n_mels: int
     n_audio_ctx: int
     n_audio_state: int
