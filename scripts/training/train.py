@@ -1,10 +1,11 @@
-import whisper
-from whisper import audio, DecodingOptions
-from whisper.normalizers import EnglishTextNormalizer
-from whisper.tokenizer import get_tokenizer
-import whisper.tokenizer
-from open_whisper.config.model_dims import VARIANT_TO_DIMS
-import open_whisper as ow
+import os
+import glob
+import numpy as np
+import wandb
+from typing import List, Tuple, Union, Optional, Literal
+import time
+import jiwer
+from fire import Fire
 
 import torch
 import torch.nn.functional as F
@@ -15,17 +16,16 @@ from torch.nn.utils import clip_grad_norm_
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.multiprocessing as mp
 from torch.cuda.amp import GradScaler, autocast
 
-import os
-import glob
-import numpy as np
-import wandb
-from typing import List, Tuple, Union, Optional, Literal
-import time
-import jiwer
-from fire import Fire
+import whisper
+from whisper import audio, DecodingOptions
+from whisper.normalizers import EnglishTextNormalizer
+from whisper.tokenizer import get_tokenizer
+import whisper.tokenizer
+from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
+import open_whisper as ow
+
 from scripts.eval.libri_artie import AudioTextDataset as EvalAudioTextDataset
 from scripts.data.filtering.get_filter_mechs import get_baseline_data, get_manual_data
 from scripts.training import for_logging
@@ -36,6 +36,14 @@ name_to_filter_func = {"baseline": get_baseline_data, "manual": get_manual_data}
 
 
 class AudioTextDataset(Dataset):
+    """Dataset for audio and transcript segments
+
+    Attributes:
+        audio_files: List of audio file paths
+        transcript_files: List of transcript file paths
+        n_text_ctx: Number of text tokens
+    """
+
     def __init__(
         self,
         audio_files: List,
@@ -52,29 +60,6 @@ class AudioTextDataset(Dataset):
     def __getitem__(
         self, index
     ) -> Tuple[str, str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Returns the preprocessed audio and text data for the model.
-
-        Parameters
-        ----------
-        index : int
-            The index of the audio and text data to retrieve.
-
-        Returns
-        -------
-        audio_file: str
-            Audio file path
-        transcript_file: str
-            Transcript file path
-        audio_input: torch.Tensor
-            Log mel spectrogram of the audio file
-        text_input: torch.Tensor
-            Tokenized and padded text input
-        text_y: torch.Tensor
-            Tokenized and padded text target
-        padding_mask: torch.Tensor
-            Padding mask for the text input
-        """
         # not sure if putting it here is bad...
         tokenizer = get_tokenizer(multilingual=False)
 
@@ -92,7 +77,17 @@ class AudioTextDataset(Dataset):
             padding_mask,
         )
 
-    def preprocess_audio(self, audio_file):
+    def preprocess_audio(self, audio_file: str) -> Tuple[str, torch.Tensor]:
+        """Preprocesses the audio data for the model.
+
+        Loads the audio file, pads or trims the audio data, and computes the log mel spectrogram.
+
+        Args:
+            audio_file: The path to the audio file
+
+        Returns:
+            A tuple containing the name of audio file and the log mel spectrogram
+        """
         audio_arr = audio.load_audio(audio_file, sr=16000)
         audio_arr = audio.pad_or_trim(audio_arr)
         mel_spec = audio.log_mel_spectrogram(audio_arr)
@@ -102,26 +97,25 @@ class AudioTextDataset(Dataset):
         #     mel_spec_scaled = mel_spec_normalized / (mel_spec_normalized.abs().max())
         return audio_file, mel_spec
 
-    def preprocess_text(self, transcript_file, tokenizer):
-        """
-        Preprocesses the text data for the model.
+    def preprocess_text(
+        self, transcript_file: str, tokenizer: whisper.tokenizer.Tokenizer
+    ) -> Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Preprocesses the text data for the model.
 
-        Parameters
-        ----------
-        transcript_file : str
-            The path to the transcript file.
-        tokenizer : transformers.PreTrainedTokenizer
-            The tokenizer to use for encoding the text data.
+        Reads in the transcript file and extracts the text data. Tokenizes the text data and pads it to the context length.
 
-        Returns
-        -------
-        str
+        Args:
+            transcript_file: The path to the transcript file
+            tokenizer: The tokenizer to use for encoding the text data
+
+        Returns:
+            A tuple containing the transcript file, the input text tensor, the target text tensor, and the padding mask
         """
         # transcript -> text
         reader = ow.utils.TranscriptReader(file_path=transcript_file)
         transcript, *_ = reader.read()
 
-        if transcript == {}:
+        if not transcript:
             text_tokens = [tokenizer.no_speech]
         else:
             transcript_text = reader.extract_text(transcript=transcript)
@@ -158,20 +152,43 @@ class AudioTextDataset(Dataset):
         return transcript_file, text_input, text_y, padding_mask
 
 
-def setup(rank, world_size):
+def setup(rank: int, world_size: int) -> None:
+    """Initializes the distributed process group
+
+    Args:
+        rank: The rank of the current process
+        world_size: The total number of processes
+    """
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 
 def prepare_dataloader(
-    dataset,
-    rank,
-    world_size,
-    batch_size,
-    pin_memory,
-    shuffle,
-    num_workers,
-    persistent_workers,
-):
+    dataset: Dataset,
+    rank: int,
+    world_size: int,
+    batch_size: int,
+    pin_memory: bool,
+    shuffle: bool,
+    num_workers: int,
+    persistent_workers: bool,
+) -> Tuple[DistributedSampler, DataLoader]:
+    """Prepares the dataloader for the dataset
+
+    Prepares the distributed sampler and the dataloader for the dataset for DDP training
+
+    Args:
+        dataset: The dataset to use
+        rank: The rank of the current process
+        world_size: The total number of processes
+        batch_size: The batch size
+        pin_memory: Whether to pin memory
+        shuffle: Whether to shuffle the data
+        num_workers: The number of workers
+        persistent_workers: Whether to use persistent workers
+
+    Returns:
+        A tuple containing the distributed sampler and the dataloader
+    """
     sampler = DistributedSampler(
         dataset,
         num_replicas=world_size,
@@ -209,7 +226,30 @@ def prepare_data(
     num_workers: bool = 0,
     persistent_workers: bool = True,
     subset: Union[int, None] = None,
-):
+) -> Tuple[DistributedSampler, DataLoader, DistributedSampler, DataLoader]:
+    """Prepares the data for training
+
+    Given the list of audio and transcript files, prepares the distributed sampler and dataloader for training and validation
+    If subset is not None, only uses a subset of the data
+
+    Args:
+        rank: The rank of the current process
+        world_size: The total number of processes
+        audio_files_train: The list of audio files for training
+        transcript_files_train: The list of transcript files for training
+        train_val_split: The ratio of training to validation data
+        train_batch_size: The batch size for training
+        val_batch_size: The batch size for validation
+        n_text_ctx: The number of text tokens
+        pin_memory: Whether to pin memory
+        shuffle: Whether to shuffle the data
+        num_workers: The number of workers
+        persistent_workers: Whether to use persistent workers
+        subset: The subset of the data to use
+
+    Returns:
+        A tuple containing the distributed sampler and dataloader for training and validation
+    """
     if subset is not None:
         rng = np.random.default_rng(seed=42)
         start_idx = rng.choice(range(len(audio_files_train) - subset))
@@ -263,12 +303,26 @@ def prepare_data(
 
 
 def prepare_optim(
-    model,
-    lr,
-    betas,
-    eps,
-    weight_decay,
-):
+    model: torch.nn.Module,
+    lr: float,
+    betas: Tuple[float, float],
+    eps: float,
+    weight_decay: float,
+) -> torch.optim.Optimizer:
+    """Prepares the optimizer for training
+
+    Prepares the AdamW optimizer for training
+
+    Args:
+        model: The model to train
+        lr: The learning rate
+        betas: The betas for the Adam optimizer
+        eps: The epsilon value
+        weight_decay: The weight decay
+
+    Returns:
+        The optimizer for training
+    """
     optimizer = AdamW(
         model.parameters(),
         lr=lr,
@@ -281,13 +335,28 @@ def prepare_optim(
 
 
 def prepare_sched(
-    train_dataloader,
-    world_size,
-    train_batch_size,
+    train_dataloader: torch.utils.data.DataLoader,
+    world_size: int,
+    train_batch_size: int,
     eff_size: int,
     epochs: int,
-    optimizer,
-):
+    optimizer: torch.optim.Optimizer,
+) -> Tuple[LambdaLR, int, int, int]:
+    """Prepares the scheduler for training
+
+    Prepares the LambdaLR scheduler for training
+
+    Args:
+        train_dataloader: The training dataloader
+        world_size: The total number of processes
+        train_batch_size: The batch size for training
+        eff_size: The effective size
+        epochs: The number of epochs
+        optimizer: The optimizer for training
+
+    Returns:
+        A tuple containing the scheduler, the number of steps over which to accumulate gradients, the number of warmup steps, and the total number of steps
+    """
     if eff_size <= (world_size * train_batch_size):
         accumulation_steps = 1
     else:
@@ -311,25 +380,51 @@ def prepare_sched(
 
 
 def setup_wandb(
-    run_id,
-    exp_name,
-    job_type,
-    subset,
-    dataset_size,
-    model_variant,
-    lr,
-    betas,
-    eps,
-    weight_decay,
-    train_batch_size,
-    epochs,
-    total_steps,
-    warmup_steps,
-    accumulation_steps,
-    train_val_split,
-    world_size,
-    num_workers,
-):
+    run_id: Optional[str],
+    exp_name: str,
+    job_type: str,
+    subset: Optional[int],
+    dataset_size: int,
+    model_variant: str,
+    lr: float,
+    betas: Tuple[float, float],
+    eps: float,
+    weight_decay: float,
+    train_batch_size: int,
+    epochs: int,
+    total_steps: int,
+    warmup_steps: int,
+    accumulation_steps: int,
+    train_val_split: float,
+    world_size: int,
+    num_workers: int,
+) -> Tuple[str, List[str], wandb.Artifact, wandb.Artifact, bool, bool]:
+    """Sets up the Weights and Biases logging
+
+    Args:
+        run_id: The run ID
+        exp_name: The experiment name
+        job_type: The type of job
+        subset: The subset of the data
+        dataset_size: The size of the dataset
+        model_variant: The variant of the model
+        lr: The learning rate
+        betas: The betas for the Adam optimizer
+        eps: The epsilon value
+        weight_decay: The weight decay
+        train_batch_size: The batch size for training
+        epochs: The number of epochs
+        total_steps: The total number of steps
+        warmup_steps: The number of warmup steps
+        accumulation_steps: The number of steps over which to accumulate gradients
+        train_val_split: The ratio of training to validation data
+        world_size: The total number of processes
+        num_workers: The number of workers
+
+    Returns:
+        A tuple containing the run ID, the tags, the training results artifact, the validation results artifact, 
+        a boolean indicating whether the training results artifact has been added, and a boolean indicating whether the validation results artifact has been added
+    """
     config = {
         "lr": lr,
         "betas": betas,
@@ -381,17 +476,35 @@ def setup_wandb(
 def save_ckpt(
     epoch: int,
     best_val_loss: int,
-    model,
-    optimizer,
-    scaler,
-    scheduler,
-    model_dims,
-    tags,
-    model_variant,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    scheduler: LambdaLR,
+    model_dims: ModelDimensions,
+    tags: List,
+    model_variant: str,
     exp_name: str,
     run_id: str,
     file_name: str,
-):
+) -> None:
+    """Save model (DDP) checkpoint
+
+    Saves non-DDP and DDP model checkpoints to checkpoints/{exp_name}_{run_id} directory in the format of {file_name}_{epoch}_{model_variant}_{tags}_{ddp}.pt
+
+    Args:
+        epoch: The current epoch number
+        best_val_loss: The best validation loss
+        model: The model to save
+        optimizer: The optimizer to save
+        scaler: The gradient scaler to save
+        scheduler: The scheduler to save
+        model_dims: The model dimensions
+        tags: The tags to use for logging
+        model_variant: The variant of the model
+        exp_name: The experiment name
+        run_id: The run ID
+        file_name: The file name
+    """
     ddp_checkpoint = {
         "epoch": epoch,
         "best_val_loss": best_val_loss,
@@ -443,52 +556,39 @@ def load_ckpt(
     epochs: int,
     train_batch_size: int,
     eff_size: int,
-    train_dataloader,
-):
-    """
-    Parameters
-    ----------
-    exp_name : str
-        The experiment name.
-    run_id : str
-        The run ID.
-    rank : int
-        The rank of the current process.
-    world_size : int
-        The world size.
-    epochs : int
-        The number of epochs.
-    train_batch_size : int
-        The batch size for training.
-    eff_size : int
-        The effective size.
-    train_dataloader : torch.utils.data.DataLoader
-        The training dataloader.
+    train_dataloader: DataLoader,
+) -> Tuple[
+    int,
+    float,
+    torch.nn.Module,
+    torch.optim.Optimizer,
+    GradScaler,
+    LambdaLR,
+    int,
+    int,
+    int,
+]:
+    """Loads the model (DDP) checkpoint to resume training
 
-    Returns
-    -------
-    current_epoch: int
-        The current epoch.
-    best_val_loss: float
-        The best validation loss.
-    model
-        The model.
-    optimizer : torch.optim.Optimizer   
-        The optimizer.
-    scaler : torch.cuda.amp.GradScaler
-        The gradient scaler.
-    scheduler : torch.optim.lr_scheduler.LambdaLR
-        The scheduler.
-    accumulation_steps : int
-        The number of steps over which to accumulate gradients.
-    warmup_steps : int
-        The number of warmup steps.
-    total_steps : int
-        The total number of steps.
+    Args:
+        exp_name: The experiment name.
+        run_id: The run ID
+        rank: The rank of the current process
+        world_size: The world size
+        epochs: The number of epochs
+        train_batch_size: The batch size for training.
+        eff_size: The effective size
+        train_dataloader: The training dataloader
+
+    Returns:
+        A tuple containing the current epoch, the best validation loss, the model, the optimizer, the gradient scaler, 
+        the scheduler, the number of steps over which to accumulate gradients, the number of warmup steps, and the total number of steps
     """
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
 
-    ckpt_file = glob.glob(f"checkpoints/{exp_name}_{run_id}/latest_train_*_fp16_ddp.pt")[0]
+    ckpt_file = glob.glob(
+        f"checkpoints/{exp_name}_{run_id}/latest_train_*_fp16_ddp.pt"
+    )[0]
 
     ckpt = torch.load(ckpt_file, map_location=map_location)
 
@@ -535,61 +635,44 @@ def train(
     rank: int,
     epoch: int,
     train_batch_size: int,
-    train_sampler: torch.utils.data.distributed.DistributedSampler,
-    train_dataloader: torch.utils.data.DataLoader,
-    scaler: torch.cuda.amp.GradScaler,
-    model,
+    train_sampler: DistributedSampler,
+    train_dataloader: DataLoader,
+    scaler: GradScaler,
+    model: torch.nn.Module,
     tokenizer: whisper.tokenizer.Tokenizer,
-    normalizer: whisper.normalizers.EnglishTextNormalizer,
+    normalizer: EnglishTextNormalizer,
     optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler.LambdaLR,
-    model_dims,
+    scheduler: LambdaLR,
     accumulation_steps: int,
     max_grad_norm: float,
     train_res: Optional[wandb.Artifact],
     train_res_added: Optional[bool],
     tags: Optional[List[str]],
     exp_name: str,
-):
-    """
-    Training loop for one epoch.
+) -> Tuple[torch.nn.Module, torch.optim.Optimizer, GradScaler, LambdaLR, bool]:
+    """Training loop for 1 epoch
 
-    Parameters
-    ----------
-    rank : int
-        The rank of the current process.
-    epoch : int
-        The current epoch number.
-    train_batch_size : int
-        The batch size for training.
-    train_sampler : torch.utils.data.distributed.DistributedSampler
-        The training sampler.
-    train_dataloader : torch.utils.data.DataLoader
-        The training dataloader.
-    scaler : torch.cuda.amp.GradScaler
-        The gradient scaler.
-    model
-        The model to train.
-    tokenizer : whisper.tokenizer.Tokenizer
-        The tokenizer to use.
-    normalizer : whisper.normalizers.EnglishTextNormalizer
-        The normalizer to use.
-    optimizer : torch.optim.Optimizer
-        The optimizer to use.
-    scheduler : torch.optim.lr_scheduler.LambdaLR
-        The scheduler to use.
-    model_dims
-        The model dimensions.
-    accumulation_steps : int
-        The number of steps over which to accumulate gradients.
-    max_grad_norm : float
-        The maximum gradient norm.
-    train_res : wandb.Artifact
-        The artifact to store training results.
-    tags : List[str]
-        The tags to use for logging.
-    exp_name : str
-        The experiment name.
+    Args:
+        rank: The rank of the current process
+        epoch: The current epoch number
+        train_batch_size: The batch size for training
+        train_sampler: The distributed sampler for training
+        train_dataloader: The dataloader for training
+        scaler: The gradient scaler
+        model: The model to train
+        tokenizer: The tokenizer for encoding the text data
+        normalizer: The text normalizer
+        optimizer: The optimizer for training
+        scheduler: The scheduler for training
+        accumulation_steps: The number of steps over which to accumulate gradients
+        max_grad_norm: The maximum gradient norm
+        train_res: The training results artifact
+        train_res_added: A boolean indicating whether the training results artifact has been added
+        tags: The tags to use for logging
+        exp_name: The experiment name
+    
+    Returns:
+        A tuple containing the model, the optimizer, the gradient scaler, the scheduler, and a boolean indicating whether the training results artifact has been added
     """
     batch_pred_text = []
     batch_tgt_text = []
@@ -717,7 +800,12 @@ def train(
                 print(f"train_loss: {train_loss_all}")
                 print(f"train_wer: {train_wer_all}")
 
-                wandb.log({"train/train_loss": train_loss_all, "train/train_wer": train_wer_all})
+                wandb.log(
+                    {
+                        "train/train_loss": train_loss_all,
+                        "train/train_wer": train_wer_all,
+                    }
+                )
 
                 if (
                     (batch_idx + 1)
@@ -885,7 +973,9 @@ def train(
             print(f"train_loss: {train_loss_all}")
             print(f"train_wer: {train_wer_all}")
 
-            wandb.log({"train/train_loss": train_loss_all, "train/train_wer": train_wer_all})
+            wandb.log(
+                {"train/train_loss": train_loss_all, "train/train_wer": train_wer_all}
+            )
 
             with open(
                 f"logs/training/{exp_name}/training_results_{'_'.join(tags)}.txt",
@@ -946,22 +1036,47 @@ def validate(
     rank: int,
     epoch: int,
     best_val_loss: float,
-    val_sampler: torch.utils.data.distributed.DistributedSampler,
-    val_dataloader: torch.utils.data.DataLoader,
-    scaler: torch.cuda.amp.GradScaler,
-    model,
+    val_sampler: DistributedSampler,
+    val_dataloader: DataLoader,
+    scaler: GradScaler,
+    model: torch.nn.Module,
     tokenizer: whisper.tokenizer.Tokenizer,
-    normalizer: whisper.normalizers.EnglishTextNormalizer,
+    normalizer: EnglishTextNormalizer,
     optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler.LambdaLR,
-    model_dims,
-    model_variant,
+    scheduler: LambdaLR,
+    model_dims: ModelDimensions,
+    model_variant: str,
     val_res: Optional[wandb.Artifact],
     val_res_added: Optional[bool],
     tags: Optional[List[str]],
     exp_name: str,
     run_id: str,
-):
+) -> Tuple[float, bool]:
+    """Validation loop for 1 epoch
+
+    Args:
+        rank: The rank of the current process
+        epoch: The current epoch number
+        best_val_loss: The best validation loss
+        val_sampler: The distributed sampler for validation
+        val_dataloader: The dataloader for validation
+        scaler: The gradient scaler
+        model: The model to validate
+        tokenizer: The tokenizer for encoding the text data
+        normalizer: The text normalizer
+        optimizer: The optimizer for training
+        scheduler: The scheduler for training
+        model_dims: The model dimensions
+        model_variant: The variant of the model
+        val_res: The validation results artifact
+        val_res_added: A boolean indicating whether the validation results artifact has been added
+        tags: The tags to use for logging
+        exp_name: The experiment name
+        run_id: The run ID
+    
+    Returns:
+        A tuple containing the best validation loss and a boolean indicating whether the validation results artifact has been added
+    """
     val_sampler.set_epoch(epoch)
     val_loss = 0.0
     norm_pred_text = []
@@ -1182,11 +1297,25 @@ def evaluate(
     epoch: int,
     eval_batch_size: int,
     num_workers: int,
-    model,
-    normalizer: whisper.normalizers.EnglishTextNormalizer,
+    model: torch.nn.Module,
+    normalizer: EnglishTextNormalizer,
     tags: List[str],
     exp_name: str,
-):
+) -> None:
+    """Evaluation loop for 1 epoch
+
+    Evaluation loop with WER calculation for 2 corpora: librispeech-clean and librispeech-other
+
+    Args:
+        rank: The rank of the current process
+        epoch: The current epoch number
+        eval_batch_size: The batch size for evaluation
+        num_workers: The number of workers for the dataloader
+        model: The model to evaluate
+        normalizer: The text normalizer
+        tags: The tags to use for logging
+        exp_name: The experiment name
+    """
     eval_corpi = ["librispeech-other", "librispeech-clean"]
     eval_table = wandb.Table(columns=for_logging.EVAL_TABLE_COLS)
     start_time = time.time()
@@ -1273,14 +1402,15 @@ def evaluate(
 
 
 def cleanup():
+    """Cleanup function for the distributed training"""
     torch.cuda.empty_cache()
     dist.destroy_process_group()
 
 
 def main(
-    model_variant,
-    exp_name,
-    job_type,
+    model_variant: str,
+    exp_name: str,
+    job_type: str,
     filter: Literal["baseline", "manual"] = "baseline",
     run_id: str = None,
     rank: int = None,
@@ -1289,20 +1419,50 @@ def main(
     betas: tuple = (0.9, 0.98),
     eps: float = 1e-6,
     weight_decay: float = 0.1,
-    max_grad_norm=1.0,
-    subset=None,
-    epochs=10,
-    eff_size=256,
-    train_batch_size=8,
-    val_batch_size=8,
-    eval_batch_size=32,
-    train_val_split=0.99,
-    num_workers=10,
-    pin_memory=True,
-    shuffle=True,
-    persistent_workers=True,
-    run_eval=False,
-):
+    max_grad_norm: float = 1.0,
+    subset: Optional[int] = None,
+    epochs: int = 10,
+    eff_size: int = 256,
+    train_batch_size: int = 8,
+    val_batch_size: int = 8,
+    eval_batch_size: int = 32, 
+    train_val_split: int = 0.99,
+    num_workers: int = 10,
+    pin_memory: bool = True,
+    shuffle: bool = True,
+    persistent_workers: bool = True,
+    run_eval: bool = False,
+) -> None:
+    """Main function for training
+
+    Conducts a training loop for the specified number of epochs, with validation and evaluation (if run_eval is True)
+
+    Args:
+        model_variant: The variant of the model to use
+        exp_name: The name of the experiment
+        job_type: The type of job (e.g., training, evaluation)
+        filter: The filter to use for the dataset
+        run_id: The run ID to use for loading a checkpoint
+        rank: The rank of the current process
+        world_size: The total number of processes
+        lr: The learning rate
+        betas: The betas for the optimizer
+        eps: The epsilon for the optimizer
+        weight_decay: The weight decay for the optimizer
+        max_grad_norm: The maximum gradient norm
+        subset: The subset of the dataset to use
+        epochs: The number of epochs to train for
+        eff_size: The size of the efficientnet model
+        train_batch_size: The batch size for training
+        val_batch_size: The batch size for validation
+        eval_batch_size: The batch size for evaluation
+        train_val_split: The train-validation split
+        num_workers: The number of workers for the dataloader
+        pin_memory: Whether to pin memory for the dataloader
+        shuffle: Whether to shuffle the dataloader
+        persistent_workers: Whether to use persistent workers for the dataloader
+        run_eval: Whether to run evaluation
+    """
     filter_func = name_to_filter_func[filter]
     audio_files_train, transcript_files_train = filter_func()
 
@@ -1407,7 +1567,6 @@ def main(
             num_workers=num_workers,
         )
 
-
     for epoch in range(current_epoch, epochs):
         model, optimizer, scaler, scheduler, train_res_added = train(
             rank=rank,
@@ -1421,7 +1580,6 @@ def main(
             normalizer=normalizer,
             optimizer=optimizer,
             scheduler=scheduler,
-            model_dims=model_dims,
             accumulation_steps=accumulation_steps,
             max_grad_norm=max_grad_norm,
             train_res=train_res if rank == 0 else None,

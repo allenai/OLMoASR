@@ -10,20 +10,15 @@ import numpy as np
 from datetime import datetime
 from fire import Fire
 
-def main(samples_file: str):
-    """
-    Download audio files from a file of samples.
+def main(samples_file: str) -> None:
+    """Download audio files from a file of samples.
+
+    Downloads audio files from a file of samples.
     Has to be in the format of:
         `video_id \\t manual_caption_languages \\t automatic_caption_langage \\t duration`
 
-    Parameters
-    ----------
-    samples_file: str
-        Path to the file containing the samples
-
-    Returns
-    -------
-    None
+    Args:
+        samples_file: Path to the file containing the samples
     """
     audio_ext = "m4a"
     with open(samples_file, "r") as f:

@@ -1,6 +1,8 @@
 import os
 
+
 def get_baseline_data():
+    """Get baseline data - no filtering done on dataset"""
     audio_files_train = []
     for root, *_ in os.walk("data/audio"):
         if "segments" in root:
@@ -15,7 +17,9 @@ def get_baseline_data():
 
     return audio_files_train, transcript_files_train
 
+
 def get_manual_data():
+    """Get manually-generated data - filtered out machine-generated data"""
     audio_files_train = []
     with open("logs/data/filtering/manual_audio.txt", "r") as f:
         for line in f:
@@ -25,5 +29,5 @@ def get_manual_data():
     with open("logs/data/filtering/manual_text.txt", "r") as f:
         for line in f:
             transcript_files_train.append(line.strip())
-    
+
     return audio_files_train, transcript_files_train
