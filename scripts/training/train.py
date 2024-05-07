@@ -335,7 +335,7 @@ def prepare_optim(
 
 
 def prepare_sched(
-    train_dataloader: torch.utils.data.DataLoader,
+    train_dataloader: DataLoader,
     world_size: int,
     train_batch_size: int,
     eff_size: int,
@@ -398,7 +398,7 @@ def setup_wandb(
     train_val_split: float,
     world_size: int,
     num_workers: int,
-) -> Tuple[str, List[str], wandb.Artifact, wandb.Artifact, bool, bool]:
+) -> Tuple[Optional[str], List[str], wandb.Artifact, wandb.Artifact, bool, bool]:
     """Sets up the Weights and Biases logging
 
     Args:
@@ -475,7 +475,7 @@ def setup_wandb(
 
 def save_ckpt(
     epoch: int,
-    best_val_loss: int,
+    best_val_loss: float,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
@@ -649,7 +649,7 @@ def train(
     train_res_added: Optional[bool],
     tags: Optional[List[str]],
     exp_name: str,
-) -> Tuple[torch.nn.Module, torch.optim.Optimizer, GradScaler, LambdaLR, bool]:
+) -> Tuple[torch.nn.Module, torch.optim.Optimizer, GradScaler, LambdaLR, Optional[bool]]:
     """Training loop for 1 epoch
 
     Args:
@@ -1035,7 +1035,7 @@ def train(
 def validate(
     rank: int,
     epoch: int,
-    best_val_loss: float,
+    best_val_loss: Optional[float],
     val_sampler: DistributedSampler,
     val_dataloader: DataLoader,
     scaler: GradScaler,
@@ -1412,9 +1412,9 @@ def main(
     exp_name: str,
     job_type: str,
     filter: Literal["baseline", "manual"] = "baseline",
-    run_id: str = None,
-    rank: int = None,
-    world_size: int = None,
+    run_id: Optional[str] = None,
+    rank: Optional[int] = None,
+    world_size: Optional[int] = None,
     lr: float = 1.5e-3,
     betas: tuple = (0.9, 0.98),
     eps: float = 1e-6,
@@ -1426,7 +1426,7 @@ def main(
     train_batch_size: int = 8,
     val_batch_size: int = 8,
     eval_batch_size: int = 32, 
-    train_val_split: int = 0.99,
+    train_val_split: float = 0.99,
     num_workers: int = 10,
     pin_memory: bool = True,
     shuffle: bool = True,
