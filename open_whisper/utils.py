@@ -1,15 +1,10 @@
-import numpy as np
 from datetime import datetime, timedelta
+import re
 import subprocess
-from typing import Dict, Union, Tuple, List, Optional, Callable, TextIO
+from typing import Dict, Union, Tuple, List, Optional
 import pysrt
 import webvtt
 import jiwer
-import zlib
-import json
-import os
-import re
-import sys
 from whisper.normalizers import BasicTextNormalizer, EnglishTextNormalizer
 from whisper import utils
 
@@ -17,17 +12,14 @@ from whisper import utils
 CHARS_TO_REMOVE = ["&nbsp;", r"\\h", r"\\h\\h"]
 
 
-def remove_after_endoftext(text):
-    """
-    Removes everything after the first instance of "<|endoftext|>" in a string.
+def remove_after_endoftext(text: str) -> str:
+    """Removes everything after the first instance of "<|endoftext|>" in a string.
 
-    Parameters
-    ----------
-      text: The string to process.
+    Args:
+        text: The string to process
 
-    Returns
-    -------
-      The string with everything after the first "<|endoftext|>" removed.
+    Returns:
+        The string with everything after the first "<|endoftext|>" removed.
     """
     endoftext_index = text.find("<|endoftext|>")
     if endoftext_index != -1:
@@ -37,17 +29,12 @@ def remove_after_endoftext(text):
 
 
 def convert_to_milliseconds(timestamp: str) -> int:
-    """
-    Convert a timestamp in the format HH:MM:SS.mmm to milliseconds
+    """Convert a timestamp in the format HH:MM:SS.mmm to milliseconds
 
-    Parameters
-    ----------
-    timestamp : str
-        Timestamp in the format HH:MM:SS.mmm
+    Args:
+        timestamp: Timestamp in the format HH:MM:SS.mmm
 
-    Returns
-    -------
-    int
+    Returns:
         Timestamp in milliseconds
     """
     h, m, s, ms = map(float, timestamp.replace(".", ":").split(":"))
@@ -55,19 +42,13 @@ def convert_to_milliseconds(timestamp: str) -> int:
 
 
 def calculate_difference(timestamp1: str, timestamp2: str) -> int:
-    """
-    Calculate the difference between two timestamps in milliseconds
+    """Calculate the difference between two timestamps in milliseconds
 
-    Parameters
-    ----------
-    timestamp1 : str
-        Timestamp in the format HH:MM:SS.mmm
-    timestamp2 : str
-        Timestamp in the format HH:MM:SS.mmm
+    Args:
+        timestamp1: Timestamp in the format HH:MM:SS.mmm
+        timestamp2: Timestamp in the format HH:MM:SS.mmm
 
-    Returns
-    -------
-    int
+    Returns:
         Difference between the two timestamps in milliseconds
     """
     time1 = convert_to_milliseconds(timestamp1)
@@ -80,19 +61,13 @@ def calculate_difference(timestamp1: str, timestamp2: str) -> int:
 
 
 def adjust_timestamp(timestamp: str, milliseconds: int) -> str:
-    """
-    Adjust a timestamp by a specified number of milliseconds
+    """Adjust a timestamp by a specified number of milliseconds
 
-    Parameters
-    ----------
-    timestamp : str
-        Timestamp in the format HH:MM:SS.mmm
-    milliseconds : int
-        Number of milliseconds to add or subtract from the timestamp
+    Args:
+        timestamp: Timestamp in the format HH:MM:SS.mmm
+        milliseconds: Number of milliseconds to add or subtract from the timestamp
 
-    Returns
-    -------
-    str
+    Returns:
         Adjusted timestamp in the format HH:MM:SS.mmm
     """
     # Convert the HH:MM:SS.mmm format to a datetime object
@@ -116,27 +91,19 @@ def trim_audio(
     start_window: int = 0,
     end_window: int = 0,
 ) -> None:
-    """
-    Trim an audio file to a specified start and end timestamp
+    """Trim an audio file to a specified start and end timestamp
 
-    Parameters
-    ----------
-    audio_file : str
-        Path to the audio file
-    start : str
-        Start timestamp in the format HH:MM:SS.mmm
-    end : str
-        End timestamp in the format HH:MM:SS.mmm
-    start_window : int
-        Number of seconds to add to the start timestamp
-    end_window : int
-        Number of seconds to add from the end timestamp
-    output_dir : str
-        Directory to save the trimmed audio file
+    Trims the audio file to the specified start and end timestamps and saves the trimmed audio file to the output directory.
+    If start_window and end_window are specified, the audio file will be trimmed by the specified number of seconds before/after the start timestamp and before/after the end timestamp.
+    For before, start_window and end_window should be negative values. For after, they should be positive values.
 
-    Returns
-    -------
-    None
+    Args:
+        audio_file: Path to the audio file
+        start: Start timestamp in the format HH:MM:SS.mmm
+        end: End timestamp in the format HH:MM:SS.mmm
+        start_window: Number of seconds to add to the start timestamp
+        end_window: Number of seconds to add from the end timestamp
+        output_dir: Directory to save the trimmed audio file
     """
     adjusted_start = adjust_timestamp(timestamp=start, milliseconds=start_window * 1000)
     adjusted_end = adjust_timestamp(timestamp=end, milliseconds=end_window * 1000)
@@ -158,23 +125,24 @@ def trim_audio(
 
 
 class TranscriptReader:
+    """A class to read in a WebVTT or SRT transcript file and extract the transcript
+
+    Attributes:
+        file_path: Path to the transcript file
+    """
+
     def __init__(self, file_path: str):
         self.file_path = file_path
         self.ext = file_path.split(".")[-1]
 
     def read_vtt(self, file_path: str) -> Union[None, Tuple[Dict, str, str]]:
-        """
-        Read a WebVTT file and return the transcript as a dictionary
+        """Read a WebVTT file
 
-        Parameters
-        ----------
-        file_path : str
-            Path to the WebVTT file
+        Args:
+            file_path: Path to the WebVTT file
 
-        Returns
-        -------
-        Union[None, Tuple[Dict, str, str]]
-            A tuple containing the transcript, start timestamp, and end timestamp
+        Returns:
+            A tuple containing the transcript, start timestamp, and end timestamp or None if the file is empty
         """
         transcript = {}
         captions = webvtt.read(file_path)
@@ -193,18 +161,13 @@ class TranscriptReader:
         return transcript, transcript_start, transcript_end
 
     def read_srt(self, file_path: str) -> Union[None, Tuple[Dict, str, str]]:
-        """
-        Read an SRT file and return the transcript as a dictionary
+        """Read an SRT file
 
-        Parameters
-        ----------
-        file_path : str
-            Path to the SRT file
+        Args:
+            file_path: Path to the SRT file
 
-        Returns
-        -------
-        Union[None, Tuple[Dict, str, str]]
-            A tuple containing the transcript, start timestamp, and end timestamp
+        Returns:
+            A tuple containing the transcript, start timestamp, and end timestamp or None if the file is empty
         """
         transcript = {}
         subs = pysrt.open(file_path)
@@ -222,13 +185,10 @@ class TranscriptReader:
         return transcript, transcript_start, transcript_end
 
     def read(self) -> Union[None, Tuple[Dict, str, str]]:
-        """
-        Read the transcript file and return the transcript as a dictionary
+        """Read the transcript file
 
-        Returns
-        -------
-        Union[None, Tuple[Dict, str, str]]
-            A tuple containing the transcript, start timestamp, and end timestamp
+        Returns:
+            A tuple containing the transcript, start timestamp, and end timestamp or None if the file is empty
         """
         if self.ext == "vtt":
             return self.read_vtt(self.file_path)
@@ -238,17 +198,12 @@ class TranscriptReader:
             raise ValueError("Unsupported file type")
 
     def extract_text(self, transcript: Dict) -> Optional[str]:
-        """
-        Extract the text from the transcript
+        """Extract the text from the transcript
 
-        Parameters
-        ----------
-        transcript : Dict
-            Transcript as a dictionary
+        Args:
+            transcript: Transcript as a dictionary
 
-        Returns
-        -------
-        Optional[str]
+        Returns:
             The extracted text
         """
         transcript_text = ""
@@ -260,23 +215,13 @@ class TranscriptReader:
 def write_segment(
     timestamps: List, transcript: Optional[Dict], output_dir: str, ext: str
 ) -> None:
-    """
-    Write a segment of the transcript to a file
+    """Write a segment of the transcript to a file
 
-    Parameters
-    ----------
-    timestamps : List
-        List of timestamps
-    transcript : Optional[Dict]
-        Transcript as a dictionary
-    output_dir : str
-        Directory to save the transcript file
-    ext : str
-        File extension
-
-    Returns
-    -------
-    None
+    Args:
+        timestamps: List of timestamps
+        transcript: Transcript as a dictionary
+        output_dir: Directory to save the transcript file
+        ext: File extension
     """
     with open(f"{output_dir}/{timestamps[0][0]}_{timestamps[-1][1]}.{ext}", "w") as f:
         if transcript == None:
@@ -306,17 +251,12 @@ def write_segment(
 
 
 def calculate_wer(pair: Tuple[str, str]) -> float:
-    """
-    Calculate the Word Error Rate (WER) between two strings
+    """Calculate the Word Error Rate (WER) between two strings
 
-    Parameters
-    ----------
-    pair : Tuple[str, str]
-        A tuple containing the truth and predicted strings
+    Args:
+        pair: A tuple containing the truth and predicted strings
 
-    Returns
-    -------
-    float
+    Returns:
         The Word Error Rate (WER) between the two strings
     """
     # truth, predicted
@@ -327,17 +267,10 @@ def calculate_wer(pair: Tuple[str, str]) -> float:
 
 
 def clean_transcript(file_path) -> Union[None, bool]:
-    """
-    Remove unnecessary characters from the transcript file
+    """Remove unnecessary characters from the transcript file
 
-    Parameters
-    ----------
-    file_path : str
-        Path to the transcript file
-
-    Returns
-    -------
-    None or bool
+    Args:
+        file_path: Path to the transcript file
     """
     with open(file_path, "r", encoding="utf-8") as file:
         content = file.read()

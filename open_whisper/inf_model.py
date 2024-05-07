@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Dict, Iterable, Optional
 
 import numpy as np
@@ -29,7 +28,7 @@ class LayerNorm(nn.LayerNorm):
 
 class Linear(nn.Linear):
     """
-    This class is from OpenAI's Whisper repository.
+    This class is based on an implementation by OpenAI from the Whisper repository.
     The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L35
     References:
         - Author: OpenAI
@@ -62,7 +61,7 @@ class Linear(nn.Linear):
 
 class Conv1d(nn.Conv1d):
     """
-    This class is from OpenAI's Whisper repository.
+    This class is based on an implementation by OpenAI from the Whisper repository.
     The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L44
     References:
         - Author: OpenAI

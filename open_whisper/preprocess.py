@@ -1,42 +1,25 @@
-# break audio files into 30-second segments paired with subset of transcript that occurs within that time segment
-# audio is resampled to 16000 hz, 80-channel log-magnitude mel spectrogram, computed with a 25ms window and 10ms hop size
-# spectrogram is a visual representation of spectrum of frequencies of a signal as it varies with time
-# mel spectrogram is a spectrogram that is generated using the Mel scale, a perceptual scale of pitches judged by listeners to be equal in distance from one another
-# 80-channel mel spectrogram is a mel spectrogram represented by 80 mel bins (frequency channels)
-# feature normalization: globally scale input to be between [-1, 1] with approximate mean 0 across pre-training dataset
 import os
 import shutil
 import subprocess
-from open_whisper import utils
-from whisper import audio
-from langdetect import detect
-from typing import Union
+from typing import Literal
 import sys
+from open_whisper import utils
 
 
 def download_transcript(
-    video_id: str, lang_code: str, output_dir: str, sub_format: str = "srt"
+    video_id: str, lang_code: str, output_dir: str, sub_format: Literal["srt", "vtt"] = "srt"
 ) -> None:
-    """
-    Download transcript of a video from YouTube
+    """Download transcript of a video from YouTube
 
-    Parameters
-    ----------
-    video_id : str
-        YouTube video ID
+    Download transcript of a video from YouTube using video ID and language code represented by video_id and lang_code respectively.
+    If output_dir is provided, the transcript file will be saved in the specified directory. 
+    If sub_format is provided, the transcript file will be saved in the specified format.
 
-    lang_code : str
-        Language code of the transcript
-
-    output_dir : str
-        Directory to download the transcript file
-
-    sub_format : str
-        Format of the subtitle file
-
-    Returns
-    -------
-    None
+    Args:
+        video_id: YouTube video ID
+        lang_code: Language code of the transcript
+        output_dir: Directory to download the transcript file
+        sub_format: Format of the subtitle file
     """
     # to not redownload
     if os.path.exists(f"{output_dir}/{video_id}/{video_id}.{lang_code}.{sub_format}"):
@@ -73,27 +56,21 @@ def download_transcript(
 
 
 def parallel_download_transcript(args) -> None:
+    """Parallelized version of download_transcript function to work in multiprocessing context"""
     download_transcript(*args)
 
 
-def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
-    """
-    Download audio of a video from YouTube
+def download_audio(video_id: str, output_dir: str, ext: Literal["m4a", "wav"] = "m4a") -> None:
+    """Download audio of a video from YouTube
 
-    Parameters
-    ----------
-    video_id : str
-        YouTube video ID
+    Download audio of a video from YouTube using video ID and extension represented by video_id and ext respectively.
+    If output_dir is provided, the audio file will be saved in the specified directory.
+    If ext is provided, the audio file will be saved in the specified format.
 
-    output_dir : str
-        Directory to download the audio file
-
-    ext : str
-        Extension of the audio file
-
-    Returns
-    -------
-    None
+    Args:
+        video_id: YouTube video ID
+        output_dir: Directory to download the audio file
+        ext: Extension of the audio file
     """
     # to not redownload
     if os.path.exists(f"{output_dir}/{video_id}/{video_id}.{ext}"):
@@ -125,32 +102,29 @@ def download_audio(video_id: str, output_dir: str, ext: str = "m4a") -> None:
         with open(f"logs/data/download/blocked_ip.txt", "a") as f:
             f.write(f"{video_id}\n")
         sys.exit("Script stopped because IP address has been blocked.")
-        return None
     elif result.stderr == f"ERROR: [youtube] {video_id}: Video unavailable\n":
         with open(f"logs/data/download/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
-        return None
+    
+    return None
 
 
 def parallel_download_audio(args) -> None:
+    """Parallelized version of download_audio function to work in multiprocessing context"""
     download_audio(*args)
 
 
 def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
-    """
-    Segment audio and transcript files into <= 30-second chunks
+    """Segment audio and transcript files into <= 30-second chunks
 
-    Parameters
-    ----------
-    transcript_file : str
-        Path to the transcript file
+    Segment audio and transcript files into <= 30-second chunks. The audio and transcript files are represented by audio_file and transcript_file respectively.
 
-    audio_file : str
-        Path to the audio file
+    Args:
+    transcript_file: Path to the transcript file
+    audio_file: Path to the audio file
 
-    Returns
-    -------
-    None
+    Raises:
+        Exception: If an error occurs during the chunking process
     """
     try:
         cleaned_transcript = utils.clean_transcript(transcript_file)
@@ -284,47 +258,5 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
 
 def parallel_chunk_audio_transcript(args) -> None:
+    """Parallelized version of chunk_audio_transcript function to work in multiprocessing context"""
     chunk_audio_transcript(*args)
-
-
-def standardize_dialects(s: str) -> str:
-    """
-    In the `manual_caption_languages` column in a metadata file, standardize dialects to their base language
-
-    Parameters
-    ----------
-    s : str
-        String containing language codes
-
-    Returns
-    -------
-    str
-        Standardized language codes
-    """
-    words = s.split(",")
-    transformed_words = [word.split("-")[0] if "-" in word else word for word in words]
-    return ",".join(transformed_words)
-
-
-# for rough filtering of english-only videos
-def detect_en(row) -> Union[int, None]:
-    """
-    Detect whether title is in English or not
-
-    Parameters
-    ----------
-    row: tuple
-        Tuple containing index and data
-
-    Returns
-    -------
-    int or None
-    """
-    idx, data = row
-    try:
-        if detect(data["title"]) == "en":
-            return idx
-        else:
-            return None
-    except:
-        pass
