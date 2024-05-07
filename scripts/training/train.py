@@ -223,7 +223,7 @@ def prepare_data(
     n_text_ctx: int,
     pin_memory: bool = True,
     shuffle: bool = True,
-    num_workers: bool = 0,
+    num_workers: int = 0,
     persistent_workers: bool = True,
     subset: Union[int, None] = None,
 ) -> Tuple[DistributedSampler, DataLoader, DistributedSampler, DataLoader]:
