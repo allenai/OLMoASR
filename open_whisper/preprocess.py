@@ -7,12 +7,15 @@ from open_whisper import utils
 
 
 def download_transcript(
-    video_id: str, lang_code: str, output_dir: str, sub_format: Literal["srt", "vtt"] = "srt"
+    video_id: str,
+    lang_code: str,
+    output_dir: str,
+    sub_format: Literal["srt", "vtt"] = "srt",
 ) -> None:
     """Download transcript of a video from YouTube
 
     Download transcript of a video from YouTube using video ID and language code represented by video_id and lang_code respectively.
-    If output_dir is provided, the transcript file will be saved in the specified directory. 
+    If output_dir is provided, the transcript file will be saved in the specified directory.
     If sub_format is provided, the transcript file will be saved in the specified format.
 
     Args:
@@ -45,16 +48,17 @@ def download_transcript(
     if sub_format == "srt":
         command.extend(["--convert-subs", "srt"])
 
-    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
+    )
 
-    if result.stderr == "ERROR: unable to download video data: HTTP Error 403: Forbidden\n":
-        with open(f"logs/data/download/blocked_ip.txt", "a") as f:
-            f.write(f"{video_id}\n")
-        sys.exit("Script stopped because IP address has been blocked.")
-    elif f"Video unavailable" in result.stderr:
+    if not os.path.exists(
+        f"{output_dir}/{video_id}/{video_id}.{lang_code}.{sub_format}"
+    ):
         with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
-    
+
+    return None
 
 
 def parallel_download_transcript(args) -> None:
@@ -62,7 +66,9 @@ def parallel_download_transcript(args) -> None:
     download_transcript(*args)
 
 
-def download_audio(video_id: str, output_dir: str, ext: Literal["m4a", "wav"] = "m4a") -> None:
+def download_audio(
+    video_id: str, output_dir: str, ext: Literal["m4a", "wav"] = "m4a"
+) -> None:
     """Download audio of a video from YouTube
 
     Download audio of a video from YouTube using video ID and extension represented by video_id and ext respectively.
@@ -98,16 +104,14 @@ def download_audio(video_id: str, output_dir: str, ext: Literal["m4a", "wav"] = 
     if ext == "wav":
         command.extend(["--extract-audio", "--audio-format", "wav"])
 
-    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
+    )
 
-    if result.stderr == "ERROR: unable to download video data: HTTP Error 403: Forbidden\n":
-        with open(f"logs/data/download/blocked_ip.txt", "a") as f:
-            f.write(f"{video_id}\n")
-        sys.exit("Script stopped because IP address has been blocked.")
-    elif f"Video unavailable" in result.stderr:
+    if not os.path.exists(f"{output_dir}/{video_id}/{video_id}.{ext}"):
         with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
-    
+
     return None
 
 
