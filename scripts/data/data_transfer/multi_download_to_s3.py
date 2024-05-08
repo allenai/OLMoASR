@@ -86,7 +86,6 @@ def main():
     while True:
         try:
             message, item = qm.get_next(visibility_timeout=(60*60)) # 1 hour visibility timeout
-            print(item)
 
             id_lang = item["id_lang"]
             group_id = item["group_id"]
