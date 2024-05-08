@@ -45,14 +45,16 @@ def download_transcript(
     if sub_format == "srt":
         command.extend(["--convert-subs", "srt"])
 
-    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
 
-    if not os.path.exists(
-        f"{output_dir}/{video_id}/{video_id}.{lang_code}.{sub_format}"
-    ):
-        with open(f"logs/data/download/failed_download_t.txt", "a") as f:
+    if result.stderr == "ERROR: unable to download video data: HTTP Error 403: Forbidden\n":
+        with open(f"logs/data/download/blocked_ip.txt", "a") as f:
             f.write(f"{video_id}\n")
-        return None
+        sys.exit("Script stopped because IP address has been blocked.")
+    elif f"Video unavailable" in result.stderr:
+        with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
+            f.write(f"{video_id}\n")
+    
 
 
 def parallel_download_transcript(args) -> None:
@@ -102,8 +104,8 @@ def download_audio(video_id: str, output_dir: str, ext: Literal["m4a", "wav"] = 
         with open(f"logs/data/download/blocked_ip.txt", "a") as f:
             f.write(f"{video_id}\n")
         sys.exit("Script stopped because IP address has been blocked.")
-    elif result.stderr == f"ERROR: [youtube] {video_id}: Video unavailable\n":
-        with open(f"logs/data/download/unavailable_videos.txt", "a") as f:
+    elif f"Video unavailable" in result.stderr:
+        with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
     
     return None
