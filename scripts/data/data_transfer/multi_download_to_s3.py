@@ -10,9 +10,11 @@ import shutil
 import tarfile
 import subprocess
 from moto3.queue_manager import QueueManager
+from moto3.s3_manager import S3Manager
 import time
 
 qm = QueueManager("whisper-downloading")
+s3m = S3Manager("mattd-public/whisper")
 
 def download(
     video_id: str, output_dir: str, audio_ext: str, lang_code: str, sub_format: str
@@ -90,7 +92,10 @@ def main():
             id_lang = item["id_lang"]
             group_id = item["group_id"]
 
-            download_to_s3(id_lang, group_id)
+            download_to_s3(id_lang=id_lang, group_id=group_id)
+            
+            # upload metadata data about unavailable videos
+            s3m.upload_file(f"metadata/{group_id}/unavailable_videos.txt", f"metadata/{group_id}/unavailable_videos.txt")
 
             qm.delete(message)
 
@@ -104,6 +109,7 @@ def main():
             stdout, stderr = proc.communicate()
         except IndexError: # no more items in queue to process
             break
+    
 
 if __name__ == "__main__":
     main()
