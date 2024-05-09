@@ -83,8 +83,8 @@ def download_to_s3(id_lang: List[List], group_id: str) -> Optional[None]:
             )
         )
 
-    if "requeue" in out:
-        return "requeue"
+        if "requeue" in out:
+            return "requeue"
 
     # compress files
     compress_dir(group_id, f"{group_id}.tar.gz")
@@ -118,6 +118,7 @@ def main():
             if status == "requeue":
                 print(f"Requeuing item {group_id}")
                 qm.upload([item])
+                break
             else:
                 print("Uploading files to S3")
                 command = [
