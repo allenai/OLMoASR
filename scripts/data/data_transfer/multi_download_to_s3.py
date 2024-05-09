@@ -131,6 +131,11 @@ def main():
 
         except IndexError: # no more items in queue to process
             break
+        except Exception: # error occurred
+            print("An error occurred. Requeuing item")
+            qm.delete(message)
+            qm.upload([item])
+            break
     
 
 if __name__ == "__main__":
