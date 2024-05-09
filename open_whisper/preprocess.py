@@ -1,7 +1,7 @@
 import os
 import shutil
 import subprocess
-from typing import Literal
+from typing import Literal, Optional
 import sys
 from open_whisper import utils
 
@@ -11,7 +11,7 @@ def download_transcript(
     lang_code: str,
     output_dir: str,
     sub_format: Literal["srt", "vtt"] = "srt",
-) -> None:
+) -> Optional[None]:
     """Download transcript of a video from YouTube
 
     Download transcript of a video from YouTube using video ID and language code represented by video_id and lang_code respectively.
@@ -52,8 +52,12 @@ def download_transcript(
         command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
     )
 
-    if f"Video unavailable" in result.stderr:
-        os.makedirs(f"metadata/{output_dir}", exist_ok=True)
+    os.makedirs(f"metadata/{output_dir}", exist_ok=True)
+    if "HTTP Error 403" in result.stderr:
+        with open(f"metadata/{output_dir}/blocked_ip.txt", "a") as f:
+            f.write(f"{video_id}\n")
+        return "requeue"
+    elif "unavailable" in result.stderr:
         with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
 
@@ -67,7 +71,7 @@ def parallel_download_transcript(args) -> None:
 
 def download_audio(
     video_id: str, output_dir: str, ext: Literal["m4a", "wav"] = "m4a"
-) -> None:
+) -> Optional[str]:
     """Download audio of a video from YouTube
 
     Download audio of a video from YouTube using video ID and extension represented by video_id and ext respectively.
@@ -107,8 +111,12 @@ def download_audio(
         command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
     )
 
-    if f"Video unavailable" in result.stderr:
-        os.makedirs(f"metadata/{output_dir}", exist_ok=True)
+    os.makedirs(f"metadata/{output_dir}", exist_ok=True)
+    if "HTTP Error 403" in result.stderr:
+        with open(f"metadata/{output_dir}/blocked_ip.txt", "a") as f:
+            f.write(f"{video_id}\n")
+        return "requeue"
+    elif "unavailable" in result.stderr:
         with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
 
