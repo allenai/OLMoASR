@@ -13,8 +13,6 @@ from fire import Fire
 from tqdm import tqdm
 from torchaudio.datasets import TEDLIUM
 
-HF_TOKEN = "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"
-
 
 class Librispeech:
     def __init__(self, root_dir):
