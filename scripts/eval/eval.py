@@ -132,20 +132,18 @@ class EvalDataset(Dataset):
             "fleurs": Fleurs(root_dir=f"{eval_dir}/fleurs"),
             "tedlium": TEDLIUM(root=f"{eval_dir}", release="release3", subset="test"),
             "voxpopuli": VoxPopuli(root_dir=f"{eval_dir}/voxpopuli"),
+            "common_voice": load_dataset(
+                path="mozilla-foundation/common_voice_5_1",
+                name="en",
+                token=hf_token,
+                split="test",
+            ),
             "ami_ihm": AMI(root_dir=f"{eval_dir}/ami/ihm"),
             "ami_sdm": AMI(root_dir=f"{eval_dir}/ami/sdm"),
         }
 
         self.eval_set = eval_set
-        if self.eval_set == "common_voice":
-            self.dataset = load_dataset(
-                path="mozilla-foundation/common_voice_5_1",
-                name="en",
-                token=hf_token,
-                split="test",
-            )
-        else:
-            self.dataset = eval_set_to_dataset[self.eval_set]
+        self.dataset = eval_set_to_dataset[self.eval_set]
 
         if self.eval_set not in ["tedlium", "common_voice"]:
             audio_files, transcript_texts = self.dataset.load()
