@@ -141,9 +141,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         Exception: If an error occurs during the chunking process
     """
     try:
+        os.makedirs("logs/data/preprocess", exist_ok=True)
         cleaned_transcript = utils.clean_transcript(transcript_file)
         if cleaned_transcript is None:
-            with open(f"logs/data/empty_transcripts.txt", "a") as f:
+            with open(f"logs/data/preprocess/empty_transcripts.txt", "a") as f:
                 f.write(f"{transcript_file}\n")
             return None
 
@@ -151,7 +152,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
         # if transcript file is empty
         if transcript == {}:
-            with open(f"logs/data/empty_transcript.txt", "a") as f:
+            with open(f"logs/data/preprocess/empty_transcript.txt", "a") as f:
                 f.write(f"{transcript_file}\n")
             return None
 
@@ -177,7 +178,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             else:
                 # edge case (when transcript line is > 30s)
                 if b == a:
-                    with open(f"logs/data/faulty_transcripts.txt", "a") as f:
+                    with open(f"logs/data/preprocess/faulty_transcripts.txt", "a") as f:
                         f.write(f"{t_output_dir.split('/')[-2]}\tindex: {b}\n")
                         # delete directory
                         shutil.rmtree("/".join(transcript_file.split("/")[:-1]))
@@ -259,14 +260,14 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
                 break
 
-        with open(f"logs/data/chunked_pairs.txt", "a") as f:
+        with open(f"logs/data/preprocess/chunked_pairs.txt", "a") as f:
             f.write(f"{audio_file.split('/')[-1].split('.')[0]}\n")
 
         os.remove(transcript_file)
         os.remove(audio_file)
 
     except Exception as e:
-        with open(f"logs/data/failed_chunking.txt", "a") as f:
+        with open(f"logs/data/preprocess/failed_chunking.txt", "a") as f:
             f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
         return None
 
