@@ -53,7 +53,7 @@ def download_transcript(
     )
 
     os.makedirs(f"metadata/{output_dir}", exist_ok=True)
-    if "HTTP Error 403" or "HTTP Error 429" in result.stderr:
+    if "HTTP Error 403" in result.stderr:
         with open(f"metadata/{output_dir}/blocked_ip.txt", "a") as f:
             f.write(f"{video_id}\n")
         return "requeue"
@@ -112,7 +112,7 @@ def download_audio(
     )
 
     os.makedirs(f"metadata/{output_dir}", exist_ok=True)
-    if "HTTP Error 403" or "HTTP Error 429" in result.stderr:
+    if "HTTP Error 403" in result.stderr:
         with open(f"metadata/{output_dir}/blocked_ip.txt", "a") as f:
             f.write(f"{video_id}\n")
         return "requeue"
