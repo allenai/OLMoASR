@@ -53,7 +53,7 @@ def download_transcript(
     )
 
     os.makedirs(f"metadata/{output_dir}", exist_ok=True)
-    if "unavailable" or "private" in result.stderr:
+    if ("unavailable" in result.stderr) or ("private" in result.stderr):
         with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
         return None
@@ -113,7 +113,7 @@ def download_audio(
     )
 
     os.makedirs(f"metadata/{output_dir}", exist_ok=True)
-    if "unavailable" or "private" in result.stderr:
+    if ("unavailable" in result.stderr) or ("private" in result.stderr):
         with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
     elif not os.path.exists(f"{output_dir}/{video_id}/{video_id}.{ext}"):
