@@ -12,3 +12,6 @@ Otherwise, follow the steps below.
 
 3. Now, install the package in editable mode using `pip`
 `pip install -e .`
+
+Finally, to run the data downloading process, run
+`python scripts/data/data_transfer/multi_download_to_s3.py`
