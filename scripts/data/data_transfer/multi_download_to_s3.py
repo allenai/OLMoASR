@@ -36,7 +36,7 @@ def download(
         output_dir=output_dir,
         sub_format=sub_format,
     )
-    if a_status == "requeue" or t_status == "requeue":
+    if a_status == "requeue":
         return "requeue" 
     return None
 
