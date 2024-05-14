@@ -53,7 +53,7 @@ def download_transcript(
     )
 
     os.makedirs(f"metadata/{output_dir}", exist_ok=True)
-    identifiers = ["unavailable", "private", "terminated", "removed"]
+    identifiers = ["unavailable", "private", "terminated", "removed", "country", "closed"]
     if any(identifier in result.stderr for identifier in identifiers):
         with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
@@ -109,7 +109,7 @@ def download_audio(
     )
 
     os.makedirs(f"metadata/{output_dir}", exist_ok=True)
-    identifiers = ["unavailable", "private", "terminated", "removed"]
+    identifiers = ["unavailable", "private", "terminated", "removed", "country", "closed"]
     if any(identifier in result.stderr for identifier in identifiers):
         with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
