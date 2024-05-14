@@ -134,7 +134,7 @@ def download_audio(
         with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
             f.write(f"{video_id}\n")
             return None
-    elif not os.path.exists(f"{output_dir}/{video_id}/{video_id}.{ext}"):
+    elif "HTTP Error 403" in result.stderr:
         with open(f"metadata/{output_dir}/blocked_ip.txt", "a") as f:
             f.write(f"{video_id}\n")
         return "requeue"
