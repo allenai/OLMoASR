@@ -13,6 +13,7 @@ from moto3.queue_manager import QueueManager
 from moto3.s3_manager import S3Manager
 import time
 import os
+import traceback
 
 qm = QueueManager("whisper-downloading")
 s3m = S3Manager("mattd-public/whisper")
@@ -127,13 +128,17 @@ def main():
                     f"--group_id={group_id}",
                 ]
 
-                proc = subprocess.Popen(command)
+                proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 stdout, stderr = proc.communicate()
+                if stderr != "":
+                    print(stdout)
+                    print(stderr)
 
         except IndexError: # no more items in queue to process
             break
         except Exception: # error occurred
             print("An error occurred. Requeuing item")
+            print(traceback.format_exc())
             qm.delete(message)
             qm.upload([item])
             break
