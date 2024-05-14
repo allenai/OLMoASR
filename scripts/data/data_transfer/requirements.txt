@@ -1,3 +1,2 @@
-open_whisper
 moto3
 fire
