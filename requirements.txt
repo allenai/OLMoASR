@@ -23,7 +23,6 @@ pandas
 wandb
 tiktoken
 seaborn
-pyaudio
 moviepy
 ipykernel
 ipython
