@@ -3,14 +3,12 @@ fire
 jiwer
 langdetect
 librosa
-more_itertools
 pycld2
 pydub
 pysrt
 pytest
 regex
 scipy
-setuptools
 tiktoken
 torch
 torchaudio
@@ -24,9 +22,5 @@ wandb
 tiktoken
 seaborn
 moviepy
-ipykernel
-ipython
-ipywidgets
-jupyter
 fastparquet
 openai-whisper
