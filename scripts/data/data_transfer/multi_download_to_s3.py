@@ -123,7 +123,7 @@ def main():
             else:
                 print("Uploading files to S3")
                 command = [
-                    "python",
+                    "python3",
                     "scripts/data/data_transfer/upload_to_s3.py",
                     f"--group_id={group_id}",
                 ]
