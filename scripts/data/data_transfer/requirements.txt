@@ -1,3 +1,2 @@
-open_whisper
-moto3
+git+https://github.com/mattdeitke/moto3.git
 fire

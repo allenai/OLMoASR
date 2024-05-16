@@ -13,6 +13,7 @@ from moto3.queue_manager import QueueManager
 from moto3.s3_manager import S3Manager
 import time
 import os
+import traceback
 
 qm = QueueManager("whisper-downloading")
 s3m = S3Manager("mattd-public/whisper")
@@ -36,7 +37,7 @@ def download(
         output_dir=output_dir,
         sub_format=sub_format,
     )
-    if a_status == "requeue" or t_status == "requeue":
+    if a_status == "requeue":
         return "requeue" 
     return None
 
@@ -106,9 +107,9 @@ def main():
             status = download_to_s3(id_lang=id_lang, group_id=group_id)
 
             # upload metadata data about unavailable videos
-            if os.path.exists(f"metadata/{group_id}/unavailable_videos.txt"):
-                print("Uploading metadata (unavailable videos) files to S3")
-                s3m.upload_file(f"metadata/{group_id}/unavailable_videos.txt", f"metadata/{group_id}/unavailable_videos.txt")
+            # if os.path.exists(f"metadata/{group_id}/unavailable_videos.txt"):
+            #     print("Uploading metadata (unavailable videos) files to S3")
+            #     s3m.upload_file(f"metadata/{group_id}/unavailable_videos.txt", f"metadata/{group_id}/unavailable_videos.txt")
             if os.path.exists(f"metadata/{group_id}/blocked_ip.txt"):
                 print("Uploading metadata (videos affected by blocked IP) files to S3")
                 s3m.upload_file(f"metadata/{group_id}/blocked_ip.txt", f"metadata/{group_id}/blocked_ip.txt")
@@ -121,19 +122,15 @@ def main():
                 break
             else:
                 print("Uploading files to S3")
-                command = [
-                    "python",
-                    "scripts/data/data_transfer/upload_to_s3.py",
-                    f"--group_id={group_id}",
-                ]
-
-                proc = subprocess.Popen(command)
-                stdout, stderr = proc.communicate()
-
+                s3m.upload_file(f"{group_id}.tar.gz", f"{group_id}.tar.gz")
+                print("Complete uploading to S3")
+                os.remove(f"{group_id}.tar.gz")
         except IndexError: # no more items in queue to process
+            print("No more items in queue to process")
             break
         except Exception: # error occurred
             print("An error occurred. Requeuing item")
+            print(traceback.format_exc())
             qm.delete(message)
             qm.upload([item])
             break
