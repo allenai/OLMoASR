@@ -107,9 +107,9 @@ def main():
             status = download_to_s3(id_lang=id_lang, group_id=group_id)
 
             # upload metadata data about unavailable videos
-            if os.path.exists(f"metadata/{group_id}/unavailable_videos.txt"):
-                print("Uploading metadata (unavailable videos) files to S3")
-                s3m.upload_file(f"metadata/{group_id}/unavailable_videos.txt", f"metadata/{group_id}/unavailable_videos.txt")
+            # if os.path.exists(f"metadata/{group_id}/unavailable_videos.txt"):
+            #     print("Uploading metadata (unavailable videos) files to S3")
+            #     s3m.upload_file(f"metadata/{group_id}/unavailable_videos.txt", f"metadata/{group_id}/unavailable_videos.txt")
             if os.path.exists(f"metadata/{group_id}/blocked_ip.txt"):
                 print("Uploading metadata (videos affected by blocked IP) files to S3")
                 s3m.upload_file(f"metadata/{group_id}/blocked_ip.txt", f"metadata/{group_id}/blocked_ip.txt")
@@ -122,19 +122,11 @@ def main():
                 break
             else:
                 print("Uploading files to S3")
-                command = [
-                    "python",
-                    "scripts/data/data_transfer/upload_to_s3.py",
-                    f"--group_id={group_id}",
-                ]
-
-                proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                stdout, stderr = proc.communicate()
-                if stderr != "":
-                    print(stdout)
-                    print(stderr)
-
+                s3m.upload_file(f"{group_id}.tar.gz", f"{group_id}.tar.gz")
+                print("Complete uploading to S3")
+                os.remove(f"{group_id}.tar.gz")
         except IndexError: # no more items in queue to process
+            print("No more items in queue to process")
             break
         except Exception: # error occurred
             print("An error occurred. Requeuing item")
