@@ -6,6 +6,7 @@ from typing import List, Tuple, Union, Optional, Literal
 import time
 import jiwer
 from fire import Fire
+from tqdm import tqdm
 
 import torch
 import torch.nn.functional as F
@@ -26,7 +27,7 @@ import whisper.tokenizer
 from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
 import open_whisper as ow
 
-from scripts.eval.libri_artie import AudioTextDataset as EvalAudioTextDataset
+from scripts.eval.eval import EvalDataset
 from scripts.data.filtering.get_filter_mechs import get_baseline_data, get_manual_data
 from scripts.training import for_logging
 
@@ -422,7 +423,7 @@ def setup_wandb(
         num_workers: The number of workers
 
     Returns:
-        A tuple containing the run ID, the tags, the training results artifact, the validation results artifact, 
+        A tuple containing the run ID, the tags, the training results artifact, the validation results artifact,
         a boolean indicating whether the training results artifact has been added, and a boolean indicating whether the validation results artifact has been added
     """
     config = {
@@ -581,7 +582,7 @@ def load_ckpt(
         train_dataloader: The training dataloader
 
     Returns:
-        A tuple containing the current epoch, the best validation loss, the model, the optimizer, the gradient scaler, 
+        A tuple containing the current epoch, the best validation loss, the model, the optimizer, the gradient scaler,
         the scheduler, the number of steps over which to accumulate gradients, the number of warmup steps, and the total number of steps
     """
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
@@ -649,7 +650,9 @@ def train(
     train_res_added: Optional[bool],
     tags: Optional[List[str]],
     exp_name: str,
-) -> Tuple[torch.nn.Module, torch.optim.Optimizer, GradScaler, LambdaLR, Optional[bool]]:
+) -> Tuple[
+    torch.nn.Module, torch.optim.Optimizer, GradScaler, LambdaLR, Optional[bool]
+]:
     """Training loop for 1 epoch
 
     Args:
@@ -670,7 +673,7 @@ def train(
         train_res_added: A boolean indicating whether the training results artifact has been added
         tags: The tags to use for logging
         exp_name: The experiment name
-    
+
     Returns:
         A tuple containing the model, the optimizer, the gradient scaler, the scheduler, and a boolean indicating whether the training results artifact has been added
     """
@@ -1073,7 +1076,7 @@ def validate(
         tags: The tags to use for logging
         exp_name: The experiment name
         run_id: The run ID
-    
+
     Returns:
         A tuple containing the best validation loss and a boolean indicating whether the validation results artifact has been added
     """
@@ -1316,16 +1319,16 @@ def evaluate(
         tags: The tags to use for logging
         exp_name: The experiment name
     """
-    eval_corpi = ["librispeech-other", "librispeech-clean"]
+    eval_sets = ["librispeech_clean", "librispeech_other"]
     eval_table = wandb.Table(columns=for_logging.EVAL_TABLE_COLS)
     start_time = time.time()
 
     non_ddp_model = model.module
     non_ddp_model.eval()
 
-    for corpi in eval_corpi:
-        print(f"Evaluating {corpi}\n")
-        eval_dataset = EvalAudioTextDataset(corpus=corpi)
+    for eval_set in eval_sets:
+        print(f"Evaluating {eval_set}\n")
+        eval_dataset = EvalDataset(eval_set=eval_set)
 
         eval_dataloader = DataLoader(
             eval_dataset,
@@ -1340,18 +1343,18 @@ def evaluate(
         references = []
 
         with torch.no_grad():
-            for batch_idx, batch in enumerate(eval_dataloader):
-                audio_files, audio_input, text_y = batch
+            for batch_idx, batch in tqdm(
+                enumerate(eval_dataloader), total=len(eval_dataloader)
+            ):
+                audio_input, text_y = batch
                 audio_input = audio_input.to(rank)
 
                 options = DecodingOptions(language="en", without_timestamps=True)
 
                 results = non_ddp_model.decode(audio_input, options=options)
-                pred_text = [result.text for result in results]
-                norm_pred_text = [normalizer(text) for text in pred_text]
+                norm_pred_text = [normalizer(result.text) for result in results]
                 hypotheses.extend(norm_pred_text)
-                tgt_text = list(text_y)
-                norm_tgt_text = [normalizer(text) for text in tgt_text]
+                norm_tgt_text = [normalizer(text) for text in text_y]
                 references.extend(norm_tgt_text)
 
                 if (batch_idx + 1) % int(np.ceil(len(eval_dataloader) / 10)) == 0:
@@ -1367,7 +1370,7 @@ def evaluate(
                             * 100
                         )
                         eval_table.add_data(
-                            corpi,
+                            eval_set,
                             audio_files[i],
                             wandb.Audio(audio_files[i], sample_rate=16000),
                             pred_text[i],
@@ -1384,14 +1387,14 @@ def evaluate(
                         f"logs/training/{exp_name}/eval_results_{'_'.join(tags)}.txt",
                         "a",
                     ) as f:
-                        f.write(f"{corpi} batch {batch_idx} WER: {wer}\n")
+                        f.write(f"{eval_set} batch {batch_idx} WER: {wer}\n")
 
             avg_wer = jiwer.wer(references, hypotheses) * 100
             with open(
                 f"logs/training/{exp_name}/eval_results_{'_'.join(tags)}.txt", "a"
             ) as f:
-                f.write(f"{corpi} average WER: {avg_wer}\n")
-            wandb.log({f"eval/{corpi}_wer": avg_wer})
+                f.write(f"{eval_set} average WER: {avg_wer}\n")
+            wandb.log({f"eval/{eval_set}_wer": avg_wer})
 
     wandb.log({f"eval_table_{epoch}": eval_table})
 
@@ -1425,7 +1428,7 @@ def main(
     eff_size: int = 256,
     train_batch_size: int = 8,
     val_batch_size: int = 8,
-    eval_batch_size: int = 32, 
+    eval_batch_size: int = 32,
     train_val_split: float = 0.99,
     num_workers: int = 10,
     pin_memory: bool = True,
