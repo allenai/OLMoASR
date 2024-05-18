@@ -179,6 +179,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
         t_output_dir = "/".join(transcript_file.split("/")[:-1]) + "/transcripts"
         a_output_dir = "/".join(audio_file.split("/")[:-1]) + "/audio"
+        remain_dir = "/".join(audio_file.split("/")[:-1]) + "/remain"
         os.makedirs(t_output_dir, exist_ok=True)
         os.makedirs(a_output_dir, exist_ok=True)
 
@@ -278,6 +279,12 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                 )
 
                 break
+        
+        utils.trim_audio(
+            audio_file=audio_file,
+            start=timestamps[-1][1],
+            output_dir=remain_dir,
+        )
 
         with open(f"logs/data/preprocess/chunked_pairs.txt", "a") as f:
             f.write(f"{audio_file.split('/')[-1].split('.')[0]}\n")
