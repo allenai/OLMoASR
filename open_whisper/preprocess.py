@@ -291,6 +291,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         utils.trim_audio(
             audio_file=audio_file,
             start=timestamps[-1][1],
+            end=None,
             output_dir=remain_dir,
         )
 
