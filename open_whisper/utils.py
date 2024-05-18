@@ -117,12 +117,17 @@ def trim_audio(
     ]
 
     if end is not None:
-        command.append(["-to", adjusted_end])
-        command.append(
-            ["-c", "copy", f"{output_dir}/{start}_{end}.{audio_file.split('.')[-1]}"]
+        command.extend(
+            [
+                "-to",
+                adjusted_end,
+                "-c",
+                "copy",
+                f"{output_dir}/{start}_{end}.{audio_file.split('.')[-1]}",
+            ]
         )
     else:
-        command.append(
+        command.extend(
             ["-c", "copy", f"{output_dir}/{start}.{audio_file.split('.')[-1]}"]
         )
 
