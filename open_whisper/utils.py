@@ -107,9 +107,13 @@ def trim_audio(
     """
     if start_window > 0:
         adjusted_start = adjust_timestamp(timestamp=start, milliseconds=start_window * 1000)
+    else:
+        adjusted_start = start
     
     if end_window > 0:
         adjusted_end = adjust_timestamp(timestamp=end, milliseconds=end_window * 1000)
+    else:
+        adjusted_end = end
 
     command = [
         "ffmpeg",
