@@ -86,7 +86,7 @@ def adjust_timestamp(timestamp: str, milliseconds: int) -> str:
 def trim_audio(
     audio_file: str,
     start: str,
-    end: str,
+    end: Optional[str],
     output_dir: str,
     start_window: int = 0,
     end_window: int = 0,
@@ -114,12 +114,14 @@ def trim_audio(
         audio_file,
         "-ss",
         adjusted_start,
-        "-to",
-        adjusted_end,
-        "-c",
-        "copy",
-        f"{output_dir}/{start}_{end}.{audio_file.split('.')[-1]}",
     ]
+
+    if end is not None:
+        command.append(["-to", adjusted_end])
+
+    command.append(
+        ["-c", "copy", f"{output_dir}/{start}_{end}.{audio_file.split('.')[-1]}"]
+    )
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
