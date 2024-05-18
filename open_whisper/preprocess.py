@@ -177,8 +177,8 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
         transcript_ext = transcript_file.split(".")[-1]
 
-        t_output_dir = "/".join(transcript_file.split("/")[:-1]) + "/segments"
-        a_output_dir = "/".join(audio_file.split("/")[:-1]) + "/segments"
+        t_output_dir = "/".join(transcript_file.split("/")[:-1]) + "/transcripts"
+        a_output_dir = "/".join(audio_file.split("/")[:-1]) + "/audio"
         os.makedirs(t_output_dir, exist_ok=True)
         os.makedirs(a_output_dir, exist_ok=True)
 
@@ -206,10 +206,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
                 # write transcript file
                 utils.write_segment(
-                    timestamps[a:b],
-                    transcript,
-                    t_output_dir,
-                    transcript_ext,
+                    timestamps=timestamps[a:b],
+                    transcript=transcript,
+                    output_dir=t_output_dir,
+                    ext=transcript_ext,
                 )
 
                 utils.trim_audio(
@@ -264,10 +264,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             if b == len(transcript) and diff < 30000:
                 # write transcript file
                 utils.write_segment(
-                    timestamps[a:b],
-                    transcript,
-                    t_output_dir,
-                    transcript_ext,
+                    timestamps=timestamps[a:b],
+                    transcript=transcript,
+                    output_dir=t_output_dir,
+                    ext=transcript_ext,
                 )
 
                 utils.trim_audio(
