@@ -190,6 +190,14 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         diff = 0
         init_diff = 0
 
+        if timestamps[0][0] != "00:00:00.000":
+            utils.trim_audio(
+                audio_file=audio_file,
+                start="00:00:00.000",
+                end=timestamps[0][0],
+                output_dir=remain_dir,
+            )
+
         while a < len(transcript) + 1:
             init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
             if init_diff < 30000:
@@ -285,9 +293,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             start=timestamps[-1][1],
             output_dir=remain_dir,
         )
-
-        with open(f"logs/data/preprocess/chunked_pairs.txt", "a") as f:
-            f.write(f"{audio_file.split('/')[-1].split('.')[0]}\n")
 
         os.remove(transcript_file)
         os.remove(audio_file)
