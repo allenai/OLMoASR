@@ -105,8 +105,11 @@ def trim_audio(
         end_window: Number of seconds to add from the end timestamp
         output_dir: Directory to save the trimmed audio file
     """
-    adjusted_start = adjust_timestamp(timestamp=start, milliseconds=start_window * 1000)
-    adjusted_end = adjust_timestamp(timestamp=end, milliseconds=end_window * 1000)
+    if start_window > 0:
+        adjusted_start = adjust_timestamp(timestamp=start, milliseconds=start_window * 1000)
+    
+    if end_window > 0:
+        adjusted_end = adjust_timestamp(timestamp=end, milliseconds=end_window * 1000)
 
     command = [
         "ffmpeg",
