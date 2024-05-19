@@ -171,7 +171,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
         # if segmentation paused - restart
         if os.path.exists(t_output_dir):
-            if len(os.listdir(t_output_dir)) > 0
+            if len(os.listdir(t_output_dir)) > 0:
                 shutil.rmtree(t_output_dir)
             if len(os.listdir(a_output_dir)) > 0:
                 shutil.rmtree(a_output_dir)
