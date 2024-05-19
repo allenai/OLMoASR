@@ -315,8 +315,12 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         os.remove(audio_file)
 
     except Exception as e:
-        with open(f"logs/data/preprocess/failed_chunking.txt", "a") as f:
-            f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
+        if "[Errno 2] No such file or directory" not in e:
+            with open(f"logs/data/preprocess/failed_chunking.txt", "a") as f:
+                f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
+        else:
+            with open(f"logs/data/preprocess/missing_files.txt", "a") as f:
+                f.write(f"{transcript_file}\t{audio_file}\n")
         return None
 
 
