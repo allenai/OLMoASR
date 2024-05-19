@@ -182,6 +182,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         remain_dir = "/".join(audio_file.split("/")[:-1]) + "/remain"
         os.makedirs(t_output_dir, exist_ok=True)
         os.makedirs(a_output_dir, exist_ok=True)
+        os.makedirs(remain_dir, exist_ok=True)
 
         a = 0
         b = 0
@@ -190,10 +191,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         diff = 0
         init_diff = 0
 
-        if timestamps[0][0] != "00:00:00.000":
+        if timestamps[0][0] != "00:00:00,000":
             utils.trim_audio(
                 audio_file=audio_file,
-                start="00:00:00.000",
+                start="00:00:00,000",
                 end=timestamps[0][0],
                 output_dir=remain_dir,
             )
