@@ -168,6 +168,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         t_output_dir = "/".join(transcript_file.split("/")[:-1]) + "/transcripts"
         a_output_dir = "/".join(audio_file.split("/")[:-1]) + "/audio"
         remain_dir = "/".join(audio_file.split("/")[:-1]) + "/remain"
+        faulty_flag = False
 
         # if segmentation paused - restart
         if os.path.exists(t_output_dir):
@@ -223,6 +224,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                 # edge case (when transcript line is > 30s)
                 if b == a:
                     with open(f"logs/data/preprocess/faulty_transcripts.txt", "a") as f:
+                        faulty_flag = True
                         f.write(f"{t_output_dir.split('/')[-2]}\tindex: {b}\n")
                         # delete directory
                         shutil.rmtree("/".join(transcript_file.split("/")[:-1]))
@@ -314,13 +316,18 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         os.remove(transcript_file)
         os.remove(audio_file)
 
-    except Exception as e:
-        if "[Errno 2] No such file or directory" not in e:
-            with open(f"logs/data/preprocess/failed_chunking.txt", "a") as f:
-                f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
-        else:
+    except FileNotFoundError as e:
+        if not faulty_flag:
             with open(f"logs/data/preprocess/missing_files.txt", "a") as f:
                 f.write(f"{transcript_file}\t{audio_file}\n")
+        return None
+    except ValueError as e:
+        with open(f"logs/data/preprocess/failed_chunking.txt", "a") as f:
+            f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
+        return None
+    except Exception as e:
+        with open(f"logs/data/preprocess/failed_chunking.txt", "a") as f:
+            f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
         return None
 
 
