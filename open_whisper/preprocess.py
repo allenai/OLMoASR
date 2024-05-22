@@ -4,6 +4,7 @@ import subprocess
 from typing import Literal, Optional
 import sys
 from open_whisper import utils
+from tempfile import TemporaryDirectory
 
 
 def download_transcript(
@@ -206,37 +207,45 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         diff = 0
         init_diff = 0
 
-        if timestamps[0][0] != "00:00:00.000":
-            utils.trim_audio(
-                audio_file=audio_file,
-                start="00:00:00.000",
-                end=timestamps[0][0],
-                output_dir=remain_dir,
-            )
+        with TemporaryDirectory() as temp_dir:
+            temp_remain_dir = os.path.join(temp_dir, "remain")
+            os.makedirs(temp_remain_dir, exist_ok=True)
 
-        while a < len(transcript) + 1:
-            init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
-            if init_diff < 30000:
-                diff = init_diff
-                b += 1
-            else:
-                # edge case (when transcript line is > 30s)
-                if b == a:
-                    with open(f"logs/data/preprocess/faulty_transcripts.txt", "a") as f:
-                        faulty_flag = True
-                        f.write(f"{t_output_dir.split('/')[-2]}\tindex: {b}\n")
-                        # delete directory
-                        shutil.rmtree("/".join(transcript_file.split("/")[:-1]))
-                        shutil.rmtree("/".join(audio_file.split("/")[:-1]))
-                    return None
-
-                # write transcript file
-                utils.write_segment(
-                    timestamps=timestamps[a:b],
-                    transcript=transcript,
-                    output_dir=t_output_dir,
-                    ext=transcript_ext,
+            if timestamps[0][0] != "00:00:00.000":
+                utils.trim_audio(
+                    audio_file=audio_file,
+                    start="00:00:00.000",
+                    end=timestamps[0][0],
+                    output_dir=temp_remain_dir,
                 )
+
+            while a < len(transcript) + 1:
+                init_diff = utils.calculate_difference(
+                    timestamps[a][0], timestamps[b][1]
+                )
+                if init_diff < 30000:
+                    diff = init_diff
+                    b += 1
+                else:
+                    # edge case (when transcript line is > 30s)
+                    if b == a:
+                        with open(
+                            os.path.join(log_dir, "faulty_transcripts.txt"), "a"
+                        ) as f:
+                            f.write(f"{t_output_dir.split('/')[-2]}\tindex: {b}\n")
+                            shutil.move(video_id_dir, faulty_dir)
+                        return None
+
+                    if utils.over_ctx_len(timestamps=timestamps[a:b], transcript=transcript):
+                        temp_long_dir = os.path.join(temp_dir, "too_long")
+                        os.makedirs(temp_long_dir, exist_ok=True)
+
+                        utils.write_segment(
+                            timestamps=timestamps[a:b],
+                            transcript=transcript,
+                            output_dir=temp_long_dir,
+                            ext=transcript_ext,
+                        )
 
                 utils.trim_audio(
                     audio_file=audio_file,

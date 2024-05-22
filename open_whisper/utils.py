@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 import re
+import os
+import shutil
 import subprocess
 from typing import Dict, Union, Tuple, List, Optional
 import pysrt
@@ -143,13 +145,12 @@ def trim_audio(
             ]
         )
     else:
-        command.extend(
-            ["-c", "copy", output_file]
-        )
+        command.extend(["-c", "copy", output_file])
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     return output_file
+
 
 class TranscriptReader:
     """A class to read in a WebVTT or SRT transcript file and extract the transcript
@@ -279,7 +280,7 @@ def write_segment(
                 f.write(
                     f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
                 )
-    
+
     return output_file
 
 
@@ -329,7 +330,7 @@ def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> bool:
     Args:
         timestamps: List of timestamps
         transcript: Transcript as a dictionary
-    
+
     Returns:
         True if the transcript text exceeds the model context length, False otherwise
     """
@@ -348,6 +349,13 @@ def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> bool:
         return False
 
 
+def too_short_audio(file_path: str) -> bool:
+    timestamps = file_path.split(".m4a")[0].split("_")
+    if calculate_difference(timestamps[0], timestamps[1]) < 15:
+        return True
+    return False
+
+
 def corrupted_audio(file_path: str) -> bool:
     """Check if audio can't be loaded
 
@@ -355,7 +363,7 @@ def corrupted_audio(file_path: str) -> bool:
 
     Args:
         file_path: Path to the audio file
-    
+
     Returns:
         True if the audio can't be loaded, False otherwise
     """
@@ -365,3 +373,30 @@ def corrupted_audio(file_path: str) -> bool:
         return True
     return False
 
+
+def check_audio(
+    audio_file: str,
+    transcript_file: str,
+    too_short_dir: str,
+    video_id_dir: str,
+    corrupt_dir: str,
+) -> Optional[Literal["too short", "corrupted"]]:
+    """Check if audio is corrupted and log it
+
+    Args:
+        audio_file: Path to the audio file
+        transcript_file: Path to the transcript file
+        too_short_dir: Directory to move too short audio files
+        video_id_dir: Directory of original audio and transcript files
+        corrupt_dir: Directory to move corrupted audio files
+    """
+    if too_short_audio(file_path=audio_file):
+        shutil.move(audio_file, too_short_dir)
+        shutil.move(transcript_file, too_short_dir)
+        return "too short"
+
+    if corrupted_audio(file_path=audio_file):
+        shutil.move(video_id_dir, corrupt_dir)
+        return "corrupted"
+    
+    return None
