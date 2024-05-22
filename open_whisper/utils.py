@@ -4,9 +4,11 @@ import subprocess
 from typing import Dict, Union, Tuple, List, Optional
 import pysrt
 import webvtt
+from pydub import AudioSegment
 import jiwer
 from whisper.normalizers import BasicTextNormalizer, EnglishTextNormalizer
 from whisper import utils
+from whisper.tokenizer import get_tokenizer
 
 
 CHARS_TO_REMOVE = ["&nbsp;", r"\\h", r"\\h\\h"]
@@ -317,3 +319,49 @@ def clean_transcript(file_path) -> Union[None, bool]:
         file.write(modified_content)
 
     return True
+
+
+def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> bool:
+    """Check if transcript text exceeds model context length
+
+    Check if the total number of tokens in the transcript text exceeds the model context length
+
+    Args:
+        timestamps: List of timestamps
+        transcript: Transcript as a dictionary
+    
+    Returns:
+        True if the transcript text exceeds the model context length, False otherwise
+    """
+    text_lines = [transcript[timestamps[i]].strip() for i in range(len(timestamps))]
+    text = " ".join(text_lines)
+
+    tokenizer = get_tokenizer(multilingual=False)
+
+    text_tokens = tokenizer.encode(text)
+    text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens
+    text_tokens.append(tokenizer.eot)
+
+    if len(text_tokens) > 448:
+        return True
+    else:
+        return False
+
+
+def corrupted_audio(file_path: str) -> bool:
+    """Check if audio can't be loaded
+
+    Check if audio can't be loaded because 1. too short 2. corrupted
+
+    Args:
+        file_path: Path to the audio file
+    
+    Returns:
+        True if the audio can't be loaded, False otherwise
+    """
+    try:
+        load_audio(file_path)
+    except:
+        return True
+    return False
+
