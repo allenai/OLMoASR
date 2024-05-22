@@ -198,8 +198,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                 f.write(f"{transcript_file}\n")
             return None
 
-        transcript_ext = transcript_file.split(".")[-1]
-
         a = 0
         b = 0
 
@@ -209,6 +207,8 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
         with TemporaryDirectory() as temp_dir:
             temp_remain_dir = os.path.join(temp_dir, "remain")
+            temp_short_dir = os.path.join(temp_dir, "too_short")
+            temp_long_dir = os.path.join(temp_dir, "too_long")
             os.makedirs(temp_remain_dir, exist_ok=True)
 
             if timestamps[0][0] != "00:00:00.000":
@@ -237,8 +237,9 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             shutil.move(video_id_dir, faulty_dir)
                         return None
 
-                    if utils.over_ctx_len(timestamps=timestamps[a:b], transcript=transcript):
-                        temp_long_dir = os.path.join(temp_dir, "too_long")
+                    if utils.over_ctx_len(
+                        timestamps=timestamps[a:b], transcript=transcript
+                    ):
                         os.makedirs(temp_long_dir, exist_ok=True)
 
                         utils.write_segment(
@@ -248,79 +249,147 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             ext=transcript_ext,
                         )
 
-                utils.trim_audio(
-                    audio_file=audio_file,
-                    start=timestamps[a][0],
-                    end=timestamps[b - 1][1],
-                    output_dir=a_output_dir,
-                )
-
-                init_diff = 0
-                diff = 0
-
-                # checking for silence
-                if timestamps[b][0] > timestamps[b - 1][1]:
-                    silence_segments = (
-                        utils.calculate_difference(
-                            timestamps[b - 1][1], timestamps[b][0]
-                        )
-                        // 30000
-                    )
-
-                    for i in range(0, silence_segments + 1):
-                        start = utils.adjust_timestamp(
-                            timestamps[b - 1][1], (i * 30000)
-                        )
-
-                        if i == silence_segments:
-                            end = timestamps[b][0]
-                        else:
-                            end = utils.adjust_timestamp(start, 30000)
-
-                        utils.write_segment(
-                            [
-                                (
-                                    start,
-                                    end,
-                                )
-                            ],
-                            None,
-                            t_output_dir,
-                            transcript_ext,
-                        )
                         utils.trim_audio(
                             audio_file=audio_file,
-                            start=start,
-                            end=end,
-                            output_dir=a_output_dir,
+                            start=timestamps[a][0],
+                            end=timestamps[b - 1][1],
+                            output_dir=temp_long_dir,
+                        )
+                    else:
+                        t_output_file = utils.write_segment(
+                            timestamps=timestamps[a:b],
+                            transcript=transcript,
+                            output_dir=temp_dir,
+                            ext=transcript_ext,
                         )
 
-                a = b
+                        a_output_file = utils.trim_audio(
+                            audio_file=audio_file,
+                            start=timestamps[a][0],
+                            end=timestamps[b - 1][1],
+                            output_dir=temp_dir,
+                        )
 
-            if b == len(transcript) and diff < 30000:
-                # write transcript file
-                utils.write_segment(
-                    timestamps=timestamps[a:b],
-                    transcript=transcript,
-                    output_dir=t_output_dir,
-                    ext=transcript_ext,
-                )
+                    audio_status = utils.check_audio(
+                        audio_file=a_output_file,
+                        transcript_file=t_output_file,
+                        too_short_dir=temp_short_dir,
+                        video_id_dir=video_id_dir,
+                        corrupt_dir=corrupt_dir,
+                    )
 
-                utils.trim_audio(
-                    audio_file=audio_file,
-                    start=timestamps[a][0],
-                    end=timestamps[b - 1][1],
-                    output_dir=a_output_dir,
-                )
+                    if audio_status is "corrupted":
+                        return None
 
-                break
-        
-        utils.trim_audio(
-            audio_file=audio_file,
-            start=timestamps[-1][1],
-            end=None,
-            output_dir=remain_dir,
-        )
+                    init_diff = 0
+                    diff = 0
+
+                    # checking for silence
+                    if timestamps[b][0] > timestamps[b - 1][1]:
+                        silence_segments = (
+                            utils.calculate_difference(
+                                timestamps[b - 1][1], timestamps[b][0]
+                            )
+                            // 30000
+                        )
+
+                        for i in range(0, silence_segments + 1):
+                            start = utils.adjust_timestamp(
+                                timestamps[b - 1][1], (i * 30000)
+                            )
+
+                            if i == silence_segments:
+                                end = timestamps[b][0]
+                            else:
+                                end = utils.adjust_timestamp(start, 30000)
+
+                            t_output_file = utils.write_segment(
+                                timestamps=[(start, end)],
+                                transcript=None,
+                                output_dir=temp_dir,
+                                ext=transcript_ext,
+                            )
+
+                            a_output_file = utils.trim_audio(
+                                audio_file=audio_file,
+                                start=start,
+                                end=end,
+                                output_dir=temp_dir,
+                            )
+
+                            audio_status = utils.check_audio(
+                                audio_file=a_output_file,
+                                transcript_file=t_output_file,
+                                too_short_dir=temp_short_dir,
+                                video_id_dir=video_id_dir,
+                                corrupt_dir=corrupt_dir,
+                            )
+
+                            if audio_status is "corrupted":
+                                return None
+
+                    a = b
+
+                if b == len(transcript) and diff < 30000:
+                    if utils.over_ctx_len(
+                        timestamps=timestamps[a:b], transcript=transcript
+                    ):
+                        os.makedirs(temp_long_dir, exist_ok=True)
+
+                        t_output_file = utils.write_segment(
+                            timestamps=timestamps[a:b],
+                            transcript=transcript,
+                            output_dir=temp_long_dir,
+                            ext=transcript_ext,
+                        )
+
+                        a_output_file = utils.trim_audio(
+                            audio_file=audio_file,
+                            start=timestamps[a][0],
+                            end=timestamps[b - 1][1],
+                            output_dir=temp_long_dir,
+                        )
+                    else:
+                        t_output_file = utils.write_segment(
+                            timestamps=timestamps[a:b],
+                            transcript=transcript,
+                            output_dir=temp_dir,
+                            ext=transcript_ext,
+                        )
+
+                        a_output_file = utils.trim_audio(
+                            audio_file=audio_file,
+                            start=timestamps[a][0],
+                            end=timestamps[b - 1][1],
+                            output_dir=temp_dir,
+                        )
+
+                    audio_status = utils.check_audio(
+                        audio_file=a_output_file,
+                        transcript_file=t_output_file,
+                        too_short_dir=temp_short_dir,
+                        video_id_dir=video_id_dir,
+                        corrupt_dir=corrupt_dir,
+                    )
+
+                    if audio_status is "corrupted":
+                        return None
+
+                    break
+
+            utils.trim_audio(
+                audio_file=audio_file,
+                start=timestamps[-1][1],
+                end=None,
+                output_dir=temp_remain_dir,
+            )
+
+            num_audio_files = len(glob.glob(os.path.join(temp_dir, "*.m4a")))
+            num_transcript_files = len(glob.glob(os.path.join(temp_dir, "*.srt")))
+
+            if num_audio_files != num_transcript_files:
+                shutil.move(video_id_dir, uneven_dir)
+                return None
 
             # Move each file to the permanent directory
             for item in os.listdir(temp_dir):
