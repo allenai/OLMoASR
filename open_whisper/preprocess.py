@@ -322,6 +322,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             output_dir=remain_dir,
         )
 
+            # Move each file to the permanent directory
+            for item in os.listdir(temp_dir):
+                shutil.move(os.path.join(temp_dir, item), video_id_dir)
+
         os.remove(transcript_file)
         os.remove(audio_file)
         return None
