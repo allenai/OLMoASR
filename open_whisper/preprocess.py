@@ -61,8 +61,7 @@ def download_transcript(
         "country",
         "closed",
         "copyright",
-        "members"
-        "not available"
+        "members" "not available",
     ]
     if any(identifier in result.stderr for identifier in identifiers):
         with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:

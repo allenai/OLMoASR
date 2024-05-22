@@ -90,7 +90,7 @@ def trim_audio(
     output_dir: str,
     start_window: int = 0,
     end_window: int = 0,
-) -> None:
+) -> str:
     """Trim an audio file to a specified start and end timestamp
 
     Trims the audio file to the specified start and end timestamps and saves the trimmed audio file to the output directory.
@@ -104,16 +104,23 @@ def trim_audio(
         start_window: Number of seconds to add to the start timestamp
         end_window: Number of seconds to add from the end timestamp
         output_dir: Directory to save the trimmed audio file
+
+    Returns:
+        Path to the trimmed audio file
     """
     if start_window > 0:
-        adjusted_start = adjust_timestamp(timestamp=start, milliseconds=start_window * 1000)
+        adjusted_start = adjust_timestamp(
+            timestamp=start, milliseconds=start_window * 1000
+        )
     else:
         adjusted_start = start
-    
+
     if end_window > 0:
         adjusted_end = adjust_timestamp(timestamp=end, milliseconds=end_window * 1000)
     else:
         adjusted_end = end
+
+    output_file = f"{output_dir}/{start}_{end}.{audio_file.split('.')[-1]}"
 
     command = [
         "ffmpeg",
@@ -130,16 +137,17 @@ def trim_audio(
                 adjusted_end,
                 "-c",
                 "copy",
-                f"{output_dir}/{start}_{end}.{audio_file.split('.')[-1]}",
+                output_file,
             ]
         )
     else:
         command.extend(
-            ["-c", "copy", f"{output_dir}/{start}.{audio_file.split('.')[-1]}"]
+            ["-c", "copy", output_file]
         )
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    return output_file
 
 class TranscriptReader:
     """A class to read in a WebVTT or SRT transcript file and extract the transcript
@@ -231,7 +239,7 @@ class TranscriptReader:
 
 def write_segment(
     timestamps: List, transcript: Optional[Dict], output_dir: str, ext: str
-) -> None:
+) -> str:
     """Write a segment of the transcript to a file
 
     Args:
@@ -239,8 +247,12 @@ def write_segment(
         transcript: Transcript as a dictionary
         output_dir: Directory to save the transcript file
         ext: File extension
+
+    Returns:
+        Path to the output transcript file
     """
-    with open(f"{output_dir}/{timestamps[0][0]}_{timestamps[-1][1]}.{ext}", "w") as f:
+    output_file = f"{output_dir}/{timestamps[0][0]}_{timestamps[-1][1]}.{ext}"
+    with open(output_file, "w") as f:
         if transcript == None:
             f.write("")
         else:
@@ -265,6 +277,8 @@ def write_segment(
                 f.write(
                     f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
                 )
+    
+    return output_file
 
 
 def calculate_wer(pair: Tuple[str, str]) -> float:
