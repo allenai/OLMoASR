@@ -390,14 +390,14 @@ def check_audio(
         video_id_dir: Directory of original audio and transcript files
         corrupt_dir: Directory to move corrupted audio files
     """
+    if corrupted_audio(file_path=audio_file):
+        shutil.move(video_id_dir, corrupt_dir)
+        return "corrupted"
+        
     if too_short_audio(file_path=audio_file):
         os.makedirs(too_short_dir, exist_ok=True)
         shutil.move(audio_file, too_short_dir)
         shutil.move(transcript_file, too_short_dir)
         return "too short"
-
-    if corrupted_audio(file_path=audio_file):
-        shutil.move(video_id_dir, corrupt_dir)
-        return "corrupted"
     
     return None
