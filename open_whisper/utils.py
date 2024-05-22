@@ -391,6 +391,7 @@ def check_audio(
         corrupt_dir: Directory to move corrupted audio files
     """
     if too_short_audio(file_path=audio_file):
+        os.makedirs(too_short_dir, exist_ok=True)
         shutil.move(audio_file, too_short_dir)
         shutil.move(transcript_file, too_short_dir)
         return "too short"
