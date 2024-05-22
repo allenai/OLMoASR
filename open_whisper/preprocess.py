@@ -5,6 +5,7 @@ from typing import Literal, Optional
 import sys
 from open_whisper import utils
 from tempfile import TemporaryDirectory
+import glob
 
 
 def download_transcript(
