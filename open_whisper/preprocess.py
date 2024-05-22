@@ -223,6 +223,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                 init_diff = utils.calculate_difference(
                     timestamps[a][0], timestamps[b][1]
                 )
+                
                 if init_diff < 30000:
                     diff = init_diff
                     b += 1
@@ -325,12 +326,14 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         os.remove(audio_file)
         return None
     except ValueError as e:
-        with open(f"logs/data/preprocess/failed_chunking.txt", "a") as f:
+        with open(os.path.join(log_dir, "failed_chunking.txt"), "a") as f:
             f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
+        shutil.move(video_id_dir, failed_dir)
         return None
     except Exception as e:
-        with open(f"logs/data/preprocess/failed_chunking.txt", "a") as f:
+        with open(os.path.join(log_dir, "failed_chunking.txt"), "a") as f:
             f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
+        shutil.move(video_id_dir, failed_dir)
         return None
 
 
