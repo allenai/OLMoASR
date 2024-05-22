@@ -163,39 +163,34 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
     if not os.path.exists(transcript_file) and not os.path.exists(audio_file):
         return None
 
+    log_dir = "logs/data/preprocess"
+    os.makedirs("logs/data/preprocess", exist_ok=True)
+    empty_dir = "data/untrainable/empty_transcripts"
+    os.makedirs(empty_dir, exist_ok=True)
+    corrupt_dir = "data/untrainable/corrupt_audio"
+    os.makedirs(corrupt_dir, exist_ok=True)
+    faulty_dir = "data/untrainable/faulty_transcripts"
+    os.makedirs(faulty_dir, exist_ok=True)
+    failed_dir = "data/untrainable/failed_chunking"
+    os.makedirs(failed_dir, exist_ok=True)
+    uneven_dir = "data/untrainable/uneven_chunks"
+    os.makedirs(uneven_dir, exist_ok=True)
+
     try:
-        os.makedirs("logs/data/preprocess", exist_ok=True)
-        t_output_dir = "/".join(transcript_file.split("/")[:-1]) + "/transcripts"
-        a_output_dir = "/".join(audio_file.split("/")[:-1]) + "/audio"
-        remain_dir = "/".join(audio_file.split("/")[:-1]) + "/remain"
-        faulty_flag = False
-
-        # if segmentation paused - restart
-        if os.path.exists(t_output_dir):
-            if len(os.listdir(t_output_dir)) > 0:
-                shutil.rmtree(t_output_dir)
-            if len(os.listdir(a_output_dir)) > 0:
-                shutil.rmtree(a_output_dir)
-            if len(os.listdir(remain_dir)) > 0:
-                shutil.rmtree(remain_dir)
-
-        os.makedirs(t_output_dir, exist_ok=True)
-        os.makedirs(a_output_dir, exist_ok=True)
-        os.makedirs(remain_dir, exist_ok=True)
+        video_id_dir = "/".join(transcript_file.split("/")[:-1])
+        transcript_ext = transcript_file.split(".")[-1]
 
         # if transcript file is empty (1st ver)
         cleaned_transcript = utils.clean_transcript(transcript_file)
         if cleaned_transcript is None:
-            with open(f"logs/data/preprocess/empty_transcripts.txt", "a") as f:
-                f.write(f"{transcript_file}\n")
+            shutil.move(video_id_dir, empty_dir)
             return None
 
         transcript, *_ = utils.TranscriptReader(transcript_file).read()
 
         # if transcript file is empty (2nd ver)
         if len(transcript.keys()) == 0:
-            with open(f"logs/data/preprocess/empty_transcript.txt", "a") as f:
-                f.write(f"{transcript_file}\n")
+            shutil.move(video_id_dir, empty_dir)
             return None
 
         a = 0
