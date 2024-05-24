@@ -166,8 +166,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
     log_dir = "logs/data/preprocess"
     os.makedirs("logs/data/preprocess", exist_ok=True)
-    empty_dir = "data/untrainable/empty_transcripts"
-    os.makedirs(empty_dir, exist_ok=True)
     faulty_dir = "data/untrainable/faulty_transcripts"
     os.makedirs(faulty_dir, exist_ok=True)
     failed_dir = "data/untrainable/failed_chunking"
@@ -182,14 +180,18 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         # if transcript file is empty (1st ver)
         cleaned_transcript = utils.clean_transcript(transcript_file)
         if cleaned_transcript is None:
-            shutil.move(video_id_dir, empty_dir)
+            with open(f"{log_dir}/empty_transcripts.txt", "a") as f:
+                f.write(f"{video_id_dir.split('/')[-1]}\n")
+            shutil.rmtree(video_id_dir)
             return None
 
         transcript, *_ = utils.TranscriptReader(transcript_file).read()
 
         # if transcript file is empty (2nd ver)
         if len(transcript.keys()) == 0:
-            shutil.move(video_id_dir, empty_dir)
+            with open(f"{log_dir}/empty_transcripts.txt", "a") as f:
+                f.write(f"{video_id_dir.split('/')[-1]}\n")
+            shutil.rmtree(video_id_dir)
             return None
 
         a = 0
