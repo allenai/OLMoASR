@@ -168,8 +168,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
     os.makedirs("logs/data/preprocess", exist_ok=True)
     empty_dir = "data/untrainable/empty_transcripts"
     os.makedirs(empty_dir, exist_ok=True)
-    corrupt_dir = "data/untrainable/corrupt_audio"
-    os.makedirs(corrupt_dir, exist_ok=True)
     faulty_dir = "data/untrainable/faulty_transcripts"
     os.makedirs(faulty_dir, exist_ok=True)
     failed_dir = "data/untrainable/failed_chunking"
@@ -269,10 +267,11 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                         audio_file=a_output_file,
                         transcript_file=t_output_file,
                         video_id_dir=video_id_dir,
-                        corrupt_dir=corrupt_dir,
                     )
 
                     if audio_status is "corrupted":
+                        with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
+                            f.write(f"{video_id_dir.split("/")[-1]}\n")
                         return None
 
                     init_diff = 0
@@ -315,10 +314,11 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                                 audio_file=a_output_file,
                                 transcript_file=t_output_file,
                                 video_id_dir=video_id_dir,
-                                corrupt_dir=corrupt_dir,
                             )
 
                             if audio_status is "corrupted":
+                                with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
+                                    f.write(f"{video_id_dir.split("/")[-1]}\n")
                                 return None
 
                     a = b
@@ -361,10 +361,11 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                         audio_file=a_output_file,
                         transcript_file=t_output_file,
                         video_id_dir=video_id_dir,
-                        corrupt_dir=corrupt_dir,
                     )
 
                     if audio_status is "corrupted":
+                        with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
+                            f.write(f"{video_id_dir.split("/")[-1]}\n")
                         return None
 
                     break
