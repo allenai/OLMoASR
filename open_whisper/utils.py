@@ -377,7 +377,6 @@ def corrupted_audio(file_path: str) -> bool:
 def check_audio(
     audio_file: str,
     transcript_file: str,
-    too_short_dir: str,
     video_id_dir: str,
     corrupt_dir: str,
 ) -> Optional[Literal["too short", "corrupted"]]:
@@ -395,9 +394,8 @@ def check_audio(
         return "corrupted"
         
     if too_short_audio(file_path=audio_file):
-        os.makedirs(too_short_dir, exist_ok=True)
-        shutil.move(audio_file, too_short_dir)
-        shutil.move(transcript_file, too_short_dir)
+        os.remove(audio_file)
+        os.remove(transcript_file)
         return "too short"
     
     return None
