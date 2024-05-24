@@ -200,17 +200,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         init_diff = 0
 
         with TemporaryDirectory() as temp_dir:
-            temp_remain_dir = os.path.join(temp_dir, "remain")
             temp_long_dir = os.path.join(temp_dir, "too_long")
-            os.makedirs(temp_remain_dir, exist_ok=True)
-
-            if timestamps[0][0] != "00:00:00.000":
-                utils.trim_audio(
-                    audio_file=audio_file,
-                    start="00:00:00.000",
-                    end=timestamps[0][0],
-                    output_dir=temp_remain_dir,
-                )
 
             while a < len(transcript) + 1:
                 init_diff = utils.calculate_difference(
@@ -369,13 +359,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                         return None
 
                     break
-
-            utils.trim_audio(
-                audio_file=audio_file,
-                start=timestamps[-1][1],
-                end=None,
-                output_dir=temp_remain_dir,
-            )
 
             num_audio_files = len(glob.glob(os.path.join(temp_dir, "*.m4a")))
             num_transcript_files = len(glob.glob(os.path.join(temp_dir, "*.srt")))
