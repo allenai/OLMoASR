@@ -200,8 +200,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         init_diff = 0
 
         with TemporaryDirectory() as temp_dir:
-            temp_long_dir = os.path.join(temp_dir, "too_long")
-
             while a < len(transcript) + 1:
                 init_diff = utils.calculate_difference(
                     timestamps[a][0], timestamps[b][1]
@@ -220,25 +218,9 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             shutil.move(video_id_dir, faulty_dir)
                         return None
 
-                    if utils.over_ctx_len(
+                    if not utils.over_ctx_len(
                         timestamps=timestamps[a:b], transcript=transcript
                     ):
-                        os.makedirs(temp_long_dir, exist_ok=True)
-
-                        utils.write_segment(
-                            timestamps=timestamps[a:b],
-                            transcript=transcript,
-                            output_dir=temp_long_dir,
-                            ext=transcript_ext,
-                        )
-
-                        utils.trim_audio(
-                            audio_file=audio_file,
-                            start=timestamps[a][0],
-                            end=timestamps[b - 1][1],
-                            output_dir=temp_long_dir,
-                        )
-                    else:
                         t_output_file = utils.write_segment(
                             timestamps=timestamps[a:b],
                             transcript=transcript,
@@ -314,25 +296,9 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                     a = b
 
                 if b == len(transcript) and diff < 30000:
-                    if utils.over_ctx_len(
+                    if not utils.over_ctx_len(
                         timestamps=timestamps[a:b], transcript=transcript
                     ):
-                        os.makedirs(temp_long_dir, exist_ok=True)
-
-                        t_output_file = utils.write_segment(
-                            timestamps=timestamps[a:b],
-                            transcript=transcript,
-                            output_dir=temp_long_dir,
-                            ext=transcript_ext,
-                        )
-
-                        a_output_file = utils.trim_audio(
-                            audio_file=audio_file,
-                            start=timestamps[a][0],
-                            end=timestamps[b - 1][1],
-                            output_dir=temp_long_dir,
-                        )
-                    else:
                         t_output_file = utils.write_segment(
                             timestamps=timestamps[a:b],
                             transcript=transcript,
