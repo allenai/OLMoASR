@@ -378,19 +378,16 @@ def check_audio(
     audio_file: str,
     transcript_file: str,
     video_id_dir: str,
-    corrupt_dir: str,
 ) -> Optional[Literal["too short", "corrupted"]]:
     """Check if audio is corrupted and log it
 
     Args:
         audio_file: Path to the audio file
         transcript_file: Path to the transcript file
-        too_short_dir: Directory to move too short audio files
         video_id_dir: Directory of original audio and transcript files
-        corrupt_dir: Directory to move corrupted audio files
     """
     if corrupted_audio(file_path=audio_file):
-        shutil.move(video_id_dir, corrupt_dir)
+        shutil.rmtree(video_id_dir)
         return "corrupted"
         
     if too_short_audio(file_path=audio_file):
