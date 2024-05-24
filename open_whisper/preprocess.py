@@ -243,7 +243,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                         video_id_dir=video_id_dir,
                     )
 
-                    if audio_status is "corrupted":
+                    if audio_status == "corrupted":
                         with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
                             f.write(f"{video_id_dir.split('/')[-1]}\n")
                         return None
@@ -290,7 +290,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                                 video_id_dir=video_id_dir,
                             )
 
-                            if audio_status is "corrupted":
+                            if audio_status == "corrupted":
                                 with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
                                     f.write(f"{video_id_dir.split('/')[-1]}\n")
                                 return None
@@ -321,7 +321,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                         video_id_dir=video_id_dir,
                     )
 
-                    if audio_status is "corrupted":
+                    if audio_status == "corrupted":
                         with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
                             f.write(f"{video_id_dir.split('/')[-1]}\n")
                         return None
