@@ -245,7 +245,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
                     if audio_status is "corrupted":
                         with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
-                            f.write(f"{video_id_dir.split("/")[-1]}\n")
+                            f.write(f"{video_id_dir.split('/')[-1]}\n")
                         return None
 
                     init_diff = 0
@@ -292,7 +292,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
                             if audio_status is "corrupted":
                                 with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
-                                    f.write(f"{video_id_dir.split("/")[-1]}\n")
+                                    f.write(f"{video_id_dir.split('/')[-1]}\n")
                                 return None
 
                     a = b
@@ -323,7 +323,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
                     if audio_status is "corrupted":
                         with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
-                            f.write(f"{video_id_dir.split("/")[-1]}\n")
+                            f.write(f"{video_id_dir.split('/')[-1]}\n")
                         return None
 
                     break
@@ -332,6 +332,8 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
             num_transcript_files = len(glob.glob(os.path.join(temp_dir, "*.srt")))
 
             if num_audio_files != num_transcript_files:
+                with open(os.path.join(log_dir, "uneven_chunks.txt"), "a") as f:
+                    f.write(f"{transcript_file}\t{audio_file}\n")
                 shutil.move(video_id_dir, uneven_dir)
                 return None
 
