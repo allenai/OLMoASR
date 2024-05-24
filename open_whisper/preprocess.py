@@ -203,7 +203,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
 
         with TemporaryDirectory() as temp_dir:
             temp_remain_dir = os.path.join(temp_dir, "remain")
-            temp_short_dir = os.path.join(temp_dir, "too_short")
             temp_long_dir = os.path.join(temp_dir, "too_long")
             os.makedirs(temp_remain_dir, exist_ok=True)
 
@@ -269,7 +268,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                     audio_status = utils.check_audio(
                         audio_file=a_output_file,
                         transcript_file=t_output_file,
-                        too_short_dir=temp_short_dir,
                         video_id_dir=video_id_dir,
                         corrupt_dir=corrupt_dir,
                     )
@@ -316,7 +314,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             audio_status = utils.check_audio(
                                 audio_file=a_output_file,
                                 transcript_file=t_output_file,
-                                too_short_dir=temp_short_dir,
                                 video_id_dir=video_id_dir,
                                 corrupt_dir=corrupt_dir,
                             )
@@ -363,7 +360,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                     audio_status = utils.check_audio(
                         audio_file=a_output_file,
                         transcript_file=t_output_file,
-                        too_short_dir=temp_short_dir,
                         video_id_dir=video_id_dir,
                         corrupt_dir=corrupt_dir,
                     )
