@@ -3,7 +3,7 @@ import re
 import os
 import shutil
 import subprocess
-from typing import Dict, Union, Tuple, List, Optional
+from typing import Dict, Union, Tuple, List, Optional, Literal
 import pysrt
 import webvtt
 from pydub import AudioSegment
