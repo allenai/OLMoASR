@@ -9,7 +9,7 @@ import webvtt
 from pydub import AudioSegment
 import jiwer
 from whisper.normalizers import BasicTextNormalizer, EnglishTextNormalizer
-from whisper import utils
+from whisper import utils, load_audio
 from whisper.tokenizer import get_tokenizer
 
 
