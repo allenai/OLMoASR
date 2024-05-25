@@ -350,7 +350,7 @@ def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> bool:
 
 
 def too_short_audio(file_path: str) -> bool:
-    timestamps = file_path.split(".m4a")[0].split("_")
+    timestamps = file_path.split(".m4a")[0].split("/")[-1].split("_")
     if calculate_difference(timestamps[0], timestamps[1]) < 15:
         return True
     return False
