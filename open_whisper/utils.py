@@ -254,7 +254,7 @@ def write_segment(
     Returns:
         Path to the output transcript file
     """
-    output_file = f"{output_dir}/{timestamps[0][0].replace(".", ",")}_{timestamps[-1][1].replace(".", ",")}.{ext}"
+    output_file = f"{output_dir}/{timestamps[0][0].replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
     with open(output_file, "w") as f:
         if transcript == None:
             f.write("")
