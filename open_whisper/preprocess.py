@@ -206,7 +206,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                 init_diff = utils.calculate_difference(
                     timestamps[a][0], timestamps[b][1]
                 )
-                
+
                 if init_diff < 30000:
                     diff = init_diff
                     b += 1
@@ -242,11 +242,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             transcript_file=t_output_file,
                             video_id_dir=video_id_dir,
                         )
-
-                        if audio_status == "corrupted":
-                            with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
-                                f.write(f"{video_id_dir.split('/')[-1]}\n")
-                            return None
 
                     init_diff = 0
                     diff = 0
@@ -290,11 +285,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                                 video_id_dir=video_id_dir,
                             )
 
-                            if audio_status == "corrupted":
-                                with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
-                                    f.write(f"{video_id_dir.split('/')[-1]}\n")
-                                return None
-
                     a = b
 
                 if b == len(transcript) and diff < 30000:
@@ -320,11 +310,6 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             transcript_file=t_output_file,
                             video_id_dir=video_id_dir,
                         )
-
-                        if audio_status == "corrupted":
-                            with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
-                                f.write(f"{video_id_dir.split('/')[-1]}\n")
-                            return None
 
                     break
 
