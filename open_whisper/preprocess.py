@@ -216,7 +216,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                         with open(
                             os.path.join(log_dir, "faulty_transcripts.txt"), "a"
                         ) as f:
-                            f.write(f"{t_output_dir.split('/')[-2]}\tindex: {b}\n")
+                            f.write(f"{video_id_dir.split('/')[-1]}\tindex: {b}\n")
                             shutil.move(video_id_dir, faulty_dir)
                         return None
 
@@ -237,16 +237,16 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             output_dir=temp_dir,
                         )
 
-                    audio_status = utils.check_audio(
-                        audio_file=a_output_file,
-                        transcript_file=t_output_file,
-                        video_id_dir=video_id_dir,
-                    )
+                        audio_status = utils.check_audio(
+                            audio_file=a_output_file,
+                            transcript_file=t_output_file,
+                            video_id_dir=video_id_dir,
+                        )
 
-                    if audio_status == "corrupted":
-                        with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
-                            f.write(f"{video_id_dir.split('/')[-1]}\n")
-                        return None
+                        if audio_status == "corrupted":
+                            with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
+                                f.write(f"{video_id_dir.split('/')[-1]}\n")
+                            return None
 
                     init_diff = 0
                     diff = 0
@@ -315,16 +315,16 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             output_dir=temp_dir,
                         )
 
-                    audio_status = utils.check_audio(
-                        audio_file=a_output_file,
-                        transcript_file=t_output_file,
-                        video_id_dir=video_id_dir,
-                    )
+                        audio_status = utils.check_audio(
+                            audio_file=a_output_file,
+                            transcript_file=t_output_file,
+                            video_id_dir=video_id_dir,
+                        )
 
-                    if audio_status == "corrupted":
-                        with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
-                            f.write(f"{video_id_dir.split('/')[-1]}\n")
-                        return None
+                        if audio_status == "corrupted":
+                            with open(f"{log_dir}/corrupted_audio.txt", "a") as f:
+                                f.write(f"{video_id_dir.split('/')[-1]}\n")
+                            return None
 
                     break
 
