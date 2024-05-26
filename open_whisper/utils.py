@@ -124,7 +124,7 @@ def trim_audio(
     else:
         adjusted_end = end
 
-    output_file = f"{output_dir}/{start}_{end}.{audio_file.split('.')[-1]}"
+    output_file = f"{output_dir}/{adjusted_start.replace('.', ',')}_{adjusted_end.replace('.', ',')}.{audio_file.split('.')[-1]}"
 
     command = [
         "ffmpeg",
