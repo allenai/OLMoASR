@@ -387,7 +387,8 @@ def check_audio(
         video_id_dir: Directory of original audio and transcript files
     """
     if corrupted_audio(file_path=audio_file):
-        shutil.rmtree(video_id_dir)
+        os.remove(audio_file)
+        os.remove(transcript_file)
         return "corrupted"
         
     if too_short_audio(file_path=audio_file):
