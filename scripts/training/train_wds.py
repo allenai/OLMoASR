@@ -193,7 +193,6 @@ def prepare_data(
     Args:
         rank: The rank of the current process
         world_size: The total number of processes
-        train_val_split: The ratio of training to validation data
         train_batch_size: The batch size for training
         val_batch_size: The batch size for validation
         n_text_ctx: The number of text tokens
@@ -312,7 +311,6 @@ def setup_wandb(
     run_id: Optional[str],
     exp_name: str,
     job_type: str,
-    dataset_size: int,
     model_variant: str,
     lr: float,
     betas: Tuple[float, float],
@@ -323,7 +321,6 @@ def setup_wandb(
     total_steps: int,
     warmup_steps: int,
     accumulation_steps: int,
-    train_val_split: float,
     world_size: int,
     num_workers: int,
 ) -> Tuple[Optional[str], List[str], wandb.Artifact, wandb.Artifact, bool, bool]:
@@ -333,7 +330,6 @@ def setup_wandb(
         run_id: The run ID
         exp_name: The experiment name
         job_type: The type of job
-        dataset_size: The size of the dataset
         model_variant: The variant of the model
         lr: The learning rate
         betas: The betas for the Adam optimizer
@@ -344,7 +340,6 @@ def setup_wandb(
         total_steps: The total number of steps
         warmup_steps: The number of warmup steps
         accumulation_steps: The number of steps over which to accumulate gradients
-        train_val_split: The ratio of training to validation data
         world_size: The total number of processes
         num_workers: The number of workers
 
@@ -362,11 +357,9 @@ def setup_wandb(
         "total_steps": total_steps,
         "warmup_steps": warmup_steps,
         "accumulation_steps": accumulation_steps,
-        "train_val_split": train_val_split,
         "world_size": world_size,
         "num_workers": num_workers,
         "model_variant": model_variant,
-        "dataset_size": dataset_size,
     }
 
     tags = [
@@ -1339,7 +1332,6 @@ def main(
     model_variant: str,
     exp_name: str,
     job_type: str,
-    filter: Literal["baseline", "manual"] = "baseline",
     run_id: Optional[str] = None,
     rank: Optional[int] = None,
     world_size: Optional[int] = None,
@@ -1353,7 +1345,6 @@ def main(
     train_batch_size: int = 8,
     val_batch_size: int = 8,
     eval_batch_size: int = 32,
-    train_val_split: float = 0.99,
     num_workers: int = 10,
     pin_memory: bool = True,
     persistent_workers: bool = True,
@@ -1367,7 +1358,6 @@ def main(
         model_variant: The variant of the model to use
         exp_name: The name of the experiment
         job_type: The type of job (e.g., training, evaluation)
-        filter: The filter to use for the dataset
         run_id: The run ID to use for loading a checkpoint
         rank: The rank of the current process
         world_size: The total number of processes
@@ -1381,15 +1371,11 @@ def main(
         train_batch_size: The batch size for training
         val_batch_size: The batch size for validation
         eval_batch_size: The batch size for evaluation
-        train_val_split: The train-validation split
         num_workers: The number of workers for the dataloader
         pin_memory: Whether to pin memory for the dataloader
         persistent_workers: Whether to use persistent workers for the dataloader
         run_eval: Whether to run evaluation
     """
-    filter_func = name_to_filter_func[filter]
-    audio_files_train, transcript_files_train = filter_func()
-
     model_dims = VARIANT_TO_DIMS[model_variant]
 
     if rank is None and world_size is None:
@@ -1408,9 +1394,6 @@ def main(
     train_sampler, train_dataloader, val_sampler, val_dataloader = prepare_data(
         rank=rank,
         world_size=world_size,
-        audio_files_train=audio_files_train,
-        transcript_files_train=transcript_files_train,
-        train_val_split=train_val_split,
         train_batch_size=train_batch_size,
         val_batch_size=val_batch_size,
         n_text_ctx=n_text_ctx,
@@ -1472,7 +1455,6 @@ def main(
             run_id=run_id,
             exp_name=exp_name,
             job_type=job_type,
-            dataset_size=len(audio_files_train),
             model_variant=model_variant,
             lr=lr,
             betas=betas,
@@ -1483,7 +1465,6 @@ def main(
             total_steps=total_steps,
             warmup_steps=warmup_steps,
             accumulation_steps=accumulation_steps,
-            train_val_split=train_val_split,
             world_size=world_size,
             num_workers=num_workers,
         )
