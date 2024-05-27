@@ -189,7 +189,6 @@ def prepare_data(
     """Prepares the data for training
 
     Given the list of audio and transcript files, prepares the distributed sampler and dataloader for training and validation
-    If subset is not None, only uses a subset of the data
 
     Args:
         rank: The rank of the current process
@@ -313,7 +312,6 @@ def setup_wandb(
     run_id: Optional[str],
     exp_name: str,
     job_type: str,
-    subset: Optional[int],
     dataset_size: int,
     model_variant: str,
     lr: float,
@@ -335,7 +333,6 @@ def setup_wandb(
         run_id: The run ID
         exp_name: The experiment name
         job_type: The type of job
-        subset: The subset of the data
         dataset_size: The size of the dataset
         model_variant: The variant of the model
         lr: The learning rate
@@ -369,7 +366,6 @@ def setup_wandb(
         "world_size": world_size,
         "num_workers": num_workers,
         "model_variant": model_variant,
-        "subset": subset,
         "dataset_size": dataset_size,
     }
 
@@ -1352,7 +1348,6 @@ def main(
     eps: float = 1e-6,
     weight_decay: float = 0.1,
     max_grad_norm: float = 1.0,
-    subset: Optional[int] = None,
     epochs: int = 10,
     eff_size: int = 256,
     train_batch_size: int = 8,
@@ -1361,7 +1356,6 @@ def main(
     train_val_split: float = 0.99,
     num_workers: int = 10,
     pin_memory: bool = True,
-    shuffle: bool = True,
     persistent_workers: bool = True,
     run_eval: bool = False,
 ) -> None:
@@ -1382,7 +1376,6 @@ def main(
         eps: The epsilon for the optimizer
         weight_decay: The weight decay for the optimizer
         max_grad_norm: The maximum gradient norm
-        subset: The subset of the dataset to use
         epochs: The number of epochs to train for
         eff_size: The size of the efficientnet model
         train_batch_size: The batch size for training
@@ -1391,7 +1384,6 @@ def main(
         train_val_split: The train-validation split
         num_workers: The number of workers for the dataloader
         pin_memory: Whether to pin memory for the dataloader
-        shuffle: Whether to shuffle the dataloader
         persistent_workers: Whether to use persistent workers for the dataloader
         run_eval: Whether to run evaluation
     """
@@ -1423,10 +1415,8 @@ def main(
         val_batch_size=val_batch_size,
         n_text_ctx=n_text_ctx,
         pin_memory=pin_memory,
-        shuffle=shuffle,
         num_workers=num_workers,
         persistent_workers=persistent_workers,
-        subset=subset,
     )
 
     # model instantiation
@@ -1482,7 +1472,6 @@ def main(
             run_id=run_id,
             exp_name=exp_name,
             job_type=job_type,
-            subset=subset,
             dataset_size=len(audio_files_train),
             model_variant=model_variant,
             lr=lr,
