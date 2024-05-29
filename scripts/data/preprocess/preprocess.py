@@ -13,7 +13,7 @@ TARS_PATH = "data/tars"
 
 
 def split_list(data_shard_idx: int, lst: List, n: int) -> List[Tuple]:
-    start_shard_idx = data_shard_idx + (5 * (data_shard_idx - 1))
+    start_shard_idx = data_shard_idx + (5 * (data_shard_idx - 1)) if data_shard_idx > 0 else 0
     # Calculate size of each portion
     k, m = divmod(len(lst), n)
     # Create each portion and append to the result
