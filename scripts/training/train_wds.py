@@ -834,11 +834,9 @@ def train(
 
             if rank == 0:
                 end_step = time.time()
-                print(f"step {batch_idx + 1} took {(end_step - start_step) / 60.0} minutes")
-                throughput = (train_batch_size * accumulation_steps / (end_step - start_step)) * 30 / 60
-                print(f"audio_min_per_GPU_second: {throughput}")
-                wandb.log({"train/time_step": (end_step - start_step) / 60.0})
+                throughput = ((train_batch_size * accumulation_steps) / (end_step - start_step)) * 30 / 60
                 wandb.log({"train/audio_min_per_GPU_second": throughput})
+                wandb.log({"train/time_step": (end_step - start_step) / 60.0})
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
@@ -1333,7 +1331,7 @@ def main(
     exp_name: str,
     job_type: str,
     train_shards: str,
-    val_shards: str,
+    val_shards: Optional[str],
     len_train_data: Optional[int],
     len_val_data: Optional[int],
     run_id: Optional[str] = None,
@@ -1352,6 +1350,7 @@ def main(
     num_workers: int = 10,
     pin_memory: bool = True,
     persistent_workers: bool = True,
+    run_val: bool = True,
     run_eval: bool = False,
 ) -> None:
     """Main function for training
@@ -1517,27 +1516,28 @@ def main(
                 file_name="latest_train",
             )
 
-        best_val_loss, val_res_added = validate(
-            rank=rank,
-            epoch=epoch,
-            best_val_loss=best_val_loss if rank == 0 else None,
-            len_val_data=len_val_data,
-            val_batch_size=val_batch_size,
-            val_dataloader=val_dataloader,
-            scaler=scaler,
-            model=model,
-            tokenizer=tokenizer,
-            normalizer=normalizer,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            model_dims=model_dims,
-            model_variant=model_variant,
-            val_res=val_res if rank == 0 else None,
-            val_res_added=val_res_added if rank == 0 else None,
-            tags=tags if rank == 0 else None,
-            exp_name=exp_name,
-            run_id=run_id,
-        )
+        if run_val:
+            best_val_loss, val_res_added = validate(
+                rank=rank,
+                epoch=epoch,
+                best_val_loss=best_val_loss if rank == 0 else None,
+                len_val_data=len_val_data,
+                val_batch_size=val_batch_size,
+                val_dataloader=val_dataloader,
+                scaler=scaler,
+                model=model,
+                tokenizer=tokenizer,
+                normalizer=normalizer,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                model_dims=model_dims,
+                model_variant=model_variant,
+                val_res=val_res if rank == 0 else None,
+                val_res_added=val_res_added if rank == 0 else None,
+                tags=tags if rank == 0 else None,
+                exp_name=exp_name,
+                run_id=run_id,
+            )
 
         if run_eval:
             if rank != 0:
