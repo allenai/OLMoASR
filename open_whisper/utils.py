@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import re
 import os
+import numpy as np
 import shutil
 import subprocess
 from typing import Dict, Union, Tuple, List, Optional, Literal
@@ -94,7 +95,7 @@ def trim_audio(
     output_dir: str,
     start_window: int = 0,
     end_window: int = 0,
-) -> np.ndarray:
+) -> Optional[np.ndarray]:
     """Trim an audio file to a specified start and end timestamp
 
     Trims the audio file to the specified start and end timestamps and saves the trimmed audio file to the output directory.
@@ -124,7 +125,8 @@ def trim_audio(
     else:
         adjusted_end = end
 
-    output_file = f"{output_dir}/{adjusted_start.replace('.', ',')}_{adjusted_end.replace('.', ',')}.{audio_file.split('.')[-1]}"
+    temp_audio_file = f"{output_dir}/temp_audio_{adjusted_start.replace('.', ',')}_{adjusted_end.replace('.', ',')}.{audio_file.split('.')[-1]}"
+    output_file = f"{output_dir}/{adjusted_start.replace('.', ',')}_{adjusted_end.replace('.', ',')}.npy"
 
     command = [
         "ffmpeg",
@@ -141,19 +143,21 @@ def trim_audio(
                 adjusted_end,
                 "-c",
                 "copy",
-                output_file,
+                temp_audio_file,
             ]
         )
     else:
-        command.extend(["-c", "copy", output_file])
+        command.extend(["-c", "copy", temp_audio_file])
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     try:
-        audio_arr = load_audio(output_file)
-        os.remove(output_file)
+        audio_arr = load_audio(temp_audio_file)
+        os.remove(temp_audio_file)
+        np.save(output_file, audio_arr)
     except:
-        return "corrupted"
+        os.remove(temp_audio_file)
+        return None
 
     return audio_arr
 
