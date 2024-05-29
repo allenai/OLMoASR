@@ -30,6 +30,7 @@ def write_to_tar(video_id_shard: List[Tuple]) -> None:
 
     # Create a tar.gz archive for the group
     with tarfile.open(tar_path, "w") as tar:
+        len_dirs = 0
         for dir_path in tqdm(dirs, total=len(dirs)):
             len_dirs += len(glob.glob(dir_path + "/*"))
             tar.add(dir_path, arcname=dir_path.split("/")[-1])
@@ -82,8 +83,9 @@ def preprocess(data_shard_path: str, num_output_shards: int) -> None:
                 total=len(video_id_shards),
             )
         )
-    print(f"Time taken to write to {num_output_shards} tar files: {time.time() - start}")
-
+    print(
+        f"Time taken to write to {num_output_shards} tar files: {time.time() - start}"
+    )
 
 if __name__ == "__main__":
     Fire(preprocess)
