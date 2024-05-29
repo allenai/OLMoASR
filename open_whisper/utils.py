@@ -94,7 +94,7 @@ def trim_audio(
     output_dir: str,
     start_window: int = 0,
     end_window: int = 0,
-) -> str:
+) -> np.ndarray:
     """Trim an audio file to a specified start and end timestamp
 
     Trims the audio file to the specified start and end timestamps and saves the trimmed audio file to the output directory.
@@ -149,7 +149,10 @@ def trim_audio(
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    return output_file
+    audio_arr = load_audio(output_file)
+    os.remove(output_file)
+
+    return audio_arr
 
 
 class TranscriptReader:
