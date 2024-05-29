@@ -149,8 +149,11 @@ def trim_audio(
 
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    audio_arr = load_audio(output_file)
-    os.remove(output_file)
+    try:
+        audio_arr = load_audio(output_file)
+        os.remove(output_file)
+    except:
+        return "corrupted"
 
     return audio_arr
 
@@ -352,51 +355,9 @@ def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> bool:
         return False
 
 
-def too_short_audio(file_path: str) -> bool:
-    timestamps = file_path.split(".m4a")[0].split("/")[-1].replace(",", ".").split("_")
-    if calculate_difference(timestamps[0], timestamps[1]) < 15:
+def too_short_audio(audio_arr: np.ndarray, sample_rate: int = 16000) -> bool:
+    duration = len(audio_arr) / sample_rate
+    if duration < 0.015:
         return True
     return False
 
-
-def corrupted_audio(file_path: str) -> bool:
-    """Check if audio can't be loaded
-
-    Check if audio can't be loaded because 1. too short 2. corrupted
-
-    Args:
-        file_path: Path to the audio file
-
-    Returns:
-        True if the audio can't be loaded, False otherwise
-    """
-    try:
-        load_audio(file_path)
-    except:
-        return True
-    return False
-
-
-def check_audio(
-    audio_file: str,
-    transcript_file: str,
-    video_id_dir: str,
-) -> Optional[Literal["too short", "corrupted"]]:
-    """Check if audio is corrupted and log it
-
-    Args:
-        audio_file: Path to the audio file
-        transcript_file: Path to the transcript file
-        video_id_dir: Directory of original audio and transcript files
-    """
-    if corrupted_audio(file_path=audio_file):
-        os.remove(audio_file)
-        os.remove(transcript_file)
-        return "corrupted"
-        
-    if too_short_audio(file_path=audio_file):
-        os.remove(audio_file)
-        os.remove(transcript_file)
-        return "too short"
-    
-    return None
