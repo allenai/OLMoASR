@@ -230,18 +230,18 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             ext=transcript_ext,
                         )
 
-                        a_output_file = utils.trim_audio(
+                        audio_arr = utils.trim_audio(
                             audio_file=audio_file,
                             start=timestamps[a][0],
                             end=timestamps[b - 1][1],
                             output_dir=temp_dir,
                         )
 
-                        audio_status = utils.check_audio(
-                            audio_file=a_output_file,
-                            transcript_file=t_output_file,
-                            video_id_dir=video_id_dir,
-                        )
+                        if not audio_arr:
+                            os.remove(t_output_file)
+                        
+                        if utils.too_short_audio(audio_arr=audio_arr):
+                            os.remove(t_output_file)
 
                     init_diff = 0
                     diff = 0
@@ -272,19 +272,19 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                                 ext=transcript_ext,
                             )
 
-                            a_output_file = utils.trim_audio(
+                            audio_arr = utils.trim_audio(
                                 audio_file=audio_file,
                                 start=start,
                                 end=end,
                                 output_dir=temp_dir,
                             )
 
-                            audio_status = utils.check_audio(
-                                audio_file=a_output_file,
-                                transcript_file=t_output_file,
-                                video_id_dir=video_id_dir,
-                            )
-
+                            if not audio_arr:
+                                os.remove(t_output_file)
+                            
+                            if utils.too_short_audio(audio_arr=audio_arr):
+                                os.remove(t_output_file)
+                                
                     a = b
 
                 if b == len(transcript) and diff < 30000:
@@ -298,22 +298,22 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             ext=transcript_ext,
                         )
 
-                        a_output_file = utils.trim_audio(
+                        audio_arr = utils.trim_audio(
                             audio_file=audio_file,
                             start=timestamps[a][0],
                             end=timestamps[b - 1][1],
                             output_dir=temp_dir,
                         )
 
-                        audio_status = utils.check_audio(
-                            audio_file=a_output_file,
-                            transcript_file=t_output_file,
-                            video_id_dir=video_id_dir,
-                        )
+                        if not audio_arr:
+                            os.remove(t_output_file)
+                        
+                        if utils.too_short_audio(audio_arr=audio_arr):
+                            os.remove(t_output_file)
 
                     break
 
-            num_audio_files = len(glob.glob(os.path.join(temp_dir, "*.m4a")))
+            num_audio_files = len(glob.glob(os.path.join(temp_dir, "*.npy")))
             num_transcript_files = len(glob.glob(os.path.join(temp_dir, "*.srt")))
 
             if num_audio_files != num_transcript_files:
