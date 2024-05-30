@@ -1,33 +1,8 @@
 import os
+import glob
 
-
-def get_baseline_data():
-    """Get baseline data - no filtering done on dataset"""
-    audio_files_train = []
-    for root, *_ in os.walk("data/audio"):
-        if "segments" in root:
-            for f in os.listdir(root):
-                audio_files_train.append(os.path.join(root, f))
-
-    transcript_files_train = []
-    for root, *_ in os.walk("data/transcripts"):
-        if "segments" in root:
-            for f in os.listdir(root):
-                transcript_files_train.append(os.path.join(root, f))
-
-    return audio_files_train, transcript_files_train
-
-
-def get_manual_data():
-    """Get manually-generated data - filtered out machine-generated data"""
-    audio_files_train = []
-    with open("logs/data/filtering/manual_audio.txt", "r") as f:
-        for line in f:
-            audio_files_train.append(line.strip())
-
-    transcript_files_train = []
-    with open("logs/data/filtering/manual_text.txt", "r") as f:
-        for line in f:
-            transcript_files_train.append(line.strip())
+def get_data_shard(data_shard_idx: int):
+    audio_files_train = sorted(glob.glob("data/" + f"{data_shard_idx:08d}/*/*.m4a"))
+    transcript_files_train = sorted(glob.glob("data/" + f"{data_shard_idx:08d}/*/*.srt"))
 
     return audio_files_train, transcript_files_train
