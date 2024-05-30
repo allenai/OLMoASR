@@ -46,7 +46,7 @@ def decode_text_bytes(text_bytes: bytes) -> str:
 
 def decode_sample(sample: Dict[str, bytes]) -> Tuple[np.ndarray, str]:
     file_path = os.path.join(sample["__url__"], sample["__key__"])
-    audio_path = file_path + ".m4a"
+    audio_path = file_path + ".npy"
     text_path = file_path + ".srt"
     audio_bytes = sample["npy"]
     text_bytes = sample["srt"]
@@ -101,39 +101,41 @@ def preprocess_text(transcript_string: str, tokenizer: whisper.tokenizer.Tokeniz
 
     return text_input, text_y, padding_mask
     
-def preprocess(sample, n_text_ctx: int):
-    tokenizer = get_tokenizer(multilingual=False)
-    audio_path, audio_arr, text_path, transcript_str = decode_sample(sample)
+def preprocess(sample, tokenizer, n_text_ctx):
+    audio_path, audio_arr, text_path, transcript_str = sample
     audio_input, padded_audio_arr = preprocess_audio(audio_arr)
     text_input, text_y, padding_mask = preprocess_text(transcript_str, tokenizer, n_text_ctx)
 
     return audio_path, text_path, padded_audio_arr, audio_input, text_input, text_y, padding_mask
 
-def shuffle_shards(shards: str) -> List[str]:
-    start_train_shard, end_train_shard = [int(shard_idx) for shard_idx in shards.split("{")[-1].split("}")[0].split("..")]
-    rng = np.random.default_rng(42)
-    shards_list = np.array(range(start_train_shard, end_train_shard + 1))
-    rng.shuffle(shards_list)
-    shuffled_shards_list = [f"data/tars/{shard_idx:08d}.tar" for shard_idx in shards_list]
-    
-    return shuffled_shards_list
-
 #%%
-dataset = wds.WebDataset("data/tars/{000000..000005}.tar")
-
-#%%
-for sample in dataset:
-    temp_sample = sample
-    break
-
-#%%
-dataset = wds.WebDataset("data/tars/{000000..000005}.tar").map(lambda sample: preprocess(sample, 448))
+dataset = wds.WebDataset("data/tars/{000000..000019}.tar").map(lambda sample: preprocess(sample, 448))
 
 #%%
 dataloader = DataLoader(dataset, batch_size=1, drop_last=False)
 for batch in dataloader:
-    audio_input, text_input, text_y, padding_mask = batch
+    audio_path, text_path, padded_audio_arr, audio_input, text_input, text_y, padding_mask = batch
     print(audio_input.shape, text_input.shape, text_y.shape, padding_mask.shape)
     break
 
 # %%
+dataset = wds.DataPipeline(
+    wds.SimpleShardList("data/tars/{000000..000019}.tar"),
+
+    wds.split_by_worker,
+
+    wds.shuffle(bufsize=1000, initial=100),
+
+    # at this point, we have an iterator over the shards assigned to each worker
+    wds.tarfile_to_samples(),
+
+    # this shuffles the samples in memory
+    wds.shuffle(bufsize=1000, initial=100),
+
+    # this decodes the images and json
+    wds.decode("pil"),
+    wds.to_tuple("png", "json"),
+    wds.map(preprocess),
+    wds.shuffle(1000),
+    wds.batched(16)
+)
