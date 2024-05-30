@@ -169,7 +169,7 @@ class TranscriptReader:
         file_path: Path to the transcript file
     """
 
-    def __init__(self, file_path: Optional[str], transcript_string: Optional[str], ext: Optional[str]):
+    def __init__(self, file_path: Optional[str] = None, transcript_string: Optional[str] = None, ext: Optional[str] = None):
         if file_path is None and transcript_string is None:
             raise ValueError("Either file_path or transcript_string must be provided")
 
