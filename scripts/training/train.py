@@ -1434,6 +1434,7 @@ def main(
     pin_memory: bool = True,
     shuffle: bool = True,
     persistent_workers: bool = True,
+    run_val: bool = True,
     run_eval: bool = False,
 ) -> None:
     """Main function for training
@@ -1606,27 +1607,27 @@ def main(
                 run_id=run_id,
                 file_name="latest_train",
             )
-
-        best_val_loss, val_res_added = validate(
-            rank=rank,
-            epoch=epoch,
-            best_val_loss=best_val_loss if rank == 0 else None,
-            val_sampler=val_sampler,
-            val_dataloader=val_dataloader,
-            scaler=scaler,
-            model=model,
-            tokenizer=tokenizer,
-            normalizer=normalizer,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            model_dims=model_dims,
-            model_variant=model_variant,
-            val_res=val_res if rank == 0 else None,
-            val_res_added=val_res_added if rank == 0 else None,
-            tags=tags if rank == 0 else None,
-            exp_name=exp_name,
-            run_id=run_id,
-        )
+        if run_val:
+            best_val_loss, val_res_added = validate(
+                rank=rank,
+                epoch=epoch,
+                best_val_loss=best_val_loss if rank == 0 else None,
+                val_sampler=val_sampler,
+                val_dataloader=val_dataloader,
+                scaler=scaler,
+                model=model,
+                tokenizer=tokenizer,
+                normalizer=normalizer,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                model_dims=model_dims,
+                model_variant=model_variant,
+                val_res=val_res if rank == 0 else None,
+                val_res_added=val_res_added if rank == 0 else None,
+                tags=tags if rank == 0 else None,
+                exp_name=exp_name,
+                run_id=run_id,
+            )
 
         if run_eval:
             if rank != 0:
