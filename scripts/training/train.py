@@ -28,12 +28,11 @@ from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
 import open_whisper as ow
 
 from scripts.eval.eval import EvalDataset
-from scripts.data.filtering.get_filter_mechs import get_baseline_data, get_manual_data
+from scripts.data.filtering.get_filter_mechs import get_data_shard
 from scripts.training import for_logging
 
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"
-name_to_filter_func = {"baseline": get_baseline_data, "manual": get_manual_data}
 
 
 class AudioTextDataset(Dataset):
@@ -1414,7 +1413,7 @@ def main(
     model_variant: str,
     exp_name: str,
     job_type: str,
-    filter: Literal["baseline", "manual"] = "baseline",
+    data_shard_idx: int,
     run_id: Optional[str] = None,
     rank: Optional[int] = None,
     world_size: Optional[int] = None,
@@ -1467,8 +1466,7 @@ def main(
         persistent_workers: Whether to use persistent workers for the dataloader
         run_eval: Whether to run evaluation
     """
-    filter_func = name_to_filter_func[filter]
-    audio_files_train, transcript_files_train = filter_func()
+    audio_files_train, transcript_files_train = get_data_shard(data_shard_idx=data_shard_idx)
 
     model_dims = VARIANT_TO_DIMS[model_variant]
 
