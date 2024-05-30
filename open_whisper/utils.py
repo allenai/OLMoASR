@@ -169,9 +169,18 @@ class TranscriptReader:
         file_path: Path to the transcript file
     """
 
-    def __init__(self, file_path: str):
-        self.file_path = file_path
-        self.ext = file_path.split(".")[-1]
+    def __init__(self, file_path: Optional[str], transcript_string: Optional[str], ext: Optional[str]):
+        if file_path is None and transcript_string is None:
+            raise ValueError("Either file_path or transcript_string must be provided")
+
+        if file_path is not None:
+            self.file_path = file_path
+            self.ext = file_path.split(".")[-1]
+            self.transcript_string = None
+        elif transcript_string is not None:
+            self.transcript_string = transcript_string
+            self.ext = ext
+            self.file_path = None
 
     def read_vtt(self, file_path: str) -> Union[None, Tuple[Dict, str, str]]:
         """Read a WebVTT file
@@ -198,17 +207,22 @@ class TranscriptReader:
 
         return transcript, transcript_start, transcript_end
 
-    def read_srt(self, file_path: str) -> Union[None, Tuple[Dict, str, str]]:
-        """Read an SRT file
+    def read_srt(self, file_path: Optional[str], transcript_string: Optional[str]) -> Union[None, Tuple[Dict, str, str]]:
+        """Read an SRT file or string
 
         Args:
             file_path: Path to the SRT file
+            transcript_string: SRT transcript as a string
 
         Returns:
             A tuple containing the transcript, start timestamp, and end timestamp or None if the file is empty
         """
         transcript = {}
-        subs = pysrt.open(file_path)
+        if file_path is not None:
+            subs = pysrt.open(file_path)
+        elif transcript_string is not None:
+            subs = pysrt.from_string(transcript_string)
+
         if len(subs) == 0:
             return transcript, "", ""
 
@@ -229,9 +243,9 @@ class TranscriptReader:
             A tuple containing the transcript, start timestamp, and end timestamp or None if the file is empty
         """
         if self.ext == "vtt":
-            return self.read_vtt(self.file_path)
+            return self.read_vtt(file_path=self.file_path)
         elif self.ext == "srt":
-            return self.read_srt(self.file_path)
+            return self.read_srt(file_path=self.file_path, transcript_string=self.transcript_string)
         else:
             raise ValueError("Unsupported file type")
 
