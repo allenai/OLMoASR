@@ -926,6 +926,8 @@ def train(
 
             if rank == 0:
                 end_step = time.time()
+                throughput = ((train_batch_size * accumulation_steps) / (end_step - start_step)) * 30 / 60
+                wandb.log({"train/audio_min_per_GPU_second": throughput})
                 wandb.log({"train/time_step": (end_step - start_step) / 60.0})
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
