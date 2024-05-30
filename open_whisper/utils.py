@@ -176,11 +176,11 @@ class TranscriptReader:
         if file_path is not None:
             self.file_path = file_path
             self.ext = file_path.split(".")[-1]
-            self.transcript_string = None
+            self.transcript_string = transcript_string
         elif transcript_string is not None:
             self.transcript_string = transcript_string
             self.ext = ext
-            self.file_path = None
+            self.file_path = file_path
 
     def read_vtt(self, file_path: str) -> Union[None, Tuple[Dict, str, str]]:
         """Read a WebVTT file
