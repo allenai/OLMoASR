@@ -1,5 +1,7 @@
+#%%
 import os
 import glob
+from io import BytesIO
 import numpy as np
 import wandb
 from typing import List, Tuple, Union, Optional, Literal, Dict
@@ -30,45 +32,38 @@ import open_whisper as ow
 import webdataset as wds
 import tempfile
 
-def bytes_to_file(data_bytes: bytes, suffix: str) -> str:
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    temp_file.write(data_bytes)
-    temp_file.flush()
-    temp_file.close()
-
-    return temp_file.name
-
+#%%
 def decode_audio_bytes(audio_bytes: bytes) -> np.ndarray:
-    audio_file = bytes_to_file(audio_bytes, ".m4a")
-    audio_arr = audio.load_audio(audio_file)
-    os.remove(audio_file)
+    bytes_io = BytesIO(audio_bytes)
+    audio_arr = np.load(bytes_io)
 
     return audio_arr
 
-def decode_text_bytes(text_bytes: bytes) -> Dict:
+def decode_text_bytes(text_bytes: bytes) -> str:
     transcript_str = text_bytes.decode("utf-8")
-    transcript_file = bytes_to_file(text_bytes, ".srt")
 
-    return transcript_file
+    return transcript_str
 
 def decode_sample(sample: Dict[str, bytes]) -> Tuple[np.ndarray, str]:
-    audio_bytes = sample["m4a"]
+    file_path = os.path.join(sample["__url__"], sample["__key__"])
+    audio_path = file_path + ".m4a"
+    text_path = file_path + ".srt"
+    audio_bytes = sample["npy"]
     text_bytes = sample["srt"]
     audio_arr = decode_audio_bytes(audio_bytes)
-    transcript_file = decode_text_bytes(text_bytes)
+    transcript_str = decode_text_bytes(text_bytes)
 
-    return audio_arr, transcript_file
+    return audio_path, audio_arr, text_path, transcript_str
 
 def preprocess_audio(audio_arr: np.ndarray) -> torch.Tensor:
     audio_arr = audio.pad_or_trim(audio_arr)
     mel_spec = audio.log_mel_spectrogram(audio_arr)
 
-    return mel_spec
+    return mel_spec, audio_arr
 
-def preprocess_text(transcript_file: str, tokenizer: whisper.tokenizer.Tokenizer, n_text_ctx: int) -> Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]:
-    reader = ow.utils.TranscriptReader(file_path=transcript_file)
+def preprocess_text(transcript_string: str, tokenizer: whisper.tokenizer.Tokenizer, n_text_ctx: int) -> Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]:
+    reader = ow.utils.TranscriptReader(transcript_string=transcript_string, ext="srt")
     transcript, *_ = reader.read()
-    os.remove(transcript_file)
     
     if not transcript:
         text_tokens = [tokenizer.no_speech]
@@ -108,17 +103,37 @@ def preprocess_text(transcript_file: str, tokenizer: whisper.tokenizer.Tokenizer
     
 def preprocess(sample, n_text_ctx: int):
     tokenizer = get_tokenizer(multilingual=False)
-    audio_arr, transcript_file = decode_sample(sample)
-    audio_input = preprocess_audio(audio_arr)
-    text_input, text_y, padding_mask = preprocess_text(transcript_file, tokenizer, n_text_ctx)
+    audio_path, audio_arr, text_path, transcript_str = decode_sample(sample)
+    audio_input, padded_audio_arr = preprocess_audio(audio_arr)
+    text_input, text_y, padding_mask = preprocess_text(transcript_str, tokenizer, n_text_ctx)
 
-    return audio_input, text_input, text_y, padding_mask
+    return audio_path, text_path, padded_audio_arr, audio_input, text_input, text_y, padding_mask
 
-dataset = wds.WebDataset("data/tars/000000.tar").map(lambda sample: preprocess(sample, 448))
+def shuffle_shards(shards: str) -> List[str]:
+    start_train_shard, end_train_shard = [int(shard_idx) for shard_idx in shards.split("{")[-1].split("}")[0].split("..")]
+    rng = np.random.default_rng(42)
+    shards_list = np.array(range(start_train_shard, end_train_shard + 1))
+    rng.shuffle(shards_list)
+    shuffled_shards_list = [f"data/tars/{shard_idx:08d}.tar" for shard_idx in shards_list]
+    
+    return shuffled_shards_list
 
+#%%
+dataset = wds.WebDataset("data/tars/{000000..000005}.tar")
+
+#%%
+for sample in dataset:
+    temp_sample = sample
+    break
+
+#%%
+dataset = wds.WebDataset("data/tars/{000000..000005}.tar").map(lambda sample: preprocess(sample, 448))
+
+#%%
 dataloader = DataLoader(dataset, batch_size=1, drop_last=False)
-
 for batch in dataloader:
     audio_input, text_input, text_y, padding_mask = batch
     print(audio_input.shape, text_input.shape, text_y.shape, padding_mask.shape)
     break
+
+# %%
