@@ -237,7 +237,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             output_dir=temp_dir,
                         )
 
-                        if not audio_arr:
+                        if audio_arr is None:
                             os.remove(t_output_file)
                         
                         if utils.too_short_audio(audio_arr=audio_arr):
@@ -279,7 +279,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                                 output_dir=temp_dir,
                             )
 
-                            if not audio_arr:
+                            if audio_arr is None:
                                 os.remove(t_output_file)
                             
                             if utils.too_short_audio(audio_arr=audio_arr):
@@ -305,7 +305,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
                             output_dir=temp_dir,
                         )
 
-                        if not audio_arr:
+                        if audio_arr is None:
                             os.remove(t_output_file)
                         
                         if utils.too_short_audio(audio_arr=audio_arr):
