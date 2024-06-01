@@ -8,12 +8,17 @@ from open_whisper.preprocess import parallel_chunk_audio_transcript
 import time
 import multiprocessing
 from fire import Fire
+from tempfile import TemporaryDirectory, NamedTemporaryFile
+from itertools import repeat
+import numpy as np
 
 TARS_PATH = "data/tars"
 
 
 def split_list(data_shard_idx: int, lst: List, n: int) -> List[Tuple]:
-    start_shard_idx = data_shard_idx + (5 * (data_shard_idx - 1)) if data_shard_idx > 0 else 0
+    rng = np.random.default_rng(42)
+    rng.shuffle(lst)
+    start_shard_idx = data_shard_idx + (n * data_shard_idx)
     # Calculate size of each portion
     k, m = divmod(len(lst), n)
     # Create each portion and append to the result
