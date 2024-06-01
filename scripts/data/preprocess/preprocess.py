@@ -60,42 +60,49 @@ def preprocess(data_shard_path: str, num_output_shards: int = 25) -> None:
         return None
 
     # Chunk the audio and transcript files
-    print("Chunking audio and transcript files")
-    start = time.time()
-    with multiprocessing.Pool() as pool:
-        out = list(
-            tqdm(
-                pool.imap_unordered(
-                    parallel_chunk_audio_transcript,
-                    zip(
-                        transcript_files,
-                        audio_files,
+    with TemporaryDirectory() as data_shard_temp_dir:    
+        print("Chunking audio and transcript files")
+        start = time.time()
+        with multiprocessing.Pool() as pool:
+            out = list(
+                tqdm(
+                    pool.imap_unordered(
+                        parallel_chunk_audio_transcript,
+                        zip(
+                            transcript_files,
+                            audio_files,
+                            repeat(data_shard_temp_dir)
+                        ),
                     ),
-                ),
-                total=len(transcript_files),
+                    total=len(transcript_files),
+                )
             )
-        )
-    print(f"Time taken to segment: {time.time() - start}")
+        print(f"Time taken to segment: {time.time() - start}")
 
-    # Write the data to tar files
-    print("Writing data to tar files")
+        # Write the data to tar files
+        print("Writing data to tar files")
+        start = time.time()
+        data_shard_idx = int(data_shard_path.split("/")[-1])
+        segment_files = glob.glob(data_shard_temp_dir + "/*/*")
+        segment_shards = split_list(
+            data_shard_idx=data_shard_idx, lst=segment_files, n=num_output_shards
+        )
+
+        with multiprocessing.Pool() as pool:
+            out = list(
+                tqdm(
+                    pool.imap_unordered(write_to_tar, segment_shards),
+                    total=len(segment_shards),
+                )
+            )
+        print(
+            f"Time taken to write to {num_output_shards} tar files: {time.time() - start}"
+        )
+    
+    print(f"Completed processing data shard {data_shard_path}, cleaning up now")
     start = time.time()
-    data_shard_idx = int(data_shard_path.split("/")[-1])
-    video_id_dirs = glob.glob(data_shard_path + "/*")
-    video_id_shards = split_list(
-        data_shard_idx=data_shard_idx, lst=video_id_dirs, n=num_output_shards
-    )
-
-    with multiprocessing.Pool() as pool:
-        out = list(
-            tqdm(
-                pool.imap_unordered(write_to_tar, video_id_shards),
-                total=len(video_id_shards),
-            )
-        )
-    print(
-        f"Time taken to write to {num_output_shards} tar files: {time.time() - start}"
-    )
+    shutil.rmtree(data_shard_path)
+    print(f"Time taken to clean up: {time.time() - start}")
 
 if __name__ == "__main__":
     Fire(preprocess)
