@@ -148,7 +148,7 @@ def parallel_download_audio(args) -> None:
     download_audio(*args)
 
 
-def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
+def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: str) -> None:
     """Segment audio and transcript files into <= 30-second chunks
 
     Segment audio and transcript files into <= 30-second chunks. The audio and transcript files are represented by audio_file and transcript_file respectively.
@@ -160,8 +160,9 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
     Raises:
         Exception: If an error occurs during the chunking process
     """
-    # either files don't exist or already processed
-    if not os.path.exists(transcript_file) and not os.path.exists(audio_file):
+    video_id_dir = "/".join(transcript_file.split("/")[:-1])
+    # already processed
+    if not os.path.exists(video_id_dir):
         return None
 
     log_dir = "logs/data/preprocess"
@@ -174,7 +175,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
     os.makedirs(uneven_dir, exist_ok=True)
 
     try:
-        video_id_dir = "/".join(transcript_file.split("/")[:-1])
+        segment_output_dir = os.path.join(output_dir, transcript_file.split("/")[-2])
         transcript_ext = transcript_file.split(".")[-1]
 
         # if transcript file is empty (1st ver)
@@ -201,133 +202,129 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str) -> None:
         diff = 0
         init_diff = 0
 
-        with TemporaryDirectory() as temp_dir:
-            while a < len(transcript) + 1:
-                init_diff = utils.calculate_difference(
-                    timestamps[a][0], timestamps[b][1]
-                )
+        while a < len(transcript) + 1:
+            init_diff = utils.calculate_difference(
+                timestamps[a][0], timestamps[b][1]
+            )
 
-                if init_diff < 30000:
-                    diff = init_diff
-                    b += 1
-                else:
-                    # edge case (when transcript line is > 30s)
-                    if b == a:
-                        with open(
-                            os.path.join(log_dir, "faulty_transcripts.txt"), "a"
-                        ) as f:
-                            f.write(f"{video_id_dir.split('/')[-1]}\tindex: {b}\n")
-                            shutil.move(video_id_dir, faulty_dir)
-                        return None
+            if init_diff < 30000:
+                diff = init_diff
+                b += 1
+            else:
+                # edge case (when transcript line is > 30s)
+                if b == a:
+                    with open(
+                        os.path.join(log_dir, "faulty_transcripts.txt"), "a"
+                    ) as f:
+                        f.write(f"{video_id_dir.split('/')[-1]}\tindex: {b}\n")
+                        shutil.move(video_id_dir, faulty_dir)
+                    return None
 
-                    if not utils.over_ctx_len(
-                        timestamps=timestamps[a:b], transcript=transcript
-                    ):
+                if not utils.over_ctx_len(
+                    timestamps=timestamps[a:b], transcript=transcript
+                ):
+                    t_output_file = utils.write_segment(
+                        timestamps=timestamps[a:b],
+                        transcript=transcript,
+                        output_dir=segment_output_dir,
+                        ext=transcript_ext,
+                    )
+
+                    a_output_file, audio_arr = utils.trim_audio(
+                        audio_file=audio_file,
+                        start=timestamps[a][0],
+                        end=timestamps[b - 1][1],
+                        output_dir=segment_output_dir,
+                    )
+
+                    if audio_arr is None:
+                        os.remove(t_output_file)
+                    
+                    if utils.too_short_audio(audio_arr=audio_arr):
+                        os.remove(a_output_file)
+                        os.remove(t_output_file)
+
+                init_diff = 0
+                diff = 0
+
+                # checking for silence
+                if timestamps[b][0] > timestamps[b - 1][1]:
+                    silence_segments = (
+                        utils.calculate_difference(
+                            timestamps[b - 1][1], timestamps[b][0]
+                        )
+                        // 30000
+                    )
+
+                    for i in range(0, silence_segments + 1):
+                        start = utils.adjust_timestamp(
+                            timestamps[b - 1][1], (i * 30000)
+                        )
+
+                        if i == silence_segments:
+                            end = timestamps[b][0]
+                        else:
+                            end = utils.adjust_timestamp(start, 30000)
+
                         t_output_file = utils.write_segment(
-                            timestamps=timestamps[a:b],
-                            transcript=transcript,
-                            output_dir=temp_dir,
+                            timestamps=[(start, end)],
+                            transcript=None,
+                            output_dir=segment_output_dir,
                             ext=transcript_ext,
                         )
 
-                        audio_arr = utils.trim_audio(
+                        a_output_file, audio_arr = utils.trim_audio(
                             audio_file=audio_file,
-                            start=timestamps[a][0],
-                            end=timestamps[b - 1][1],
-                            output_dir=temp_dir,
+                            start=start,
+                            end=end,
+                            output_dir=segment_output_dir,
                         )
 
                         if audio_arr is None:
                             os.remove(t_output_file)
                         
                         if utils.too_short_audio(audio_arr=audio_arr):
+                            os.remove(a_output_file)
                             os.remove(t_output_file)
-
-                    init_diff = 0
-                    diff = 0
-
-                    # checking for silence
-                    if timestamps[b][0] > timestamps[b - 1][1]:
-                        silence_segments = (
-                            utils.calculate_difference(
-                                timestamps[b - 1][1], timestamps[b][0]
-                            )
-                            // 30000
-                        )
-
-                        for i in range(0, silence_segments + 1):
-                            start = utils.adjust_timestamp(
-                                timestamps[b - 1][1], (i * 30000)
-                            )
-
-                            if i == silence_segments:
-                                end = timestamps[b][0]
-                            else:
-                                end = utils.adjust_timestamp(start, 30000)
-
-                            t_output_file = utils.write_segment(
-                                timestamps=[(start, end)],
-                                transcript=None,
-                                output_dir=temp_dir,
-                                ext=transcript_ext,
-                            )
-
-                            audio_arr = utils.trim_audio(
-                                audio_file=audio_file,
-                                start=start,
-                                end=end,
-                                output_dir=temp_dir,
-                            )
-
-                            if audio_arr is None:
-                                os.remove(t_output_file)
                             
-                            if utils.too_short_audio(audio_arr=audio_arr):
-                                os.remove(t_output_file)
-                                
-                    a = b
+                a = b
 
-                if b == len(transcript) and diff < 30000:
-                    if not utils.over_ctx_len(
-                        timestamps=timestamps[a:b], transcript=transcript
-                    ):
-                        t_output_file = utils.write_segment(
-                            timestamps=timestamps[a:b],
-                            transcript=transcript,
-                            output_dir=temp_dir,
-                            ext=transcript_ext,
-                        )
+            if b == len(transcript) and diff < 30000:
+                if not utils.over_ctx_len(
+                    timestamps=timestamps[a:b], transcript=transcript
+                ):
+                    t_output_file = utils.write_segment(
+                        timestamps=timestamps[a:b],
+                        transcript=transcript,
+                        output_dir=segment_output_dir,
+                        ext=transcript_ext,
+                    )
 
-                        audio_arr = utils.trim_audio(
-                            audio_file=audio_file,
-                            start=timestamps[a][0],
-                            end=timestamps[b - 1][1],
-                            output_dir=temp_dir,
-                        )
+                    a_output_file, audio_arr = utils.trim_audio(
+                        audio_file=audio_file,
+                        start=timestamps[a][0],
+                        end=timestamps[b - 1][1],
+                        output_dir=segment_output_dir,
+                    )
 
-                        if audio_arr is None:
-                            os.remove(t_output_file)
-                        
-                        if utils.too_short_audio(audio_arr=audio_arr):
-                            os.remove(t_output_file)
+                    if audio_arr is None:
+                        os.remove(t_output_file)
+                    
+                    if utils.too_short_audio(audio_arr=audio_arr):
+                        os.remove(a_output_file)
+                        os.remove(t_output_file)
 
-                    break
+                break
 
-            num_audio_files = len(glob.glob(os.path.join(temp_dir, "*.npy")))
-            num_transcript_files = len(glob.glob(os.path.join(temp_dir, "*.srt")))
+        num_audio_files = len(glob.glob(os.path.join(segment_output_dir, "*.npy")))
+        num_transcript_files = len(glob.glob(os.path.join(segment_output_dir, "*.srt")))
 
-            if num_audio_files != num_transcript_files:
-                with open(os.path.join(log_dir, "uneven_chunks.txt"), "a") as f:
-                    f.write(f"{transcript_file}\t{audio_file}\n")
-                shutil.move(video_id_dir, uneven_dir)
-                return None
+        if num_audio_files != num_transcript_files:
+            with open(os.path.join(log_dir, "uneven_chunks.txt"), "a") as f:
+                f.write(f"{transcript_file}\t{audio_file}\n")
+            shutil.move(video_id_dir, uneven_dir)
+            return None
 
-            # Move each file to the permanent directory
-            for item in os.listdir(temp_dir):
-                shutil.move(os.path.join(temp_dir, item), video_id_dir)
-
-        os.remove(transcript_file)
-        os.remove(audio_file)
         return None
     except ValueError as e:
         with open(os.path.join(log_dir, "failed_chunking.txt"), "a") as f:
