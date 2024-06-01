@@ -159,7 +159,7 @@ def trim_audio(
         os.remove(temp_audio_file)
         return None, None
 
-    return audio_arr
+    return output_file, audio_arr
 
 
 class TranscriptReader:
