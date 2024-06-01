@@ -12,8 +12,7 @@ from tempfile import TemporaryDirectory, NamedTemporaryFile
 from itertools import repeat
 import numpy as np
 
-TARS_PATH = "data/tars"
-
+TARS_PATH = "/mmfs1/gscratch/efml/hvn2002/ow_440K_wds"
 
 def split_list(data_shard_idx: int, lst: List, n: int) -> List[Tuple]:
     rng = np.random.default_rng(42)
@@ -28,19 +27,21 @@ def split_list(data_shard_idx: int, lst: List, n: int) -> List[Tuple]:
     ]
 
 
-def write_to_tar(video_id_shard: List[Tuple]) -> None:
-    dirs, shard_idx = video_id_shard
+def write_to_tar(segment_shards: List[Tuple]) -> None:
+    segments, shard_idx = segment_shards
     tar_name = f"{shard_idx:06}.tar"
-    tar_path = os.path.join(TARS_PATH, tar_name)
 
-    # Create a tar.gz archive for the group
-    with tarfile.open(tar_path, "w") as tar:
-        len_dirs = 0
-        for dir_path in tqdm(dirs, total=len(dirs)):
-            len_dirs += len(glob.glob(dir_path + "/*"))
-            tar.add(dir_path, arcname=dir_path.split("/")[-1])
-        with open("logs/data/preprocess/num_files.txt", "a") as f:
-            f.write(f"{shard_idx}: {len_dirs}\n")
+    with NamedTemporaryFile(delete=False, suffix=".tar") as temp_tar:
+        tar_path = temp_tar.name
+
+        with tarfile.open(tar_path, "w") as tar:
+            for path in tqdm(segments, total=len(segments)):
+                tar.add(path, arcname=path.split("/")[-2])
+            with open("logs/data/preprocess/num_files.txt", "a") as f:
+                f.write(f"{shard_idx}: {len(segments)}\n") 
+
+    shutil.move(tar_path, os.path.join(TARS_PATH, tar_name))
+    os.remove(tar_path)
 
 
 def preprocess(data_shard_path: str, num_output_shards: int) -> None:
