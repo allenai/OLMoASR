@@ -44,8 +44,9 @@ def write_to_tar(segment_shards: List[Tuple]) -> None:
     os.remove(tar_path)
 
 
-def preprocess(data_shard_path: str, num_output_shards: int) -> None:
+def preprocess(data_shard_path: str, num_output_shards: int = 25) -> None:
     print(f"Preprocessing {data_shard_path} with {num_output_shards} output shards")
+    log_dir = "logs/data/preprocess"
     os.makedirs(TARS_PATH, exist_ok=True)
     audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
     transcript_files = sorted(glob.glob(data_shard_path + "/*/*.srt"))
@@ -53,7 +54,10 @@ def preprocess(data_shard_path: str, num_output_shards: int) -> None:
     print(f"{len(audio_files)} audio files")
     print(f"{len(transcript_files)} transcript files")
 
-    assert len(audio_files) == len(transcript_files)
+    if len(audio_files) != len(transcript_files):
+        with open(os.path.join(log_dir, "uneven_data_shards.txt"), "a") as f:
+            f.write(f"{data_shard_path}\t{len(audio_files)}\t{len(transcript_files)}\n")
+        return None
 
     # Chunk the audio and transcript files
     print("Chunking audio and transcript files")
