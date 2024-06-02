@@ -269,7 +269,10 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
                         )
 
                         if i == silence_segments:
-                            end = timestamps[b][0]
+                            if start == timestamps[b][0]:
+                                continue
+                            else:
+                                end = timestamps[b][0]
                         else:
                             end = utils.adjust_timestamp(start, 30000)
 
