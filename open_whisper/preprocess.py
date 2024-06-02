@@ -218,8 +218,15 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
                         os.path.join(log_dir, "faulty_transcripts.txt"), "a"
                     ) as f:
                         f.write(f"{video_id_dir.split('/')[-1]}\tindex: {b}\n")
-                        shutil.move(video_id_dir, faulty_dir)
-                    return None
+
+                    a += 1
+                    b += 1
+
+                    if a == b == len(transcript) and len(os.listdir(segment_output_dir)) == 0:
+                        shutil.rmtree(video_id_dir)
+                        break
+                    
+                    continue
 
                 if not utils.over_ctx_len(
                     timestamps=timestamps[a:b], transcript=transcript
