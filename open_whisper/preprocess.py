@@ -176,6 +176,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
 
     try:
         segment_output_dir = os.path.join(output_dir, transcript_file.split("/")[-2])
+        os.makedirs(segment_output_dir, exist_ok=True)
         transcript_ext = transcript_file.split(".")[-1]
 
         # if transcript file is empty (1st ver)
