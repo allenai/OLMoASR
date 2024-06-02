@@ -240,8 +240,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
 
                     if audio_arr is None:
                         os.remove(t_output_file)
-                    
-                    if utils.too_short_audio(audio_arr=audio_arr):
+                    elif utils.too_short_audio(audio_arr=audio_arr):
                         os.remove(a_output_file)
                         os.remove(t_output_file)
 
@@ -283,8 +282,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
 
                         if audio_arr is None:
                             os.remove(t_output_file)
-                        
-                        if utils.too_short_audio(audio_arr=audio_arr):
+                        elif utils.too_short_audio(audio_arr=audio_arr):
                             os.remove(a_output_file)
                             os.remove(t_output_file)
                             
@@ -310,8 +308,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
 
                     if audio_arr is None:
                         os.remove(t_output_file)
-                    
-                    if utils.too_short_audio(audio_arr=audio_arr):
+                    elif utils.too_short_audio(audio_arr=audio_arr):
                         os.remove(a_output_file)
                         os.remove(t_output_file)
 
