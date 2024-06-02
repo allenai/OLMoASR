@@ -222,10 +222,11 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
                     a += 1
                     b += 1
 
-                    if a == b == len(transcript) and len(os.listdir(segment_output_dir)) == 0:
-                        shutil.rmtree(video_id_dir)
+                    if a == b == len(transcript):
+                        if len(os.listdir(segment_output_dir)) == 0:
+                            shutil.rmtree(video_id_dir)
                         break
-                    
+
                     continue
 
                 if not utils.over_ctx_len(
