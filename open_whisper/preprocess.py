@@ -7,6 +7,8 @@ from open_whisper import utils
 from tempfile import TemporaryDirectory
 import glob
 
+SEGMENT_COUNT_THRESHOLD = 360
+
 
 def download_transcript(
     video_id: str,
@@ -148,7 +150,9 @@ def parallel_download_audio(args) -> None:
     download_audio(*args)
 
 
-def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: str) -> None:
+def chunk_audio_transcript(
+    transcript_file: str, audio_file: str, output_dir: str
+) -> None:
     """Segment audio and transcript files into <= 30-second chunks
 
     Segment audio and transcript files into <= 30-second chunks. The audio and transcript files are represented by audio_file and transcript_file respectively.
@@ -178,6 +182,7 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
         segment_output_dir = os.path.join(output_dir, transcript_file.split("/")[-2])
         os.makedirs(segment_output_dir, exist_ok=True)
         transcript_ext = transcript_file.split(".")[-1]
+        segment_count = 0
 
         # if transcript file is empty (1st ver)
         cleaned_transcript = utils.clean_transcript(transcript_file)
@@ -203,10 +208,8 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
         diff = 0
         init_diff = 0
 
-        while a < len(transcript) + 1:
-            init_diff = utils.calculate_difference(
-                timestamps[a][0], timestamps[b][1]
-            )
+        while a < len(transcript) + 1 and segment_count < SEGMENT_COUNT_THRESHOLD:
+            init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
 
             if init_diff < 30000:
                 diff = init_diff
@@ -251,6 +254,8 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
                     elif utils.too_short_audio(audio_arr=audio_arr):
                         os.remove(a_output_file)
                         os.remove(t_output_file)
+                    else:
+                        segment_count += 1
 
                 init_diff = 0
                 diff = 0
@@ -296,7 +301,9 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
                         elif utils.too_short_audio(audio_arr=audio_arr):
                             os.remove(a_output_file)
                             os.remove(t_output_file)
-                            
+                        else:
+                            segment_count += 1
+
                 a = b
 
             if b == len(transcript) and diff < 30000:
@@ -322,6 +329,8 @@ def chunk_audio_transcript(transcript_file: str, audio_file: str, output_dir: st
                     elif utils.too_short_audio(audio_arr=audio_arr):
                         os.remove(a_output_file)
                         os.remove(t_output_file)
+                    else:
+                        segment_count += 1
 
                 break
 
