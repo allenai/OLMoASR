@@ -229,7 +229,7 @@ def chunk_audio_transcript(
                     b += 1
 
                     if a == b == len(transcript):
-                        if len(os.listdir(segment_output_dir)) == 0:
+                        if segment_count == 0:
                             shutil.rmtree(video_id_dir)
                         break
 
