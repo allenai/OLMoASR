@@ -132,29 +132,26 @@ def trim_audio(
 
     command = [
         "ffmpeg",
-        "-i", audio_file,
-        "-ss", adjusted_start,
-        "-to", adjusted_end,
-        "-c",
-        "copy",
+        "-threads",
+        "0",
+        "-i",
+        audio_file,
+        "-ss",
+        adjusted_start,
+        "-to",
+        adjusted_end,
+        "-filter_complex",
+        f"aresample={sample_rate},pan=mono|c0=c0",
+        "-f",
+        "s16le",
         "-",
-        "|",
-        "ffmpeg",
-        "-nostdin",
-        "-threads", "0",
-        "-i", "pipe:0",
-        "-f", "s16le",
-        "-ac", "1",
-        "-acodec", "pcm_s16le",
-        "-ar", str(sample_rate),
-        "-"
     ]
 
     try:
         out = subprocess.run(command, capture_output=True, check=True).stdout
     except CalledProcessError as e:
         return None, None
-    
+
     audio_arr = np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
 
     if not in_memory:
