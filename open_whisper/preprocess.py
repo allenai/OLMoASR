@@ -1,7 +1,7 @@
 import os
 import shutil
 import subprocess
-from typing import Literal, Optional
+from typing import Literal, Optional, List, Tuple
 import sys
 from open_whisper import utils
 from tempfile import TemporaryDirectory
@@ -152,7 +152,7 @@ def parallel_download_audio(args) -> None:
 
 def chunk_audio_transcript(
     transcript_file: str, audio_file: str, output_dir: str
-) -> None:
+) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
     """Segment audio and transcript files into <= 30-second chunks
 
     Segment audio and transcript files into <= 30-second chunks. The audio and transcript files are represented by audio_file and transcript_file respectively.
@@ -207,6 +207,7 @@ def chunk_audio_transcript(
         timestamps = list(transcript.keys())
         diff = 0
         init_diff = 0
+        segments_list = []
 
         while a < len(transcript) + 1 and segment_count < SEGMENT_COUNT_THRESHOLD:
             init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
@@ -235,11 +236,12 @@ def chunk_audio_transcript(
                 if not utils.over_ctx_len(
                     timestamps=timestamps[a:b], transcript=transcript
                 ):
-                    t_output_file = utils.write_segment(
+                    t_output_file, transcript_string = utils.write_segment(
                         timestamps=timestamps[a:b],
                         transcript=transcript,
                         output_dir=segment_output_dir,
                         ext=transcript_ext,
+                        in_memory=True,
                     )
 
                     a_output_file, audio_arr = utils.trim_audio(
@@ -247,14 +249,15 @@ def chunk_audio_transcript(
                         start=timestamps[a][0],
                         end=timestamps[b - 1][1],
                         output_dir=segment_output_dir,
+                        in_memory=True,
                     )
 
                     if audio_arr is None:
-                        os.remove(t_output_file)
+                        continue
                     elif utils.too_short_audio(audio_arr=audio_arr):
-                        os.remove(a_output_file)
-                        os.remove(t_output_file)
+                        continue
                     else:
+                        segments_list.append((t_output_file, transcript_string, a_output_file, audio_arr))
                         segment_count += 1
 
                 init_diff = 0
@@ -282,11 +285,12 @@ def chunk_audio_transcript(
                         else:
                             end = utils.adjust_timestamp(start, 30000)
 
-                        t_output_file = utils.write_segment(
+                        t_output_file, transcript_string = utils.write_segment(
                             timestamps=[(start, end)],
                             transcript=None,
                             output_dir=segment_output_dir,
                             ext=transcript_ext,
+                            in_memory=True,
                         )
 
                         a_output_file, audio_arr = utils.trim_audio(
@@ -294,14 +298,15 @@ def chunk_audio_transcript(
                             start=start,
                             end=end,
                             output_dir=segment_output_dir,
+                            in_memory=True,
                         )
 
                         if audio_arr is None:
-                            os.remove(t_output_file)
+                            continue
                         elif utils.too_short_audio(audio_arr=audio_arr):
-                            os.remove(a_output_file)
-                            os.remove(t_output_file)
+                            continue
                         else:
+                            segments_list.append((t_output_file, transcript_string, a_output_file, audio_arr))
                             segment_count += 1
 
                 a = b
@@ -310,11 +315,12 @@ def chunk_audio_transcript(
                 if not utils.over_ctx_len(
                     timestamps=timestamps[a:b], transcript=transcript
                 ):
-                    t_output_file = utils.write_segment(
+                    t_output_file, transcript_string = utils.write_segment(
                         timestamps=timestamps[a:b],
                         transcript=transcript,
                         output_dir=segment_output_dir,
                         ext=transcript_ext,
+                        in_memory=True,
                     )
 
                     a_output_file, audio_arr = utils.trim_audio(
@@ -322,28 +328,20 @@ def chunk_audio_transcript(
                         start=timestamps[a][0],
                         end=timestamps[b - 1][1],
                         output_dir=segment_output_dir,
+                        in_memory=True,
                     )
 
                     if audio_arr is None:
-                        os.remove(t_output_file)
+                        continue
                     elif utils.too_short_audio(audio_arr=audio_arr):
-                        os.remove(a_output_file)
-                        os.remove(t_output_file)
+                        continue
                     else:
+                        segments_list.append((t_output_file, transcript_string, a_output_file, audio_arr))
                         segment_count += 1
 
                 break
-
-        num_audio_files = len(glob.glob(os.path.join(segment_output_dir, "*.npy")))
-        num_transcript_files = len(glob.glob(os.path.join(segment_output_dir, "*.srt")))
-
-        if num_audio_files != num_transcript_files:
-            with open(os.path.join(log_dir, "uneven_chunks.txt"), "a") as f:
-                f.write(f"{transcript_file}\t{audio_file}\n")
-            shutil.move(video_id_dir, uneven_dir)
-            return None
-
-        return None
+            
+        return segments_list
     except ValueError as e:
         with open(os.path.join(log_dir, "failed_chunking.txt"), "a") as f:
             f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
