@@ -152,7 +152,7 @@ def parallel_download_audio(args) -> None:
 
 
 def chunk_audio_transcript(
-    transcript_file: str, audio_file: str, output_dir: str
+    transcript_file: str, audio_file: str, output_dir: str, in_memory: bool
 ) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
     """Segment audio and transcript files into <= 30-second chunks
 
@@ -181,6 +181,8 @@ def chunk_audio_transcript(
 
     try:
         segment_output_dir = os.path.join(output_dir, transcript_file.split("/")[-2])
+        if not in_memory:
+            os.makedirs(segment_output_dir, exist_ok=True)
         transcript_ext = transcript_file.split(".")[-1]
         segment_count = 0
 
@@ -241,7 +243,7 @@ def chunk_audio_transcript(
                         transcript=transcript,
                         output_dir=segment_output_dir,
                         ext=transcript_ext,
-                        in_memory=True,
+                        in_memory=in_memory,
                     )
 
                     a_output_file, audio_arr = utils.trim_audio(
@@ -249,7 +251,7 @@ def chunk_audio_transcript(
                         start=timestamps[a][0],
                         end=timestamps[b - 1][1],
                         output_dir=segment_output_dir,
-                        in_memory=True,
+                        in_memory=in_memory,
                     )
 
                     if audio_arr is None:
@@ -257,7 +259,9 @@ def chunk_audio_transcript(
                     elif utils.too_short_audio(audio_arr=audio_arr):
                         continue
                     else:
-                        segments_list.append((t_output_file, transcript_string, a_output_file, audio_arr))
+                        segments_list.append(
+                            (t_output_file, transcript_string, a_output_file, audio_arr)
+                        )
                         segment_count += 1
 
                 init_diff = 0
@@ -290,7 +294,7 @@ def chunk_audio_transcript(
                             transcript=None,
                             output_dir=segment_output_dir,
                             ext=transcript_ext,
-                            in_memory=True,
+                            in_memory=in_memory,
                         )
 
                         a_output_file, audio_arr = utils.trim_audio(
@@ -298,7 +302,7 @@ def chunk_audio_transcript(
                             start=start,
                             end=end,
                             output_dir=segment_output_dir,
-                            in_memory=True,
+                            in_memory=in_memory,
                         )
 
                         if audio_arr is None:
@@ -306,7 +310,14 @@ def chunk_audio_transcript(
                         elif utils.too_short_audio(audio_arr=audio_arr):
                             continue
                         else:
-                            segments_list.append((t_output_file, transcript_string, a_output_file, audio_arr))
+                            segments_list.append(
+                                (
+                                    t_output_file,
+                                    transcript_string,
+                                    a_output_file,
+                                    audio_arr,
+                                )
+                            )
                             segment_count += 1
 
                 a = b
@@ -320,7 +331,7 @@ def chunk_audio_transcript(
                         transcript=transcript,
                         output_dir=segment_output_dir,
                         ext=transcript_ext,
-                        in_memory=True,
+                        in_memory=in_memory,
                     )
 
                     a_output_file, audio_arr = utils.trim_audio(
@@ -328,7 +339,7 @@ def chunk_audio_transcript(
                         start=timestamps[a][0],
                         end=timestamps[b - 1][1],
                         output_dir=segment_output_dir,
-                        in_memory=True,
+                        in_memory=in_memory,
                     )
 
                     if audio_arr is None:
@@ -336,7 +347,9 @@ def chunk_audio_transcript(
                     elif utils.too_short_audio(audio_arr=audio_arr):
                         break
                     else:
-                        segments_list.append((t_output_file, transcript_string, a_output_file, audio_arr))
+                        segments_list.append(
+                            (t_output_file, transcript_string, a_output_file, audio_arr)
+                        )
                         segment_count += 1
 
                 break
