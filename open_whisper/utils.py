@@ -94,6 +94,7 @@ def trim_audio(
     start: str,
     end: str,
     output_dir: str,
+    in_memory: bool,
     sample_rate: int = 16000,
     start_window: int = 0,
     end_window: int = 0,
@@ -155,6 +156,9 @@ def trim_audio(
         return None, None
     
     audio_arr = np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
+
+    if not in_memory:
+        np.save(output_file, audio_arr)
 
     return output_file, audio_arr
 
