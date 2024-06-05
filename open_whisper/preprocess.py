@@ -181,7 +181,6 @@ def chunk_audio_transcript(
 
     try:
         segment_output_dir = os.path.join(output_dir, transcript_file.split("/")[-2])
-        os.makedirs(segment_output_dir, exist_ok=True)
         transcript_ext = transcript_file.split(".")[-1]
         segment_count = 0
 
