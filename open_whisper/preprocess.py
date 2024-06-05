@@ -333,9 +333,9 @@ def chunk_audio_transcript(
                     )
 
                     if audio_arr is None:
-                        continue
+                        break
                     elif utils.too_short_audio(audio_arr=audio_arr):
-                        continue
+                        break
                     else:
                         segments_list.append((t_output_file, transcript_string, a_output_file, audio_arr))
                         segment_count += 1
