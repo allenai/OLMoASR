@@ -4,6 +4,7 @@ import os
 import numpy as np
 import shutil
 import subprocess
+from subprocess import CalledProcessError
 from typing import Dict, Union, Tuple, List, Optional, Literal
 import pysrt
 import webvtt
@@ -91,8 +92,9 @@ def adjust_timestamp(timestamp: str, milliseconds: int) -> str:
 def trim_audio(
     audio_file: str,
     start: str,
-    end: Optional[str],
+    end: str,
     output_dir: str,
+    sample_rate: int = 16000,
     start_window: int = 0,
     end_window: int = 0,
 ) -> Tuple[Optional[str], Optional[np.ndarray]]:
@@ -125,39 +127,34 @@ def trim_audio(
     else:
         adjusted_end = end
 
-    temp_audio_file = f"{output_dir}/temp_audio_{adjusted_start.replace('.', ',')}_{adjusted_end.replace('.', ',')}.{audio_file.split('.')[-1]}"
     output_file = f"{output_dir}/{adjusted_start.replace('.', ',')}_{adjusted_end.replace('.', ',')}.npy"
 
     command = [
         "ffmpeg",
-        "-i",
-        audio_file,
-        "-ss",
-        adjusted_start,
+        "-i", audio_file,
+        "-ss", adjusted_start,
+        "-to", adjusted_end,
+        "-c",
+        "copy",
+        "-",
+        "|",
+        "ffmpeg",
+        "-nostdin",
+        "-threads", "0",
+        "-i", "pipe:0",
+        "-f", "s16le",
+        "-ac", "1",
+        "-acodec", "pcm_s16le",
+        "-ar", str(sample_rate),
+        "-"
     ]
 
-    if end is not None:
-        command.extend(
-            [
-                "-to",
-                adjusted_end,
-                "-c",
-                "copy",
-                temp_audio_file,
-            ]
-        )
-    else:
-        command.extend(["-c", "copy", temp_audio_file])
-
-    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
     try:
-        audio_arr = load_audio(temp_audio_file)
-        os.remove(temp_audio_file)
-        np.save(output_file, audio_arr)
-    except:
-        os.remove(temp_audio_file)
-        return None, None
+        out = subprocess.run(command, capture_output=True, check=True).stdout
+    except CalledProcessError as e:
+        raise RuntimeError(f"Failed to load audio: {e.stderr.decode()}") from e
+    
+    audio_arr = np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
 
     return output_file, audio_arr
 
