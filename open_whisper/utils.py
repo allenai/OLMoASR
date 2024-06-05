@@ -166,7 +166,12 @@ class TranscriptReader:
         file_path: Path to the transcript file
     """
 
-    def __init__(self, file_path: Optional[str] = None, transcript_string: Optional[str] = None, ext: Optional[str] = None):
+    def __init__(
+        self,
+        file_path: Optional[str] = None,
+        transcript_string: Optional[str] = None,
+        ext: Optional[str] = None,
+    ):
         if file_path is None and transcript_string is None:
             raise ValueError("Either file_path or transcript_string must be provided")
 
@@ -204,7 +209,9 @@ class TranscriptReader:
 
         return transcript, transcript_start, transcript_end
 
-    def read_srt(self, file_path: Optional[str], transcript_string: Optional[str]) -> Union[None, Tuple[Dict, str, str]]:
+    def read_srt(
+        self, file_path: Optional[str], transcript_string: Optional[str]
+    ) -> Union[None, Tuple[Dict, str, str]]:
         """Read an SRT file or string
 
         Args:
@@ -242,7 +249,9 @@ class TranscriptReader:
         if self.ext == "vtt":
             return self.read_vtt(file_path=self.file_path)
         elif self.ext == "srt":
-            return self.read_srt(file_path=self.file_path, transcript_string=self.transcript_string)
+            return self.read_srt(
+                file_path=self.file_path, transcript_string=self.transcript_string
+            )
         else:
             raise ValueError("Unsupported file type")
 
@@ -262,8 +271,12 @@ class TranscriptReader:
 
 
 def write_segment(
-    timestamps: List, transcript: Optional[Dict], output_dir: str, ext: str
-) -> str:
+    timestamps: List,
+    transcript: Optional[Dict],
+    output_dir: str,
+    ext: str,
+    in_memory: bool,
+) -> Tuple[str, str]:
     """Write a segment of the transcript to a file
 
     Args:
@@ -271,38 +284,47 @@ def write_segment(
         transcript: Transcript as a dictionary
         output_dir: Directory to save the transcript file
         ext: File extension
+        in_memory: Whether to save the transcript in memory or to a file
 
     Returns:
         Path to the output transcript file
     """
     output_file = f"{output_dir}/{timestamps[0][0].replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
-    with open(output_file, "w") as f:
-        if transcript == None:
-            f.write("")
-        else:
-            if ext == "vtt":
-                f.write("WEBVTT\n\n")
+    transcript_string = ""
 
-            for i in range(len(timestamps)):
-                start = adjust_timestamp(
-                    timestamp=timestamps[i][0],
-                    milliseconds=-convert_to_milliseconds(timestamps[0][0]),
-                )
-                end = adjust_timestamp(
-                    timestamp=timestamps[i][1],
-                    milliseconds=-convert_to_milliseconds(timestamps[0][0]),
-                )
+    if transcript is None:
+        if not in_memory:
+            with open(output_file, "w") as f:
+                f.write(transcript_string)
+        return output_file, transcript_string
 
-                if ext == "srt":
-                    start = start.replace(".", ",")
-                    end = end.replace(".", ",")
-                    f.write(f"{i + 1}\n")
+    if ext == "vtt":
+        transcript_string += "WEBVTT\n\n"
 
-                f.write(
-                    f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
-                )
+    for i in range(len(timestamps)):
+        start = adjust_timestamp(
+            timestamp=timestamps[i][0],
+            milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+        )
+        end = adjust_timestamp(
+            timestamp=timestamps[i][1],
+            milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+        )
 
-    return output_file
+        if ext == "srt":
+            start = start.replace(".", ",")
+            end = end.replace(".", ",")
+            transcript_string += f"{i + 1}\n"
+
+        transcript_string += (
+            f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
+        )
+
+    if not in_memory:
+        with open(output_file, "w") as f:
+            f.write(transcript_string)
+
+    return output_file, transcript_string
 
 
 def calculate_wer(pair: Tuple[str, str]) -> float:
@@ -375,4 +397,3 @@ def too_short_audio(audio_arr: np.ndarray, sample_rate: int = 16000) -> bool:
     if duration < 0.015:
         return True
     return False
-
