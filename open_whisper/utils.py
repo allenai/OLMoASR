@@ -140,6 +140,7 @@ def trim_audio(
         adjusted_start,
         "-to",
         adjusted_end,
+        "-c:a", "pcm_s16le"
         "-filter_complex",
         f"aresample={sample_rate},pan=mono|c0=c0",
         "-f",
