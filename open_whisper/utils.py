@@ -152,7 +152,7 @@ def trim_audio(
     try:
         out = subprocess.run(command, capture_output=True, check=True).stdout
     except CalledProcessError as e:
-        raise RuntimeError(f"Failed to load audio: {e.stderr.decode()}") from e
+        return None, None
     
     audio_arr = np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
 
