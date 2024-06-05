@@ -6,6 +6,7 @@ import sys
 from open_whisper import utils
 from tempfile import TemporaryDirectory
 import glob
+import numpy as np
 
 SEGMENT_COUNT_THRESHOLD = 360
 
