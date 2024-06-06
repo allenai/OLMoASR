@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 import glob
 import numpy as np
 
-SEGMENT_COUNT_THRESHOLD = 240
+SEGMENT_COUNT_THRESHOLD = 60
 
 
 def download_transcript(
