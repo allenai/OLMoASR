@@ -183,6 +183,7 @@ def chunk_audio_transcript(
         # debug
         with open(os.path.join(log_dir, "processing.txt"), "a") as f:
             f.write(f"{video_id_dir.split('/')[-1]}\n")
+        print(f"Processing {video_id_dir.split('/')[-1]}")
         segment_output_dir = os.path.join(output_dir, transcript_file.split("/")[-2])
         if not in_memory:
             os.makedirs(segment_output_dir, exist_ok=True)
@@ -356,7 +357,7 @@ def chunk_audio_transcript(
                         segment_count += 1
 
                 break
-        print(segments_list)
+        print(f"Finished {video_id_dir.split('/')[-1]}")
         return segments_list
     except ValueError as e:
         with open(os.path.join(log_dir, "failed_chunking.txt"), "a") as f:
