@@ -356,7 +356,7 @@ def chunk_audio_transcript(
                         segment_count += 1
 
                 break
-
+        print(segments_list)
         return segments_list
     except ValueError as e:
         with open(os.path.join(log_dir, "failed_chunking.txt"), "a") as f:
