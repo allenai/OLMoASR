@@ -254,11 +254,7 @@ def chunk_audio_transcript(
                         in_memory=in_memory,
                     )
 
-                    if audio_arr is None:
-                        continue
-                    elif utils.too_short_audio(audio_arr=audio_arr):
-                        continue
-                    else:
+                    if audio_arr is not None and not utils.too_short_audio(audio_arr=audio_arr):
                         segments_list.append(
                             (t_output_file, transcript_string, a_output_file, audio_arr)
                         )
@@ -305,21 +301,11 @@ def chunk_audio_transcript(
                             in_memory=in_memory,
                         )
 
-                        if audio_arr is None:
-                            continue
-                        elif utils.too_short_audio(audio_arr=audio_arr):
-                            continue
-                        else:
+                    if audio_arr is not None and not utils.too_short_audio(audio_arr=audio_arr):
                             segments_list.append(
-                                (
-                                    t_output_file,
-                                    transcript_string,
-                                    a_output_file,
-                                    audio_arr,
-                                )
+                            (t_output_file, transcript_string, a_output_file, audio_arr)
                             )
                             segment_count += 1
-
                 a = b
 
             if b == len(transcript) and diff < 30000:
@@ -342,11 +328,7 @@ def chunk_audio_transcript(
                         in_memory=in_memory,
                     )
 
-                    if audio_arr is None:
-                        break
-                    elif utils.too_short_audio(audio_arr=audio_arr):
-                        break
-                    else:
+                    if audio_arr is not None and not utils.too_short_audio(audio_arr=audio_arr):
                         segments_list.append(
                             (t_output_file, transcript_string, a_output_file, audio_arr)
                         )
