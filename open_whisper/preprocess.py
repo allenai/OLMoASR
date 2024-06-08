@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 import glob
 import numpy as np
 
-SEGMENT_COUNT_THRESHOLD = 60
+SEGMENT_COUNT_THRESHOLD = 120
 
 
 def download_transcript(
@@ -302,10 +302,10 @@ def chunk_audio_transcript(
                         )
 
                     if audio_arr is not None and not utils.too_short_audio(audio_arr=audio_arr):
-                            segments_list.append(
+                        segments_list.append(
                             (t_output_file, transcript_string, a_output_file, audio_arr)
-                            )
-                            segment_count += 1
+                        )
+                        segment_count += 1
                 a = b
 
             if b == len(transcript) and diff < 30000:
@@ -352,4 +352,4 @@ def chunk_audio_transcript(
 
 def parallel_chunk_audio_transcript(args) -> None:
     """Parallelized version of chunk_audio_transcript function to work in multiprocessing context"""
-    chunk_audio_transcript(*args)
+    return chunk_audio_transcript(*args)
