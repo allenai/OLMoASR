@@ -350,6 +350,6 @@ def chunk_audio_transcript(
         return None
 
 
-def parallel_chunk_audio_transcript(args) -> None:
+def parallel_chunk_audio_transcript(args) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
     """Parallelized version of chunk_audio_transcript function to work in multiprocessing context"""
     return chunk_audio_transcript(*args)
