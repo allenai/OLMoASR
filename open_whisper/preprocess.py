@@ -176,8 +176,6 @@ def chunk_audio_transcript(
     os.makedirs(faulty_dir, exist_ok=True)
     failed_dir = "data/untrainable/failed_chunking"
     os.makedirs(failed_dir, exist_ok=True)
-    uneven_dir = "data/untrainable/uneven_chunks"
-    os.makedirs(uneven_dir, exist_ok=True)
 
     try:
         segment_output_dir = os.path.join(output_dir, transcript_file.split("/")[-2])
