@@ -153,7 +153,7 @@ def trim_audio(
     except CalledProcessError as e:
         return None, None
 
-    audio_arr = np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
+    audio_arr = np.frombuffer(out, np.int16).flatten()
 
     if not in_memory:
         np.save(output_file, audio_arr)
