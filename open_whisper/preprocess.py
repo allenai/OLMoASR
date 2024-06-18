@@ -339,13 +339,13 @@ def chunk_audio_transcript(
     except ValueError as e:
         with open(os.path.join(log_dir, "failed_chunking.txt"), "a") as f:
             f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
-        if os.path.exists(video_id_dir):
+        if not os.path.exists(failed_dir + "/" + video_id_dir.split("/")[-1]):
             shutil.move(video_id_dir, failed_dir)
         return None
     except Exception as e:
         with open(os.path.join(log_dir, "failed_chunking.txt"), "a") as f:
             f.write(f"{transcript_file}\t{audio_file}\t{e}\n")
-        if os.path.exists(video_id_dir):
+        if not os.path.exists(failed_dir + "/" + video_id_dir.split("/")[-1]):
             shutil.move(video_id_dir, failed_dir)
         return None
 
