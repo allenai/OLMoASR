@@ -36,10 +36,13 @@ from scripts.data.filtering.get_filter_mechs import get_data_shard
 from scripts.training import for_logging
 
 WANDB_EXAMPLES = 8
+NUM_SAMPLES = 44756206 - (352 * 5)
 os.environ["WANDB__SERVICE_WAIT"] = "300"
 os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
 os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
 os.environ["NCCL_DEBUG"] = "INFO"
+os.environ["TORCH_DISTRIBUTED_DETAIL"] = "DEBUG"
+
 
 def decode_audio_bytes(audio_bytes: bytes) -> np.ndarray:
     """Decodes audio bytes to numpy array
@@ -219,33 +222,45 @@ def wds_pipeline(
     batch_size,
     n_text_ctx,
     tokenizer,
+    val_flag,
 ):
     """
-    Creates a data pipeline using the Open Whisper Data System (WDS) library.
+    Creates a data pipeline using the webdataset library.
 
     Args:
         shards: The path to the shards.
         batch_size: The batch size for the data pipeline.
         n_text_ctx: The number of text contexts.
         tokenizer: The tokenizer object.
- 
+
     Returns:
         wds.DataPipeline: The data pipeline object.
     """
-    dataset = wds.DataPipeline(
-        wds.SimpleShardList(shards),
-        wds.split_by_node,
-        wds.split_by_worker,
-        wds.shuffle(bufsize=1000, initial=100),
-        # at this point, we have an iterator over the shards assigned to each worker
-        wds.tarfile_to_samples(),
-        # this shuffles the samples in memory
-        wds.shuffle(bufsize=1000, initial=100),
-        wds.map(decode_sample),
-        wds.map(lambda sample: preprocess(sample, tokenizer, n_text_ctx)),
-        wds.shuffle(bufsize=1000, initial=100),
-        wds.batched(batch_size),
-    )
+    if val_flag is False:
+        dataset = wds.DataPipeline(
+            wds.SimpleShardList(shards),
+            wds.split_by_node,
+            wds.split_by_worker,
+            wds.shuffle(bufsize=1000, initial=100),
+            # at this point, we have an iterator over the shards assigned to each worker
+            wds.tarfile_to_samples(),
+            # this shuffles the samples in memory
+            wds.shuffle(bufsize=1000, initial=100),
+            wds.map(decode_sample),
+            wds.map(lambda sample: preprocess(sample, tokenizer, n_text_ctx)),
+            wds.shuffle(bufsize=1000, initial=100),
+            wds.batched(batch_size),
+        )
+    else:
+        dataset = wds.DataPipeline(
+            wds.SimpleShardList(shards),
+            wds.split_by_worker,
+            # at this point, we have an iterator over the shards assigned to each worker
+            wds.tarfile_to_samples(),
+            wds.map(decode_sample),
+            wds.map(lambda sample: preprocess(sample, tokenizer, n_text_ctx)),
+            wds.batched(batch_size),
+        )
 
     return dataset
 
@@ -257,7 +272,9 @@ def setup(rank: int, world_size: int) -> None:
         rank: The rank of the current process
         world_size: The total number of processes
     """
-    dist.init_process_group("nccl", timeout=timedelta(seconds=3600), rank=rank, world_size=world_size)
+    dist.init_process_group(
+        "nccl", timeout=timedelta(seconds=3600), rank=rank, world_size=world_size
+    )
 
 
 def prepare_dataloader(
@@ -265,6 +282,8 @@ def prepare_dataloader(
     pin_memory: bool,
     num_workers: int,
     persistent_workers: bool,
+    val_flag: bool,
+    batch_size: Optional[int] = None,
 ) -> wds.WebLoader:
     """Prepares the dataloader for the dataset
 
@@ -275,24 +294,47 @@ def prepare_dataloader(
         pin_memory: Whether to pin memory
         num_workers: The number of workers
         persistent_workers: Whether to use persistent workers
+        val_flag: Whether the dataloader is for validation
+        batch_size: The batch size
 
     Returns:
         WebDataset WebLoader
     """
-    dataloader = wds.WebLoader(
-        dataset,
-        batch_size=None,
-        shuffle=False,
-        pin_memory=pin_memory,
-        num_workers=num_workers,
-        drop_last=False,
-        persistent_workers=persistent_workers,
-    )
+    if val_flag is False:
+        print(f"{os.environ['WORLD_SIZE']=}")
+        epoch_steps = int(
+            np.ceil(NUM_SAMPLES / (int(os.environ["WORLD_SIZE"]) * batch_size))
+        )
+        print(f"{epoch_steps=}")
+        dataloader = (
+            wds.WebLoader(
+                dataset,
+                batch_size=None,
+                shuffle=False,
+                pin_memory=pin_memory,
+                num_workers=num_workers,
+                drop_last=False,
+                persistent_workers=persistent_workers,
+            )
+            .repeat(2)
+            .with_epoch(500)
+        )
+    else:
+        dataloader = wds.WebLoader(
+            dataset,
+            batch_size=None,
+            shuffle=False,
+            pin_memory=pin_memory,
+            num_workers=num_workers,
+            drop_last=False,
+            persistent_workers=persistent_workers,
+        )
 
     return dataloader
 
 
 def prepare_data(
+    rank: Optional[int],
     train_shards: str,
     val_shards: Optional[str],
     train_batch_size: int,
@@ -306,6 +348,7 @@ def prepare_data(
     """Prepares the data for training
 
     Args:
+        rank: The rank of the current process
         train_shards: The path to the training shards
         val_shards: The path to the validation shards
         train_batch_size: The batch size for training
@@ -324,6 +367,7 @@ def prepare_data(
         batch_size=train_batch_size,
         n_text_ctx=n_text_ctx,
         tokenizer=tokenizer,
+        val_flag=False,
     )
 
     train_dataloader = prepare_dataloader(
@@ -331,24 +375,31 @@ def prepare_data(
         pin_memory=pin_memory,
         num_workers=num_workers,
         persistent_workers=persistent_workers,
+        val_flag=False,
+        batch_size=train_batch_size,
     )
 
     if val_shards is not None:
-        val_dataset = wds_pipeline(
-            shards=val_shards,
-            batch_size=val_batch_size,
-            n_text_ctx=n_text_ctx,
-            tokenizer=tokenizer,
-        )
+        if rank == 0:
+            val_dataset = wds_pipeline(
+                shards=val_shards,
+                batch_size=val_batch_size,
+                n_text_ctx=n_text_ctx,
+                tokenizer=tokenizer,
+                val_flag=True,
+            )
 
-        val_dataloader = prepare_dataloader(
-            dataset=val_dataset,
-            pin_memory=pin_memory,
-            num_workers=num_workers,
-            persistent_workers=persistent_workers,
-        )
+            val_dataloader = prepare_dataloader(
+                dataset=val_dataset,
+                pin_memory=pin_memory,
+                num_workers=num_workers,
+                persistent_workers=persistent_workers,
+                val_flag=True,
+            )
 
-        return train_dataloader, val_dataloader
+            return train_dataloader, val_dataloader
+        else:
+            return train_dataloader, None
 
     return train_dataloader, None
 
@@ -416,11 +467,13 @@ def prepare_sched(
     warmup_steps = np.ceil(0.002 * train_steps)
 
     def lr_lambda(batch_idx: int) -> float:
-        if batch_idx < warmup_steps:
-            return float(batch_idx) / float(max(1, warmup_steps))
+        eff_batch_idx = batch_idx // accumulation_steps
+        if eff_batch_idx < warmup_steps:
+            return float(eff_batch_idx) / float(max(1, warmup_steps))
         return max(
             0.0,
-            float(train_steps - batch_idx) / float(max(1, train_steps - warmup_steps)),
+            float(train_steps - eff_batch_idx)
+            / float(max(1, train_steps - warmup_steps)),
         )
 
     scheduler = LambdaLR(optimizer=optimizer, lr_lambda=lr_lambda)
@@ -671,7 +724,7 @@ def train(
     train_dataloader: wds.WebLoader,
     train_steps: int,
     scaler: GradScaler,
-    model: torch.nn.Module,
+    model: DDP,
     tokenizer: whisper.tokenizer.Tokenizer,
     normalizer: EnglishTextNormalizer,
     optimizer: torch.optim.Optimizer,
@@ -684,6 +737,7 @@ def train(
     val_dataloader: Optional[wds.WebLoader],
     model_dims: Optional[ModelDimensions],
     model_variant: Optional[str],
+    best_val_loss: Optional[float],
     val_res: Optional[wandb.Artifact],
     val_res_added: Optional[bool],
     run_eval: bool,
@@ -693,7 +747,14 @@ def train(
     tags: Optional[List[str]],
     exp_name: str,
 ) -> Tuple[
-    int, torch.nn.Module, torch.optim.Optimizer, GradScaler, LambdaLR, Optional[bool]
+    int,
+    Optional[float],
+    torch.nn.Module,
+    torch.optim.Optimizer,
+    GradScaler,
+    LambdaLR,
+    Optional[bool],
+    Optional[bool],
 ]:
     """Training loop for 1 epoch
 
@@ -732,8 +793,9 @@ def train(
     if rank == 0:
         train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
         start_time = time.time()
-
+    
     for batch_idx, batch in enumerate(train_dataloader):
+        dist.barrier()
         start_step = time.time()
 
         with autocast():
@@ -803,8 +865,10 @@ def train(
             microbatch_tgt_text.append(tgt_y_instance_text)
         batch_tgt_text.extend(microbatch_tgt_text)
 
+        dist.barrier()
         # after accumulation_steps, update weights
         if ((batch_idx + 1) % accumulation_steps) == 0:
+            print(f"{rank=}, {batch_idx=}")
             train_loss_tensor = total_loss.clone()
             dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
@@ -836,6 +900,7 @@ def train(
                 )
             # Use torch.tensor to work with dist.all_reduce
             train_wer_tensor = torch.tensor(train_wer, device=rank)
+            # dist.barrier()
             # Aggregate WER across all processes
             dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
             # Calculate the average WER across all processes
@@ -847,7 +912,7 @@ def train(
             scaler.step(optimizer)  # Only update weights after accumulation_steps
             scaler.update()
             scheduler.step()  # Adjust learning rate based on accumulated steps
-            
+
             current_step += 1
             if rank == 0:
                 wandb.log({"train/step": current_step})
@@ -855,14 +920,17 @@ def train(
             if current_step >= train_steps:
                 return (
                     current_step,
+                    best_val_loss,
                     model,
                     optimizer,
                     scaler,
                     scheduler,
                     train_res_added,
+                    val_res_added,
                 )
 
             end_step = time.time()
+            time_per_step = (end_step - start_step) / 60
             throughput = (
                 ((train_batch_size * accumulation_steps) / (end_step - start_step))
                 * 30
@@ -871,18 +939,32 @@ def train(
 
             # putting throughput on GPU
             throughput_tensor = torch.tensor(throughput, device=rank)
+            time_tensor = torch.tensor(time_per_step, device=rank)
             # prepare list to gather throughput from all processes
             if rank == 0:
-                gathered_throughput = [torch.zeros_like(throughput_tensor).to(rank) for _ in range(dist.get_world_size())]
+                gathered_throughput = [
+                    torch.zeros_like(throughput_tensor).to(rank)
+                    for _ in range(dist.get_world_size())
+                ]
+                gathered_time = [
+                    torch.zeros_like(time_tensor).to(rank)
+                    for _ in range(dist.get_world_size())
+                ]
             else:
                 gathered_throughput = None
-                
+                gathered_time = None
+
             dist.gather(throughput_tensor, gather_list=gathered_throughput, dst=0)
+            dist.gather(time_tensor, gather_list=gathered_time, dst=0)
 
             if rank == 0:
                 gathered_throughput = [t.item() for t in gathered_throughput]
+                gathered_time = [t.item() for t in gathered_time]
                 for i, throughput in enumerate(gathered_throughput):
                     wandb.log({f"train/audio_min_per_GPU_second_gpu={i}": throughput})
+
+                for i, time_per_step in enumerate(gathered_time):
+                    wandb.log({f"train/time_per_step_gpu={i}": time_per_step})
 
             current_lr = optimizer.param_groups[0]["lr"]
             # logging learning rate
@@ -893,31 +975,43 @@ def train(
 
             # validation
             if run_val:
-                if (current_step % (int(np.ceil(train_steps / 20)))) == 0 and current_step > 0:
-                    best_val_loss, val_res_added = validate(
-                        rank=rank,
-                        current_step=current_step,
-                        best_val_loss=best_val_loss if rank == 0 else None,
-                        val_dataloader=val_dataloader,
-                        scaler=scaler,
-                        model=model,
-                        tokenizer=tokenizer,
-                        normalizer=normalizer,
-                        optimizer=optimizer,
-                        scheduler=scheduler,
-                        model_dims=model_dims,
-                        model_variant=model_variant,
-                        val_res=val_res if rank == 0 else None,
-                        val_res_added=val_res_added if rank == 0 else None,
-                        tags=tags if rank == 0 else None,
-                        exp_name=exp_name,
-                        run_id=run_id,
-                    )
+                if (
+                    current_step % (int(np.ceil(train_steps / 100)))
+                ) == 0 and current_step > 0:
+                    if rank != 0:
+                        dist.barrier()
+
+                    if rank == 0:
+                        best_val_loss, val_res_added = validate(
+                            rank=rank,
+                            current_step=current_step,
+                            best_val_loss=best_val_loss if rank == 0 else None,
+                            val_dataloader=val_dataloader,
+                            scaler=scaler,
+                            model=model,
+                            tokenizer=tokenizer,
+                            normalizer=normalizer,
+                            optimizer=optimizer,
+                            scheduler=scheduler,
+                            model_dims=model_dims,
+                            model_variant=model_variant,
+                            val_res=val_res if rank == 0 else None,
+                            val_res_added=val_res_added if rank == 0 else None,
+                            tags=tags if rank == 0 else None,
+                            exp_name=exp_name,
+                            run_id=run_id,
+                        )
+
+                    if rank == 0:
+                        dist.barrier()
 
             # evaluation
             if run_eval:
-                if rank == 0:
-                    if (current_step % (int(np.ceil(train_steps / 10)))) == 0:
+                if (current_step % (int(np.ceil(train_steps / 10)))) == 0:
+                    if rank != 0:
+                        dist.barrier()
+
+                    if rank == 0:
                         evaluate(
                             rank=rank,
                             current_step=current_step,
@@ -929,6 +1023,8 @@ def train(
                             exp_name=exp_name,
                             run_id=run_id,
                         )
+
+                    dist.barrier()
 
             # logging
             if rank == 0:
@@ -943,14 +1039,16 @@ def train(
                     }
                 )
 
-                if (current_step % (int(np.ceil(train_steps / 1000)))) == 0:
+                if (current_step % (int(np.ceil(train_steps / 10000)))) == 0:
                     os.makedirs(f"logs/training/{exp_name}/{run_id}", exist_ok=True)
                     with open(
                         f"logs/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt",
                         "a",
                     ) as f:
                         if not train_res_added:  # only once
-                            train_res.add_file(f"logs/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt")
+                            train_res.add_file(
+                                f"logs/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt"
+                            )
                             train_res_added = True
                             wandb.log_artifact(train_res)
 
@@ -981,7 +1079,7 @@ def train(
                         f.write(f"{train_loss_all=}\n")
                         f.write(f"{train_wer_all=}\n\n")
 
-                if (current_step % (int(np.ceil(train_steps / 100)))) == 0:
+                if (current_step % (int(np.ceil(train_steps / 200)))) == 0:
                     for i, (
                         tgt_text_instance,
                         pred_text_instance,
@@ -1028,6 +1126,8 @@ def train(
 
                     wandb.log({f"train_table_{current_step}": train_table})
 
+            # dist.barrier()
+
             batch_pred_text = []
             batch_tgt_text = []
             batch_unnorm_pred_text = []
@@ -1037,8 +1137,11 @@ def train(
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
+    # dist.barrier()
+
     if total_loss > 0.0:
         train_loss_tensor = total_loss.clone()
+        # dist.barrier()
         dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
         train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
@@ -1069,6 +1172,7 @@ def train(
 
         # Use torch.tensor to work with dist.all_reduce
         train_wer_tensor = torch.tensor(train_wer, device=rank)
+        # dist.barrier()
         # Aggregate WER across all processes
         dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
         # Calculate the average WER across all processes
@@ -1082,7 +1186,16 @@ def train(
 
         current_step += 1
         if current_step >= train_steps:
-            return current_step, model, optimizer, scaler, scheduler, train_res_added
+            return (
+                current_step,
+                best_val_loss,
+                model,
+                optimizer,
+                scaler,
+                scheduler,
+                train_res_added,
+                val_res_added,
+            )
 
         current_lr = optimizer.param_groups[0]["lr"]
         if rank == 0:
@@ -1102,6 +1215,7 @@ def train(
                 }
             )
 
+            os.makedirs(f"logs/training/{exp_name}/{run_id}", exist_ok=True)
             with open(
                 f"logs/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt",
                 "a",
@@ -1127,6 +1241,8 @@ def train(
                 f.write(f"{train_loss_all=}\n")
                 f.write(f"{train_wer_all=}\n\n")
 
+        # dist.barrier()
+
         batch_pred_text = []
         batch_tgt_text = []
         batch_unnorm_pred_text = []
@@ -1136,15 +1252,27 @@ def train(
 
     if rank == 0:
         end_time = time.time()
+        os.makedirs(f"logs/training/{exp_name}/{run_id}", exist_ok=True)
         with open(
             f"logs/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt", "a"
         ) as f:
             f.write(
-                f"train epoch took {(end_time - start_time) / 60.0} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
+                f"train epoch took {(end_time - start_time) / 60} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
             )
-            wandb.log({"train/time_epoch": (end_time - start_time) / 60.0})
+            wandb.log({"train/time_epoch": (end_time - start_time) / 60})
 
-    return current_step, model, optimizer, scaler, scheduler, train_res_added
+    # dist.barrier()
+
+    return (
+        current_step,
+        best_val_loss,
+        model,
+        optimizer,
+        scaler,
+        scheduler,
+        train_res_added,
+        val_res_added,
+    )
 
 
 def validate(
@@ -1153,7 +1281,7 @@ def validate(
     best_val_loss: Optional[float],
     val_dataloader: DataLoader,
     scaler: GradScaler,
-    model: torch.nn.Module,
+    model: DDP,
     tokenizer: whisper.tokenizer.Tokenizer,
     normalizer: EnglishTextNormalizer,
     optimizer: torch.optim.Optimizer,
@@ -1195,6 +1323,7 @@ def validate(
     val_steps = 0
     norm_pred_text = []
     norm_tgt_text = []
+    non_ddp_model = model.module
 
     if rank == 0:
         val_table = wandb.Table(columns=for_logging.VAL_TABLE_COLS)
@@ -1202,9 +1331,8 @@ def validate(
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(val_dataloader):
-            print(batch)
             with autocast():
-                model.eval()
+                non_ddp_model.eval()
                 (
                     audio_files,
                     transcript_files,
@@ -1220,7 +1348,7 @@ def validate(
                 text_y = text_y.to(rank)
                 padding_mask = padding_mask.to(rank)
 
-                logits = model(audio_input, text_input, padding_mask)
+                logits = non_ddp_model(audio_input, text_input, padding_mask)
 
                 batch_val_loss = F.cross_entropy(
                     logits.view(-1, logits.shape[-1]),
@@ -1293,7 +1421,7 @@ def validate(
                         ):
                             if not val_res_added:  # only once
                                 val_res.add_file(
-                                    f"logs/training/{exp_name}/val_results_{'_'.join(tags)}.txt"
+                                    f"logs/training/{exp_name}/{run_id}/val_results_{'_'.join(tags)}.txt"
                                 )
                                 val_res_added = True
                                 wandb.log_artifact(val_res)
@@ -1352,12 +1480,12 @@ def validate(
                             wer,
                         )
 
-                    wandb.log({f"val_table_{current_step}": val_table})
-
         if rank == 0:
+            wandb.log({f"val_table_{current_step}": val_table})
             end_time = time.time()
             with open(
-                f"logs/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt", "a"
+                f"logs/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt",
+                "a",
             ) as f:
                 f.write(f"val epoch took {(end_time - start_time) / 60.0} minutes\n")
                 wandb.log({"val/time_epoch": (end_time - start_time) / 60.0})
@@ -1370,23 +1498,22 @@ def validate(
             )
             ave_val_loss = val_loss / val_steps
 
-        val_wer_tensor = torch.tensor(val_wer, device=rank)
-        dist.all_reduce(val_wer_tensor, op=dist.ReduceOp.SUM)
-        val_wer_all = val_wer_tensor.item() / dist.get_world_size()
+        # val_wer_tensor = torch.tensor(val_wer, device=rank)
+        # dist.all_reduce(val_wer_tensor, op=dist.ReduceOp.SUM)
+        # val_wer_all = val_wer_tensor.item() / dist.get_world_size()
 
-        ave_val_loss_tensor = ave_val_loss.clone()
-        dist.all_reduce(ave_val_loss_tensor, op=dist.ReduceOp.SUM)
-        val_loss_all = ave_val_loss_tensor.item() / dist.get_world_size()
+        # ave_val_loss_tensor = ave_val_loss.clone()
+        # dist.all_reduce(ave_val_loss_tensor, op=dist.ReduceOp.SUM)
+        # val_loss_all = ave_val_loss_tensor.item() / dist.get_world_size()
 
         if rank == 0:
-            print(f"val_loss: {val_loss_all}")
-            print(f"val_wer: {val_wer_all}")
+            print(f"val_loss: {ave_val_loss}")
+            print(f"val_wer: {val_wer}")
 
-            wandb.log({"val/val_loss": val_loss_all, "val/val_wer": val_wer_all})
+            wandb.log({"val/val_loss": ave_val_loss, "val/val_wer": val_wer})
 
-            if val_loss_all < best_val_loss:
-                best_val_loss = val_loss_all
-
+            if ave_val_loss < best_val_loss:
+                best_val_loss = ave_val_loss
                 save_ckpt(
                     current_step=current_step,
                     best_val_loss=best_val_loss,
@@ -1448,6 +1575,7 @@ def evaluate(
             num_workers=num_workers,
             drop_last=False,
             persistent_workers=True,
+            pin_memory=True,
         )
 
         hypotheses = []
@@ -1457,13 +1585,14 @@ def evaluate(
             for batch_idx, batch in tqdm(
                 enumerate(eval_dataloader), total=len(eval_dataloader)
             ):
-                audio_input, text_y = batch
+                audio_fp, _, audio_input, text_y = batch
                 audio_input = audio_input.to(rank)
 
                 options = DecodingOptions(language="en", without_timestamps=True)
 
                 results = non_ddp_model.decode(audio_input, options=options)
-                norm_pred_text = [normalizer(result.text) for result in results]
+                pred_text = [result.text for result in results]
+                norm_pred_text = [normalizer(text) for text in pred_text]
                 hypotheses.extend(norm_pred_text)
                 norm_tgt_text = [normalizer(text) for text in text_y]
                 references.extend(norm_tgt_text)
@@ -1482,8 +1611,7 @@ def evaluate(
                         )
                         eval_table.add_data(
                             eval_set,
-                            audio_files[i],
-                            wandb.Audio(audio_files[i], sample_rate=16000),
+                            wandb.Audio(audio_fp[i], sample_rate=16000),
                             pred_text[i],
                             norm_pred_text[i],
                             norm_tgt_text[i],
@@ -1502,7 +1630,8 @@ def evaluate(
 
             avg_wer = jiwer.wer(references, hypotheses) * 100
             with open(
-                f"logs/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt", "a"
+                f"logs/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
+                "a",
             ) as f:
                 f.write(f"{eval_set} average WER: {avg_wer}\n")
             wandb.log({f"eval/{eval_set}_wer": avg_wer})
@@ -1510,7 +1639,9 @@ def evaluate(
     wandb.log({f"eval_table_{current_step}": eval_table})
 
     end_time = time.time()
-    with open(f"logs/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt", "a") as f:
+    with open(
+        f"logs/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt", "a"
+    ) as f:
         f.write(f"eval epoch took {(end_time - start_time) / 60.0} minutes\n")
         wandb.log({"eval/time_epoch": (end_time - start_time) / 60.0})
 
@@ -1592,6 +1723,7 @@ def main(
 
     # prepare dataset
     train_dataloader, val_dataloader = prepare_data(
+        rank=rank,
         train_shards=train_shards,
         val_shards=val_shards,
         train_batch_size=train_batch_size,
@@ -1642,7 +1774,7 @@ def main(
         )
 
         scaler = GradScaler()
-        
+
         current_step = 0
 
     # setting up wandb for logging
@@ -1669,9 +1801,21 @@ def main(
             train_batch_size=train_batch_size,
             val_batch_size=val_batch_size,
         )
+    else:
+        if run_id is None:
+            best_val_loss = None
 
     while current_step < train_steps:
-        current_step, model, optimizer, scaler, scheduler, train_res_added = train(
+        (
+            current_step,
+            best_val_loss,
+            model,
+            optimizer,
+            scaler,
+            scheduler,
+            train_res_added,
+            val_res_added,
+        ) = train(
             rank=rank,
             current_step=current_step,
             train_batch_size=train_batch_size,
@@ -1691,6 +1835,7 @@ def main(
             val_dataloader=val_dataloader,
             model_dims=model_dims,
             model_variant=model_variant,
+            best_val_loss=best_val_loss if rank == 0 else None,
             val_res=val_res if rank == 0 else None,
             val_res_added=val_res_added if rank == 0 else None,
             run_eval=run_eval,
@@ -1718,7 +1863,10 @@ def main(
             )
 
         if run_val:
-            if (current_step % (int(np.ceil(train_steps / 20)))) == 0:
+            if rank != 0:
+                dist.barrier()
+
+            if rank == 0:
                 best_val_loss, val_res_added = validate(
                     rank=rank,
                     current_step=current_step,
@@ -1739,23 +1887,25 @@ def main(
                     run_id=run_id,
                 )
 
+            if rank == 0:
+                dist.barrier()
+
         if run_eval:
             if rank != 0:
                 dist.barrier()
 
             if rank == 0:
-                if (current_step % (int(np.ceil(train_steps / 10)))) == 0:
-                    evaluate(
-                        rank=rank,
-                        current_step=current_step,
-                        eval_batch_size=eval_batch_size,
-                        num_workers=num_workers,
-                        model=model,
-                        normalizer=normalizer,
-                        tags=tags,
-                        exp_name=exp_name,
-                        run_id=run_id,
-                    )
+                evaluate(
+                    rank=rank,
+                    current_step=current_step,
+                    eval_batch_size=eval_batch_size,
+                    num_workers=num_workers,
+                    model=model,
+                    normalizer=normalizer,
+                    tags=tags,
+                    exp_name=exp_name,
+                    run_id=run_id,
+                )
 
             if rank == 0:
                 dist.barrier()
