@@ -29,7 +29,7 @@ torchrun --nnodes 1 --nproc_per_node 6 scripts/training/train_wds.py \
     --job_type=train \
     --train_shards=data/tars/\{000000..000001\}.tar \
     --train_steps=1048576 \
-    --len_train_data=None \
+    --val_shards=/mmfs1/gscratch/efml/hvn2002/ow_440K_wds/\{073468..073469\}.tar \
     --len_val_data=None \
     --ckpt_file_name=best_val \
     --rank=None \
