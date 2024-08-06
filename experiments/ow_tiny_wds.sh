@@ -31,7 +31,7 @@ torchrun --nnodes 1 --nproc_per_node 6 scripts/training/train_wds.py \
     --train_steps=1048576 \
     --len_train_data=None \
     --len_val_data=None \
-    --run_id=None \
+    --ckpt_file_name=best_val \
     --rank=None \
     --world_size=None \
     --lr=1.5e-3 \
