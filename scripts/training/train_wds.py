@@ -813,9 +813,9 @@ def train(
     if rank == 0:
         train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
         start_time = time.time()
-    
+
     for batch_idx, batch in enumerate(train_dataloader):
-        dist.barrier()
+        model.train()
         start_step = time.time()
 
         with autocast():
@@ -885,7 +885,6 @@ def train(
             microbatch_tgt_text.append(tgt_y_instance_text)
         batch_tgt_text.extend(microbatch_tgt_text)
 
-        dist.barrier()
         # after accumulation_steps, update weights
         if ((batch_idx + 1) % accumulation_steps) == 0:
             train_loss_tensor = total_loss.clone()
@@ -919,7 +918,6 @@ def train(
                 )
             # Use torch.tensor to work with dist.all_reduce
             train_wer_tensor = torch.tensor(train_wer, device=rank)
-            # dist.barrier()
             # Aggregate WER across all processes
             dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
             # Calculate the average WER across all processes
@@ -1166,11 +1164,10 @@ def train(
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
-    # dist.barrier()
 
     if total_loss > 0.0:
+        print("Processing last batch - smaller than accumulation steps")
         train_loss_tensor = total_loss.clone()
-        # dist.barrier()
         dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
         train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
@@ -1201,7 +1198,6 @@ def train(
 
         # Use torch.tensor to work with dist.all_reduce
         train_wer_tensor = torch.tensor(train_wer, device=rank)
-        # dist.barrier()
         # Aggregate WER across all processes
         dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
         # Calculate the average WER across all processes
@@ -1270,8 +1266,6 @@ def train(
                 f.write(f"{train_loss_all=}\n")
                 f.write(f"{train_wer_all=}\n\n")
 
-        # dist.barrier()
-
         batch_pred_text = []
         batch_tgt_text = []
         batch_unnorm_pred_text = []
@@ -1288,9 +1282,7 @@ def train(
             f.write(
                 f"train epoch took {(end_time - start_time) / 60} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
             )
-            wandb.log({"train/time_epoch": (end_time - start_time) / 60})
-
-    # dist.barrier()
+        wandb.log({"train/time_epoch": (end_time - start_time) / 60})
 
     return (
         current_step,
