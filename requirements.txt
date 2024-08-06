@@ -7,7 +7,7 @@ pandas
 pycld2==0.41
 pydub==0.25.1
 pysrt==1.1.2
-pytest==8.1.1
+pytest
 regex==2023.12.25
 scipy
 tiktoken==0.5.2
