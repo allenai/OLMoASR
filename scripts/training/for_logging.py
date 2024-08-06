@@ -32,7 +32,6 @@ VAL_TABLE_COLS = [
 
 EVAL_TABLE_COLS = [
     "corpi",
-    "audio_file",
     "audio_input",
     "pred_text",
     "unnorm_pred_text",
