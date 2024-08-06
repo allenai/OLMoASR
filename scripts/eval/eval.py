@@ -119,31 +119,34 @@ class EvalDataset(Dataset):
         hf_token: Optional[str] = None,
         eval_dir: str = "data/eval",
     ):
-        eval_set_to_dataset = {
-            "librispeech_clean": Librispeech(
+        if eval_set == "librispeech_clean":
+            self.dataset = Librispeech(
                 root_dir=f"{eval_dir}/librispeech_test_clean"
-            ),
-            "librispeech_other": Librispeech(
-                root_dir=f"{eval_dir}/librispeech_test_other"
-            ),
-            "artie_bias_corpus": ArtieBiasCorpus(
-                root_dir=f"{eval_dir}/artie-bias-corpus"
-            ),
-            "fleurs": Fleurs(root_dir=f"{eval_dir}/fleurs"),
-            "tedlium": TEDLIUM(root=f"{eval_dir}", release="release3", subset="test"),
-            "voxpopuli": VoxPopuli(root_dir=f"{eval_dir}/voxpopuli"),
-            "common_voice": load_dataset(
+            )
+        elif eval_set == "librispeech_other":
+            self.dataset = Librispeech(
+                root_dir=f"{eval_dir}/librispeech_test_other")
+        elif eval_set == "artie_bias_corpus":
+            self.dataset = ArtieBiasCorpus(
+                root_dir=f"{eval_dir}/artie-bias-corpus")
+        elif eval_set == "fleurs":
+            self.dataset = Fleurs(root_dir=f"{eval_dir}/fleurs")
+        elif eval_set == "tedlium":
+            self.dataset = TEDLIUM(root=f"{eval_dir}", release="release3", subset="test")
+        elif eval_set == "voxpopuli":
+            self.dataset = VoxPopuli(root_dir=f"{eval_dir}/voxpopuli")
+        elif eval_set == "common_voice":
+            self.dataset = load_dataset(
                 path="mozilla-foundation/common_voice_5_1",
                 name="en",
                 token=hf_token,
-                split="test",
-            ),
-            "ami_ihm": AMI(root_dir=f"{eval_dir}/ami/ihm"),
-            "ami_sdm": AMI(root_dir=f"{eval_dir}/ami/sdm"),
-        }
+                split="test",)
+        elif eval_set == "ami_ihm":
+            self.dataset = AMI(root_dir=f"{eval_dir}/ami/ihm")
+        elif eval_set == "ami_sdm":
+            self.dataset = AMI(root_dir=f"{eval_dir}/ami/sdm")        
 
         self.eval_set = eval_set
-        self.dataset = eval_set_to_dataset[self.eval_set]
 
         if self.eval_set not in ["tedlium", "common_voice"]:
             audio_files, transcript_texts = self.dataset.load()
@@ -156,6 +159,9 @@ class EvalDataset(Dataset):
         return len(self.audio_files)
 
     def __getitem__(self, index):
+        audio_fp = ""
+        audio_arr = ""
+
         if self.eval_set == "tedlium":
             waveform, sample_rate, text_y, *_ = self.dataset[index]
             audio_arr = audio.pad_or_trim(waveform[0])
@@ -174,10 +180,11 @@ class EvalDataset(Dataset):
             audio_arr = audio_arr.astype(np.float32)
             audio_input = audio.log_mel_spectrogram(audio_arr)
         else:
-            audio_input = self.preprocess_audio(self.audio_files[index])
+            audio_fp = self.audio_files[index]
+            audio_input = self.preprocess_audio(audio_fp)
             text_y = self.transcript_texts[index]
 
-        return audio_input, text_y
+        return audio_fp, audio_arr, audio_input, text_y
 
     def preprocess_audio(self, audio_file):
         audio_arr = audio.load_audio(audio_file, sr=16000)
@@ -216,7 +223,8 @@ def main(
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-            audio_input, text_y = batch
+            *_, audio_input, text_y = batch
+    
             norm_tgt_text = [normalizer(text) for text in text_y]
             audio_input = audio_input.to(device)
 
