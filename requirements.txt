@@ -1,4 +1,4 @@
-datasets==2.18.0
+datasets
 fire==0.6.0
 jiwer==3.0.3
 langdetect==1.0.9
