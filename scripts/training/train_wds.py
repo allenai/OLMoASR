@@ -935,6 +935,20 @@ def train(
                 wandb.log({"train/step": current_step})
 
             if current_step >= train_steps:
+                # logging
+                if rank == 0:
+                    print("Logging final training results")
+                    print(f"current_step: {current_step}")
+                    print(f"train_loss: {train_loss_all}")
+                    print(f"train_wer: {train_wer_all}")
+
+                    wandb.log(
+                        {
+                            "train/train_loss": train_loss_all,
+                            "train/train_wer": train_wer_all,
+                        }
+                    )
+
                 return (
                     current_step,
                     best_val_loss,
@@ -946,6 +960,7 @@ def train(
                     val_res_added,
                 )
 
+            # logging throughput
             end_step = time.time()
             time_per_step = (end_step - start_step) / 60
             throughput = (
@@ -1068,7 +1083,10 @@ def train(
                             subs = measures["substitutions"]
                             dels = measures["deletions"]
                             ins = measures["insertions"]
-
+                        # debug
+                        print("DEBUG FOR LOGGING TRAINING RESULTS")
+                        print(batch_audio_files[i * logging_steps])
+                        print("")
                         train_table.add_data(
                             batch_audio_files[i * logging_steps],
                             wandb.Audio(
@@ -1211,6 +1229,20 @@ def train(
 
         current_step += 1
         if current_step >= train_steps:
+            # logging
+            if rank == 0:
+                print("Logging final training results")
+                print(f"current_step: {current_step}")
+                print(f"train_loss: {train_loss_all}")
+                print(f"train_wer: {train_wer_all}")
+
+                wandb.log(
+                    {
+                        "train/train_loss": train_loss_all,
+                        "train/train_wer": train_wer_all,
+                    }
+                )
+
             return (
                 current_step,
                 best_val_loss,
@@ -1725,9 +1757,11 @@ def main(
         world_size = int(os.getenv("WORLD_SIZE", "1"))
 
     # setup the process groups
+    print(f"Setting up process groups on rank {rank}")
     setup(rank, world_size)
-
+    
     # setup the tokenizer and normalizer
+    print(f"Setting up tokenizer and normalizer on rank {rank}")
     tokenizer = get_tokenizer(multilingual=False)
     normalizer = EnglishTextNormalizer()
     n_text_ctx = model_dims.n_text_ctx
@@ -1741,6 +1775,9 @@ def main(
     
     if rank == 0:
         print(f"Training on {train_samples} samples")
+
+    # prepare train and val dataset
+    print(f"Preparing train and val sets on rank {rank}")
     train_dataloader, val_dataloader = prepare_data(
         rank=rank,
         train_shards=train_shards,
@@ -1776,6 +1813,7 @@ def main(
 
     # model instantiation
     if run_id is not None:
+        print(f"Loading checkpoint on rank {rank}")
         (
             current_step,
             best_val_loss,
@@ -1797,6 +1835,7 @@ def main(
             file_name=ckpt_file_name,
         )
     else:
+        print(f"Instantiating model, optimizer, scheduler, scaler on rank {rank}")
         model = ow.model.Whisper(dims=model_dims).to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank)
 
@@ -1812,7 +1851,6 @@ def main(
             eff_batch_size=eff_batch_size,
             optimizer=optimizer,
         )
-
         scaler = GradScaler()
 
         best_val_loss = float("inf")
@@ -1842,6 +1880,7 @@ def main(
         )
 
     while current_step < train_steps:
+        print(f"Starting epoch at {current_step=} on rank {rank}")
         (
             current_step,
             best_val_loss,
@@ -1882,8 +1921,10 @@ def main(
             tags=tags if rank == 0 else None,
             exp_name=exp_name if rank == 0 else None,
         )
+        print(f"Ending epoch at {current_step=} on rank {rank} w/ best val loss {best_val_loss}")
 
         if rank == 0:
+            print(f"Saving latest checkpoint w/ best val loss {best_val_loss}")
             save_ckpt(
                 current_step=current_step,
                 best_val_loss=best_val_loss,
