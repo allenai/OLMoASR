@@ -1728,8 +1728,11 @@ def main(
         model_variant: The variant of the model to use
         exp_name: The name of the experiment
         job_type: The type of job (e.g., training, evaluation)
-        filter: The filter to use for the dataset
+        train_shards: The path to the training shards
+        train_steps: The number of training steps
+        val_shards: The path to the validation shards
         run_id: The run ID to use for loading a checkpoint
+        ckpt_file_name: The name of the checkpoint file to use to load model if resume training
         rank: The rank of the current process
         world_size: The total number of processes
         lr: The learning rate
@@ -1737,17 +1740,14 @@ def main(
         eps: The epsilon for the optimizer
         weight_decay: The weight decay for the optimizer
         max_grad_norm: The maximum gradient norm
-        subset: The subset of the dataset to use
-        epochs: The number of epochs to train for
-        eff_size: The size of the efficientnet model
+        eff_batch_size: The size of the effective batch size
         train_batch_size: The batch size for training
         val_batch_size: The batch size for validation
         eval_batch_size: The batch size for evaluation
-        train_val_split: The train-validation split
         num_workers: The number of workers for the dataloader
         pin_memory: Whether to pin memory for the dataloader
-        shuffle: Whether to shuffle the dataloader
         persistent_workers: Whether to use persistent workers for the dataloader
+        run_val: Whether to run validation
         run_eval: Whether to run evaluation
     """
     model_dims = VARIANT_TO_DIMS[model_variant]
