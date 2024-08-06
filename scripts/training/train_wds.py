@@ -1353,6 +1353,7 @@ def validate(
     norm_pred_text = []
     norm_tgt_text = []
     non_ddp_model = model.module
+    non_ddp_model.eval()
 
     if rank == 0:
         val_table = wandb.Table(columns=for_logging.VAL_TABLE_COLS)
@@ -1361,7 +1362,6 @@ def validate(
     with torch.no_grad():
         for batch_idx, batch in enumerate(val_dataloader):
             with autocast():
-                non_ddp_model.eval()
                 (
                     audio_files,
                     transcript_files,
@@ -1441,6 +1441,7 @@ def validate(
                 print(f"val_wer by batch: {batch_val_wer}")
 
                 if (batch_idx + 1) % 10 == 0:
+                    os.makedirs(f"logs/training/{exp_name}/{run_id}", exist_ok=True)
                     with open(
                         f"logs/training/{exp_name}/{run_id}/val_results_{'_'.join(tags)}.txt",
                         "a",
@@ -1517,7 +1518,7 @@ def validate(
                 "a",
             ) as f:
                 f.write(f"val epoch took {(end_time - start_time) / 60.0} minutes\n")
-                wandb.log({"val/time_epoch": (end_time - start_time) / 60.0})
+            wandb.log({"val/time_epoch": (end_time - start_time) / 60.0})
 
         if len(norm_tgt_text) == 0 and len(norm_pred_text) == 0:
             val_wer = 0.0 * 100
