@@ -404,6 +404,24 @@ def prepare_data(
     return train_dataloader, None
 
 
+def prepare_eval_data(
+    eval_set: str, eval_batch_size: int, num_workers: int
+) -> DataLoader:
+    eval_dataset = EvalDataset(eval_set=eval_set)
+
+    eval_dataloader = DataLoader(
+        eval_dataset,
+        batch_size=eval_batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        drop_last=False,
+        persistent_workers=True,
+        pin_memory=True,
+    )
+
+    return eval_dataloader
+
+
 def prepare_optim(
     model: torch.nn.Module,
     lr: float,
@@ -743,9 +761,10 @@ def train(
     run_eval: bool,
     eval_batch_size: int,
     eval_num_workers: int,
+    eval_loaders: List[DataLoader],
     run_id: Optional[str],
     tags: Optional[List[str]],
-    exp_name: str,
+    exp_name: Optional[str],
 ) -> Tuple[
     int,
     Optional[float],
@@ -1542,6 +1561,7 @@ def evaluate(
     eval_batch_size: int,
     num_workers: int,
     model: torch.nn.Module,
+    eval_loaders: List[DataLoader],
     normalizer: EnglishTextNormalizer,
     tags: Optional[List[str]],
     exp_name: Optional[str],
@@ -1561,26 +1581,14 @@ def evaluate(
         tags: The tags to use for logging
         exp_name: The experiment name
     """
-    eval_sets = ["librispeech_clean", "librispeech_other"]
     eval_table = wandb.Table(columns=for_logging.EVAL_TABLE_COLS)
     start_time = time.time()
 
     non_ddp_model = model.module
     non_ddp_model.eval()
 
-    for eval_set in eval_sets:
+    for eval_set, eval_dataloader in eval_loaders:
         print(f"Evaluating {eval_set}\n")
-        eval_dataset = EvalDataset(eval_set=eval_set)
-
-        eval_dataloader = DataLoader(
-            eval_dataset,
-            batch_size=eval_batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            drop_last=False,
-            persistent_workers=True,
-            pin_memory=True,
-        )
 
         hypotheses = []
         references = []
@@ -1601,52 +1609,57 @@ def evaluate(
                 norm_tgt_text = [normalizer(text) for text in text_y]
                 references.extend(norm_tgt_text)
 
-                if (batch_idx + 1) % int(np.ceil(len(eval_dataloader) / 10)) == 0:
-                    for i in range(0, len(pred_text), 8):
+                if rank == 0:
+                    if (batch_idx + 1) % int(np.ceil(len(eval_dataloader) / 10)) == 0:
+                        for i in range(0, len(pred_text), 8):
+                            wer = (
+                                np.round(
+                                    jiwer.wer(
+                                        reference=norm_tgt_text[i],
+                                        hypothesis=norm_pred_text[i],
+                                    ),
+                                    2,
+                                )
+                                * 100
+                            )
+                            eval_table.add_data(
+                                eval_set,
+                                wandb.Audio(audio_fp[i], sample_rate=16000),
+                                pred_text[i],
+                                norm_pred_text[i],
+                                norm_tgt_text[i],
+                                wer,
+                            )
+
                         wer = (
-                            np.round(
-                                jiwer.wer(
-                                    reference=norm_tgt_text[i],
-                                    hypothesis=norm_pred_text[i],
-                                ),
-                                2,
+                            jiwer.wer(
+                                reference=norm_tgt_text, hypothesis=norm_pred_text
                             )
                             * 100
                         )
-                        eval_table.add_data(
-                            eval_set,
-                            wandb.Audio(audio_fp[i], sample_rate=16000),
-                            pred_text[i],
-                            norm_pred_text[i],
-                            norm_tgt_text[i],
-                            wer,
-                        )
-
-                    wer = (
-                        jiwer.wer(reference=norm_tgt_text, hypothesis=norm_pred_text)
-                        * 100
-                    )
-                    with open(
-                        f"logs/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
-                        "a",
-                    ) as f:
-                        f.write(f"{eval_set} batch {batch_idx} WER: {wer}\n")
+                        with open(
+                            f"logs/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
+                            "a",
+                        ) as f:
+                            f.write(f"{eval_set} batch {batch_idx} WER: {wer}\n")
 
             avg_wer = jiwer.wer(references, hypotheses) * 100
-            with open(
-                f"logs/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
-                "a",
-            ) as f:
-                f.write(f"{eval_set} average WER: {avg_wer}\n")
-            wandb.log({f"eval/{eval_set}_wer": avg_wer})
 
-    wandb.log({f"eval_table_{current_step}": eval_table})
+            if rank == 0:
+                with open(
+                    f"logs/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
+                    "a",
+                ) as f:
+                    f.write(f"{eval_set} average WER: {avg_wer}\n")
+                wandb.log({f"eval/{eval_set}_wer": avg_wer})
 
-    end_time = time.time()
-    with open(
-        f"logs/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt", "a"
-    ) as f:
-        f.write(f"eval epoch took {(end_time - start_time) / 60.0} minutes\n")
+    if rank == 0:
+        wandb.log({f"eval_table_{current_step}": eval_table})
+        end_time = time.time()
+        with open(
+            f"logs/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt", "a"
+        ) as f:
+            f.write(f"eval epoch took {(end_time - start_time) / 60.0} minutes\n")
         wandb.log({"eval/time_epoch": (end_time - start_time) / 60.0})
 
 
@@ -1747,6 +1760,25 @@ def main(
         num_workers=num_workers,
         persistent_workers=persistent_workers,
     )
+
+    # prepare eval dataset
+    print(f"Preparing eval sets on rank {rank}")
+    eval_sets = ["librispeech_clean", "librispeech_other"]
+    eval_loaders = []
+    for eval_set in eval_sets:
+        eval_dataset = EvalDataset(eval_set=eval_set)
+
+        eval_dataloader = DataLoader(
+            eval_dataset,
+            batch_size=eval_batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            drop_last=False,
+            persistent_workers=persistent_workers,
+            pin_memory=pin_memory,
+        )
+        eval_loaders.append((eval_set, eval_dataloader))
+
 
     # model instantiation
     if run_id is not None:
@@ -1854,6 +1886,7 @@ def main(
             run_eval=run_eval,
             eval_batch_size=eval_batch_size,
             eval_num_workers=num_workers,
+            eval_loaders=eval_loaders,
             run_id=run_id if rank == 0 else None,
             tags=tags if rank == 0 else None,
             exp_name=exp_name if rank == 0 else None,
@@ -1909,6 +1942,7 @@ def main(
                 eval_batch_size=eval_batch_size,
                 num_workers=num_workers,
                 model=model,
+                eval_loaders=eval_loaders,
                 normalizer=normalizer,
                 tags=tags if rank == 0 else None,
                 exp_name=exp_name if rank == 0 else None,
