@@ -756,7 +756,7 @@ def train(
     val_dataloader: Optional[wds.WebLoader],
     model_dims: Optional[ModelDimensions],
     model_variant: Optional[str],
-    best_val_loss: Optional[float],
+    best_val_loss: float,
     val_res: Optional[wandb.Artifact],
     val_res_added: Optional[bool],
     run_eval: bool,
@@ -768,7 +768,7 @@ def train(
     exp_name: Optional[str],
 ) -> Tuple[
     int,
-    Optional[float],
+    float,
     torch.nn.Module,
     torch.optim.Optimizer,
     GradScaler,
@@ -888,7 +888,6 @@ def train(
         dist.barrier()
         # after accumulation_steps, update weights
         if ((batch_idx + 1) % accumulation_steps) == 0:
-            print(f"{rank=}, {batch_idx=}")
             train_loss_tensor = total_loss.clone()
             dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
@@ -1824,13 +1823,12 @@ def main(
 
         scaler = GradScaler()
 
+        best_val_loss = float("inf")
         current_step = 0
 
     # setting up wandb for logging
     if rank == 0:
-        if run_id is None:
-            best_val_loss = float("inf")
-
+        print("Setting up W&B")
         run_id, tags, train_res, val_res, train_res_added, val_res_added = setup_wandb(
             run_id=run_id,
             exp_name=exp_name,
@@ -1850,9 +1848,6 @@ def main(
             train_batch_size=train_batch_size,
             val_batch_size=val_batch_size,
         )
-    else:
-        if run_id is None:
-            best_val_loss = None
 
     while current_step < train_steps:
         (
@@ -1884,7 +1879,7 @@ def main(
             val_dataloader=val_dataloader,
             model_dims=model_dims,
             model_variant=model_variant,
-            best_val_loss=best_val_loss if rank == 0 else None,
+            best_val_loss=best_val_loss,
             val_res=val_res if rank == 0 else None,
             val_res_added=val_res_added if rank == 0 else None,
             run_eval=run_eval,
