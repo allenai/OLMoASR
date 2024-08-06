@@ -14,7 +14,6 @@ tiktoken
 torch
 torchaudio
 tqdm
-triton
 webvtt_py
 yt-dlp
 wandb
