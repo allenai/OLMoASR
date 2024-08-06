@@ -1,4 +1,4 @@
-from math import log
+import json
 import os
 import glob
 from io import BytesIO
@@ -32,11 +32,9 @@ from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
 import open_whisper as ow
 
 from scripts.eval.eval import EvalDataset
-from scripts.data.filtering.get_filter_mechs import get_data_shard
 from scripts.training import for_logging
 
 WANDB_EXAMPLES = 8
-NUM_SAMPLES = 44756206 - (352 * 5)
 os.environ["WANDB__SERVICE_WAIT"] = "300"
 os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
 os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
