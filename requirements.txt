@@ -1,12 +1,9 @@
-setuptools
-wheel
 datasets
 fire
 jiwer
 langdetect
 librosa
 pandas
-pycld2
 pydub
 pysrt
 pytest
