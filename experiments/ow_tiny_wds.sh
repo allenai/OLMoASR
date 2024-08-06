@@ -1,12 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=ow_tiny
+#SBATCH --job-name=ow_tiny_wds
+#SBATCH --output=slurm_job_output/training/ow_tiny_wds_%A_%a.out
 #SBATCH --partition=gpu-a40
 #SBATCH --account=efml
 #SBATCH --nodes=1
-#SBATCH --mem=180G
-#SBATCH --gres=gpu:5
-#SBATCH --cpus-per-gpu=9
-#SBATCH --time=120:00:00
+#SBATCH --mem=250G
+#SBATCH --gres=gpu:6
+#SBATCH --cpus-per-gpu=6
+#SBATCH --time=168:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=hvn2002@uw.edu
 
@@ -42,4 +43,5 @@ torchrun --nnodes 1 --nproc_per_node 1 scripts/training/train_wds.py \
     --num_workers=45 \
     --pin_memory=True \
     --persistent_workers=True \
-    --run_eval=False
+    --run_val=True \
+    --run_eval=True
