@@ -382,26 +382,24 @@ def prepare_data(
     )
 
     if val_shards is not None:
-        if rank == 0:
-            val_dataset = wds_pipeline(
-                shards=val_shards,
-                batch_size=val_batch_size,
-                n_text_ctx=n_text_ctx,
-                tokenizer=tokenizer,
-                val_flag=True,
-            )
+        val_dataset = wds_pipeline(
+            shards=val_shards,
+            batch_size=val_batch_size,
+            n_text_ctx=n_text_ctx,
+            tokenizer=tokenizer,
+            val_flag=True,
+        )
 
-            val_dataloader = prepare_dataloader(
-                dataset=val_dataset,
-                pin_memory=pin_memory,
-                num_workers=num_workers,
-                persistent_workers=persistent_workers,
-                val_flag=True,
-            )
+        val_dataloader = prepare_dataloader(
+            dataset=val_dataset,
+            train_samples=None,
+            pin_memory=pin_memory,
+            num_workers=num_workers,
+            persistent_workers=persistent_workers,
+            val_flag=True,
+        )
 
-            return train_dataloader, val_dataloader
-        else:
-            return train_dataloader, None
+        return train_dataloader, val_dataloader
 
     return train_dataloader, None
 
@@ -974,60 +972,7 @@ def train(
                 wandb.log({"train/learning_rate": current_lr})
             optimizer.zero_grad()  # Reset gradients only after updating weights
             total_loss = 0.0
-
-            # validation
-            if run_val:
-                if (
-                    current_step % (int(np.ceil(train_steps / 100)))
-                ) == 0 and current_step > 0:
-                    if rank != 0:
-                        dist.barrier()
-
-                    if rank == 0:
-                        best_val_loss, val_res_added = validate(
-                            rank=rank,
-                            current_step=current_step,
-                            best_val_loss=best_val_loss if rank == 0 else None,
-                            val_dataloader=val_dataloader,
-                            scaler=scaler,
-                            model=model,
-                            tokenizer=tokenizer,
-                            normalizer=normalizer,
-                            optimizer=optimizer,
-                            scheduler=scheduler,
-                            model_dims=model_dims,
-                            model_variant=model_variant,
-                            val_res=val_res if rank == 0 else None,
-                            val_res_added=val_res_added if rank == 0 else None,
-                            tags=tags if rank == 0 else None,
-                            exp_name=exp_name,
-                            run_id=run_id,
-                        )
-
-                    if rank == 0:
-                        dist.barrier()
-
-            # evaluation
-            if run_eval:
-                if (current_step % (int(np.ceil(train_steps / 10)))) == 0:
-                    if rank != 0:
-                        dist.barrier()
-
-                    if rank == 0:
-                        evaluate(
-                            rank=rank,
-                            current_step=current_step,
-                            eval_batch_size=eval_batch_size,
-                            num_workers=eval_num_workers,
-                            model=model,
-                            normalizer=normalizer,
-                            tags=tags,
-                            exp_name=exp_name,
-                            run_id=run_id,
-                        )
-
-                    dist.barrier()
-
+            
             # logging
             if rank == 0:
                 print(f"current_step: {current_step}")
@@ -1127,8 +1072,71 @@ def train(
                         )
 
                     wandb.log({f"train_table_{current_step}": train_table})
+                    train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
 
-            # dist.barrier()
+
+            # validation
+            if run_val:
+                if (
+                    current_step % (int(np.ceil(train_steps / 200)))
+                ) == 0 and current_step > 0:
+                    best_val_loss, val_res_added = validate(
+                        rank=rank,
+                        current_step=current_step,
+                        best_val_loss=best_val_loss,
+                        val_dataloader=val_dataloader,
+                        scaler=scaler,
+                        model=model,
+                        tokenizer=tokenizer,
+                        normalizer=normalizer,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        model_dims=model_dims,
+                        model_variant=model_variant,
+                        val_res=val_res if rank == 0 else None,
+                        val_res_added=val_res_added if rank == 0 else None,
+                        tags=tags if rank == 0 else None,
+                        exp_name=exp_name if rank == 0 else None,
+                        run_id=run_id if rank == 0 else None,
+                    )
+
+                if (
+                    current_step % (int(np.ceil(train_steps / 200)))
+                ) == 0 and current_step > 0:
+                    print(f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}")
+                dist.barrier()
+                if (
+                    current_step % (int(np.ceil(train_steps / 200)))
+                ) == 0 and current_step > 0:
+                    print(f"Rank {rank} passing barrier w/ best val loss {best_val_loss}")
+
+            # evaluation
+            if run_eval:
+                if (
+                    current_step % (int(np.ceil(train_steps / 20)))
+                ) == 0 and current_step > 0:
+                    evaluate(
+                        rank=rank,
+                        current_step=current_step,
+                        eval_batch_size=eval_batch_size,
+                        num_workers=eval_num_workers,
+                        model=model,
+                        eval_loaders=eval_loaders,
+                        normalizer=normalizer,
+                        tags=tags if rank == 0 else None,
+                        exp_name=exp_name if rank == 0 else None,
+                        run_id=run_id if rank == 0 else None,
+                    )
+
+                if (
+                    current_step % (int(np.ceil(train_steps / 20)))
+                ) == 0 and current_step > 0:
+                    print(f"Rank {rank} reaching barrier")
+                dist.barrier()
+                if (
+                    current_step % (int(np.ceil(train_steps / 20)))
+                ) == 0 and current_step > 0:
+                    print(f"Rank {rank} passing barrier")
 
             batch_pred_text = []
             batch_tgt_text = []
@@ -1280,7 +1288,7 @@ def train(
 def validate(
     rank: int,
     current_step: int,
-    best_val_loss: Optional[float],
+    best_val_loss: float,
     val_dataloader: DataLoader,
     scaler: GradScaler,
     model: DDP,
@@ -1293,8 +1301,8 @@ def validate(
     val_res: Optional[wandb.Artifact],
     val_res_added: Optional[bool],
     tags: Optional[List[str]],
-    exp_name: str,
-    run_id: str,
+    exp_name: Optional[str],
+    run_id: Optional[str],
 ) -> Tuple[float, bool]:
     """Validation loop for 1 epoch
 
@@ -1500,15 +1508,8 @@ def validate(
             )
             ave_val_loss = val_loss / val_steps
 
-        # val_wer_tensor = torch.tensor(val_wer, device=rank)
-        # dist.all_reduce(val_wer_tensor, op=dist.ReduceOp.SUM)
-        # val_wer_all = val_wer_tensor.item() / dist.get_world_size()
-
-        # ave_val_loss_tensor = ave_val_loss.clone()
-        # dist.all_reduce(ave_val_loss_tensor, op=dist.ReduceOp.SUM)
-        # val_loss_all = ave_val_loss_tensor.item() / dist.get_world_size()
-
         if rank == 0:
+            print(f"best_val_loss: {best_val_loss}")
             print(f"val_loss: {ave_val_loss}")
             print(f"val_wer: {val_wer}")
 
@@ -1516,6 +1517,7 @@ def validate(
 
             if ave_val_loss < best_val_loss:
                 best_val_loss = ave_val_loss
+                print("Saving best model")
                 save_ckpt(
                     current_step=current_step,
                     best_val_loss=best_val_loss,
@@ -1541,9 +1543,9 @@ def evaluate(
     num_workers: int,
     model: torch.nn.Module,
     normalizer: EnglishTextNormalizer,
-    tags: List[str],
-    exp_name: str,
-    run_id: str,
+    tags: Optional[List[str]],
+    exp_name: Optional[str],
+    run_id: Optional[str],
 ) -> None:
     """Evaluation loop for 1 epoch
 
@@ -1852,9 +1854,9 @@ def main(
             run_eval=run_eval,
             eval_batch_size=eval_batch_size,
             eval_num_workers=num_workers,
-            run_id=run_id,
+            run_id=run_id if rank == 0 else None,
             tags=tags if rank == 0 else None,
-            exp_name=exp_name,
+            exp_name=exp_name if rank == 0 else None,
         )
 
         if rank == 0:
@@ -1874,52 +1876,48 @@ def main(
             )
 
         if run_val:
-            if rank != 0:
-                dist.barrier()
+            print(f"Validation after epoch on rank {rank} at {current_step=} w/ best val loss {best_val_loss}")
+            best_val_loss, val_res_added = validate(
+                rank=rank,
+                current_step=current_step,
+                best_val_loss=best_val_loss,
+                val_dataloader=val_dataloader,
+                scaler=scaler,
+                model=model,
+                tokenizer=tokenizer,
+                normalizer=normalizer,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                model_dims=model_dims,
+                model_variant=model_variant,
+                val_res=val_res if rank == 0 else None,
+                val_res_added=val_res_added if rank == 0 else None,
+                tags=tags if rank == 0 else None,
+                exp_name=exp_name if rank == 0 else None,
+                run_id=run_id if rank == 0 else None,
+            )
 
-            if rank == 0:
-                best_val_loss, val_res_added = validate(
-                    rank=rank,
-                    current_step=current_step,
-                    best_val_loss=best_val_loss if rank == 0 else None,
-                    val_dataloader=val_dataloader,
-                    scaler=scaler,
-                    model=model,
-                    tokenizer=tokenizer,
-                    normalizer=normalizer,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    model_dims=model_dims,
-                    model_variant=model_variant,
-                    val_res=val_res if rank == 0 else None,
-                    val_res_added=val_res_added if rank == 0 else None,
-                    tags=tags if rank == 0 else None,
-                    exp_name=exp_name,
-                    run_id=run_id,
-                )
-
-            if rank == 0:
-                dist.barrier()
+            print(f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}")
+            dist.barrier()
+            print(f"Rank {rank} passing barrier w/ best val loss {best_val_loss}")
 
         if run_eval:
-            if rank != 0:
-                dist.barrier()
+            print(f"Evaluation after epoch at {current_step=} on rank {rank}")
+            evaluate(
+                rank=rank,
+                current_step=current_step,
+                eval_batch_size=eval_batch_size,
+                num_workers=num_workers,
+                model=model,
+                normalizer=normalizer,
+                tags=tags if rank == 0 else None,
+                exp_name=exp_name if rank == 0 else None,
+                run_id=run_id if rank == 0 else None,
+            )
 
-            if rank == 0:
-                evaluate(
-                    rank=rank,
-                    current_step=current_step,
-                    eval_batch_size=eval_batch_size,
-                    num_workers=num_workers,
-                    model=model,
-                    normalizer=normalizer,
-                    tags=tags,
-                    exp_name=exp_name,
-                    run_id=run_id,
-                )
-
-            if rank == 0:
-                dist.barrier()
+            print(f"Rank {rank} reaching barrier")
+            dist.barrier()
+            print(f"Rank {rank} passing barrier")
 
     cleanup()
 
