@@ -663,6 +663,7 @@ def load_ckpt(
     train_steps: int,
     train_batch_size: int,
     eff_batch_size: int,
+    file_name: str,
 ) -> Tuple[
     int,
     float,
@@ -692,7 +693,7 @@ def load_ckpt(
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
 
     ckpt_file = glob.glob(
-        f"checkpoints/{exp_name}_{run_id}/latest_train_*_fp16_ddp.pt"
+        f"checkpoints/{exp_name}_{run_id}/{file_name}_*_fp16_ddp.pt"
     )[0]
 
     ckpt = torch.load(ckpt_file, map_location=map_location)
@@ -1678,6 +1679,7 @@ def main(
     train_steps: int,
     val_shards: str,
     run_id: Optional[str] = None,
+    ckpt_file_name: Optional[str] = None,
     rank: Optional[int] = None,
     world_size: Optional[int] = None,
     lr: float = 1.5e-3,
@@ -1801,6 +1803,7 @@ def main(
             train_steps=train_steps,
             train_batch_size=train_batch_size,
             eff_batch_size=eff_batch_size,
+            file_name=ckpt_file_name,
         )
     else:
         model = ow.model.Whisper(dims=model_dims).to(rank)
