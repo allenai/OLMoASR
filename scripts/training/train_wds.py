@@ -277,6 +277,7 @@ def setup(rank: int, world_size: int) -> None:
 
 def prepare_dataloader(
     dataset: Dataset,
+    train_samples: Optional[int],
     pin_memory: bool,
     num_workers: int,
     persistent_workers: bool,
@@ -301,7 +302,7 @@ def prepare_dataloader(
     if val_flag is False:
         print(f"{os.environ['WORLD_SIZE']=}")
         epoch_steps = int(
-            np.ceil(NUM_SAMPLES / (int(os.environ["WORLD_SIZE"]) * batch_size))
+            np.ceil(train_samples / (int(os.environ["WORLD_SIZE"]) * batch_size))
         )
         print(f"{epoch_steps=}")
         dataloader = (
@@ -315,7 +316,7 @@ def prepare_dataloader(
                 persistent_workers=persistent_workers,
             )
             .repeat(2)
-            .with_epoch(500)
+            .with_epoch(epoch_steps)
         )
     else:
         dataloader = wds.WebLoader(
@@ -337,6 +338,7 @@ def prepare_data(
     val_shards: Optional[str],
     train_batch_size: int,
     val_batch_size: int,
+    train_samples: int,
     n_text_ctx: int,
     tokenizer: whisper.tokenizer.Tokenizer,
     pin_memory: bool = True,
@@ -351,6 +353,7 @@ def prepare_data(
         val_shards: The path to the validation shards
         train_batch_size: The batch size for training
         val_batch_size: The batch size for validation
+        train_samples: The number of training samples
         n_text_ctx: The number of text tokens
         tokenizer: The tokenizer for tokenizing the text data
         pin_memory: Whether to pin memory
@@ -370,6 +373,7 @@ def prepare_data(
 
     train_dataloader = prepare_dataloader(
         dataset=train_dataset,
+        train_samples=train_samples,
         pin_memory=pin_memory,
         num_workers=num_workers,
         persistent_workers=persistent_workers,
@@ -1719,13 +1723,22 @@ def main(
     normalizer = EnglishTextNormalizer()
     n_text_ctx = model_dims.n_text_ctx
 
-    # prepare dataset
+    with open("logs/data/preprocess/shard_to_sample_count.json", "r") as f:
+        shard_to_sample_count = json.load(f)
+
+    start_shard, end_shard = train_shards.split("/")[-1].split(".tar")[0][1:-1].split("..")
+    train_shard_idx_list = list(range(int(start_shard), int(end_shard) + 1))
+    train_samples = sum([shard_to_sample_count[str(shard_idx)] for shard_idx in train_shard_idx_list])
+    
+    if rank == 0:
+        print(f"Training on {train_samples} samples")
     train_dataloader, val_dataloader = prepare_data(
         rank=rank,
         train_shards=train_shards,
         val_shards=val_shards,
         train_batch_size=train_batch_size,
         val_batch_size=val_batch_size,
+        train_samples=train_samples,
         n_text_ctx=n_text_ctx,
         tokenizer=tokenizer,
         pin_memory=pin_memory,
