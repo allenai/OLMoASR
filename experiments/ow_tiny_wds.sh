@@ -28,7 +28,7 @@ torchrun --nnodes 1 --nproc_per_node 6 scripts/training/train_wds.py \
     --exp_name=ow_tiny_wds \
     --job_type=train \
     --train_shards=data/tars/\{000000..000001\}.tar \
-    --val_shards=data/tars/\{000002..000003\}.tar \
+    --train_steps=1048576 \
     --len_train_data=None \
     --len_val_data=None \
     --run_id=None \
