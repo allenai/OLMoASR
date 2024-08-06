@@ -10,7 +10,7 @@ pysrt
 pytest
 regex
 scipy
-tiktokens
+tiktoken
 torch
 torchaudio
 tqdm
