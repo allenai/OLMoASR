@@ -1755,7 +1755,7 @@ def main(
         rank = int(os.getenv("RANK", "0"))
         world_size = int(os.getenv("WORLD_SIZE", "1"))
     
-    print(glob.glob())
+    print(glob.glob("*"))
 
     # setup the process groups
     print(f"Setting up process groups on rank {rank}")
