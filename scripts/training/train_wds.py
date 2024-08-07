@@ -33,7 +33,6 @@ import open_whisper as ow
 
 from scripts.eval.eval import EvalDataset
 from scripts.training import for_logging
-
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"
 os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
@@ -1755,6 +1754,8 @@ def main(
     if rank is None and world_size is None:
         rank = int(os.getenv("RANK", "0"))
         world_size = int(os.getenv("WORLD_SIZE", "1"))
+    
+    print(glob.glob())
 
     # setup the process groups
     print(f"Setting up process groups on rank {rank}")
