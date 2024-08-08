@@ -642,15 +642,15 @@ def save_ckpt(
         "dims": model_dims,
     }
 
-    os.makedirs(f"checkpoints/{exp_name}_{run_id}", exist_ok=True)
+    os.makedirs(f"logs/checkpoints/{exp_name}_{run_id}", exist_ok=True)
 
     torch.save(
         ddp_checkpoint,
-        f"checkpoints/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_ddp.pt",
+        f"logs/checkpoints/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_ddp.pt",
     )
     torch.save(
         non_ddp_checkpoint,
-        f"checkpoints/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
+        f"logs/checkpoints/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
     )
 
 
@@ -692,7 +692,7 @@ def load_ckpt(
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
 
     ckpt_file = glob.glob(
-        f"checkpoints/{exp_name}_{run_id}/{file_name}_*_fp16_ddp.pt"
+        f"logs/checkpoints/{exp_name}_{run_id}/{file_name}_*_fp16_ddp.pt"
     )[0]
 
     ckpt = torch.load(ckpt_file, map_location=map_location)
@@ -1755,8 +1755,6 @@ def main(
         rank = int(os.getenv("RANK", "0"))
         world_size = int(os.getenv("WORLD_SIZE", "1"))
     
-    print(glob.glob("*"))
-
     # setup the process groups
     print(f"Setting up process groups on rank {rank}")
     setup(rank, world_size)
