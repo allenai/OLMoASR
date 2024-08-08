@@ -516,6 +516,7 @@ def setup_wandb(
     eff_batch_size: int,
     train_batch_size: int,
     val_batch_size: int,
+    log_dir: str,
 ) -> Tuple[Optional[str], List[str], wandb.Artifact, wandb.Artifact, bool, bool]:
     """Sets up the Weights and Biases logging
 
@@ -536,6 +537,7 @@ def setup_wandb(
         eff_batch_size: The effective train batch size
         train_batch_size: The batch size for training
         val_batch_size: The batch size for validation
+        log_dir: Directory where all results are logged
 
     Returns:
         A tuple containing the run ID, the tags, the training results artifact, the validation results artifact,
@@ -577,7 +579,7 @@ def setup_wandb(
         job_type=job_type,
         tags=(tags),
         name=exp_name,
-        dir="logs/training",
+        dir=f"{log_dir}/training",
     )
 
     train_res = wandb.Artifact("train_res", type="results")
@@ -601,6 +603,7 @@ def save_ckpt(
     exp_name: str,
     run_id: str,
     file_name: str,
+    log_dir: str,
 ) -> None:
     """Save model (DDP) checkpoint
 
@@ -619,6 +622,7 @@ def save_ckpt(
         exp_name: The experiment name
         run_id: The run ID
         file_name: The file name
+        log_dir: Directory where all results are logged
     """
     ddp_checkpoint = {
         "current_step": current_step,
@@ -642,15 +646,15 @@ def save_ckpt(
         "dims": model_dims,
     }
 
-    os.makedirs(f"logs/checkpoints/{exp_name}_{run_id}", exist_ok=True)
+    os.makedirs(f"{log_dir}/checkpoints/{exp_name}_{run_id}", exist_ok=True)
 
     torch.save(
         ddp_checkpoint,
-        f"logs/checkpoints/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_ddp.pt",
+        f"{log_dir}/checkpoints/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_ddp.pt",
     )
     torch.save(
         non_ddp_checkpoint,
-        f"logs/checkpoints/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
+        f"{log_dir}/checkpoints/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
     )
 
 
@@ -663,6 +667,7 @@ def load_ckpt(
     train_batch_size: int,
     eff_batch_size: int,
     file_name: str,
+    log_dir: str,
 ) -> Tuple[
     int,
     float,
@@ -692,7 +697,7 @@ def load_ckpt(
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
 
     ckpt_file = glob.glob(
-        f"logs/checkpoints/{exp_name}_{run_id}/{file_name}_*_fp16_ddp.pt"
+        f"{log_dir}/checkpoints/{exp_name}_{run_id}/{file_name}_*_fp16_ddp.pt"
     )[0]
 
     ckpt = torch.load(ckpt_file, map_location=map_location)
@@ -765,6 +770,7 @@ def train(
     run_id: Optional[str],
     tags: Optional[List[str]],
     exp_name: Optional[str],
+    log_dir: str,
 ) -> Tuple[
     int,
     float,
@@ -794,6 +800,7 @@ def train(
         train_res_added: A boolean indicating whether the training results artifact has been added
         tags: The tags to use for logging
         exp_name: The experiment name
+        log_dir: Directory where all results are logged
 
     Returns:
         A tuple containing the current step, model, the optimizer, the gradient scaler, the scheduler, and a boolean indicating whether the training results artifact has been added
@@ -1018,14 +1025,14 @@ def train(
                 )
 
                 if (current_step % (int(np.ceil(train_steps / 10000)))) == 0:
-                    os.makedirs(f"logs/training/{exp_name}/{run_id}", exist_ok=True)
+                    os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
                     with open(
-                        f"logs/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt",
+                        f"{log_dir}/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt",
                         "a",
                     ) as f:
                         if not train_res_added:  # only once
                             train_res.add_file(
-                                f"logs/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt"
+                                f"{log_dir}/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt"
                             )
                             train_res_added = True
                             wandb.log_artifact(train_res)
@@ -1271,9 +1278,9 @@ def train(
                 }
             )
 
-            os.makedirs(f"logs/training/{exp_name}/{run_id}", exist_ok=True)
+            os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
             with open(
-                f"logs/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt",
+                f"{log_dir}/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt",
                 "a",
             ) as f:
                 for i, (
@@ -1306,9 +1313,9 @@ def train(
 
     if rank == 0:
         end_time = time.time()
-        os.makedirs(f"logs/training/{exp_name}/{run_id}", exist_ok=True)
+        os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
         with open(
-            f"logs/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt", "a"
+            f"{log_dir}/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt", "a"
         ) as f:
             f.write(
                 f"train epoch took {(end_time - start_time) / 60} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
@@ -1345,6 +1352,7 @@ def validate(
     tags: Optional[List[str]],
     exp_name: Optional[str],
     run_id: Optional[str],
+    log_dir: str,
 ) -> Tuple[float, bool]:
     """Validation loop for 1 epoch
 
@@ -1366,6 +1374,7 @@ def validate(
         tags: The tags to use for logging
         exp_name: The experiment name
         run_id: The run ID
+        log_dir: Directory where all results are logged
 
     Returns:
         A tuple containing the best validation loss and a boolean indicating whether the validation results artifact has been added
@@ -1464,9 +1473,9 @@ def validate(
                 print(f"val_wer by batch: {batch_val_wer}")
 
                 if (batch_idx + 1) % 10 == 0:
-                    os.makedirs(f"logs/training/{exp_name}/{run_id}", exist_ok=True)
+                    os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
                     with open(
-                        f"logs/training/{exp_name}/{run_id}/val_results_{'_'.join(tags)}.txt",
+                        f"{log_dir}/training/{exp_name}/{run_id}/val_results_{'_'.join(tags)}.txt",
                         "a",
                     ) as f:
                         for i, (tgt_text_instance, pred_text_instance) in enumerate(
@@ -1474,7 +1483,7 @@ def validate(
                         ):
                             if not val_res_added:  # only once
                                 val_res.add_file(
-                                    f"logs/training/{exp_name}/{run_id}/val_results_{'_'.join(tags)}.txt"
+                                    f"{log_dir}/training/{exp_name}/{run_id}/val_results_{'_'.join(tags)}.txt"
                                 )
                                 val_res_added = True
                                 wandb.log_artifact(val_res)
@@ -1537,7 +1546,7 @@ def validate(
             wandb.log({f"val_table_{current_step}": val_table})
             end_time = time.time()
             with open(
-                f"logs/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt",
+                f"{log_dir}/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt",
                 "a",
             ) as f:
                 f.write(f"val epoch took {(end_time - start_time) / 60.0} minutes\n")
@@ -1590,6 +1599,7 @@ def evaluate(
     tags: Optional[List[str]],
     exp_name: Optional[str],
     run_id: Optional[str],
+    log_dir: str,
 ) -> None:
     """Evaluation loop for 1 epoch
 
@@ -1604,6 +1614,8 @@ def evaluate(
         normalizer: The text normalizer
         tags: The tags to use for logging
         exp_name: The experiment name
+        run_id: The run ID
+        log_dir: Directory where all results are logged
     """
     eval_table = wandb.Table(columns=for_logging.EVAL_TABLE_COLS)
     start_time = time.time()
@@ -1662,7 +1674,7 @@ def evaluate(
                             * 100
                         )
                         with open(
-                            f"logs/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
+                            f"{log_dir}/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
                             "a",
                         ) as f:
                             f.write(f"{eval_set} batch {batch_idx} WER: {wer}\n")
@@ -1671,7 +1683,7 @@ def evaluate(
 
             if rank == 0:
                 with open(
-                    f"logs/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
+                    f"{log_dir}/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
                     "a",
                 ) as f:
                     f.write(f"{eval_set} average WER: {avg_wer}\n")
@@ -1681,7 +1693,7 @@ def evaluate(
         wandb.log({f"eval_table_{current_step}": eval_table})
         end_time = time.time()
         with open(
-            f"logs/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt", "a"
+            f"{log_dir}/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt", "a"
         ) as f:
             f.write(f"eval epoch took {(end_time - start_time) / 60.0} minutes\n")
         wandb.log({"eval/time_epoch": (end_time - start_time) / 60.0})
@@ -1702,6 +1714,7 @@ def main(
     val_shards: str,
     run_id: Optional[str] = None,
     ckpt_file_name: Optional[str] = None,
+    log_dir: str = "logs",
     rank: Optional[int] = None,
     world_size: Optional[int] = None,
     lr: float = 1.5e-3,
@@ -1732,6 +1745,7 @@ def main(
         val_shards: The path to the validation shards
         run_id: The run ID to use for loading a checkpoint
         ckpt_file_name: The name of the checkpoint file to use to load model if resume training
+        log_dir: The directory where all results are logged
         rank: The rank of the current process
         world_size: The total number of processes
         lr: The learning rate
@@ -1832,6 +1846,7 @@ def main(
             train_batch_size=train_batch_size,
             eff_batch_size=eff_batch_size,
             file_name=ckpt_file_name,
+            log_dir=log_dir,
         )
     else:
         print(f"Instantiating model, optimizer, scheduler, scaler on rank {rank}")
@@ -1876,6 +1891,7 @@ def main(
             eff_batch_size=eff_batch_size,
             train_batch_size=train_batch_size,
             val_batch_size=val_batch_size,
+            log_dir=log_dir,
         )
 
     while current_step < train_steps:
@@ -1919,6 +1935,7 @@ def main(
             run_id=run_id if rank == 0 else None,
             tags=tags if rank == 0 else None,
             exp_name=exp_name if rank == 0 else None,
+            log_dir=log_dir,
         )
         print(f"Ending epoch at {current_step=} on rank {rank} w/ best val loss {best_val_loss}")
 
@@ -1937,6 +1954,7 @@ def main(
                 exp_name=exp_name,
                 run_id=run_id,
                 file_name="latest_train",
+                log_dir=log_dir,
             )
 
         if run_val:
@@ -1959,6 +1977,7 @@ def main(
                 tags=tags if rank == 0 else None,
                 exp_name=exp_name if rank == 0 else None,
                 run_id=run_id if rank == 0 else None,
+                log_dir=log_dir,
             )
 
             print(f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}")
@@ -1978,6 +1997,7 @@ def main(
                 tags=tags if rank == 0 else None,
                 exp_name=exp_name if rank == 0 else None,
                 run_id=run_id if rank == 0 else None,
+                log_dir=log_dir,
             )
 
             print(f"Rank {rank} reaching barrier")
