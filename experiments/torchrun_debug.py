@@ -9,10 +9,11 @@ if __name__ == "__main__":
         "--model_variant=tiny",
         "--exp_name=ow_tiny_wds",
         "--job_type=train",
-        "--train_shards=/mmfs1/gscratch/efml/hvn2002/ow_440K_wds/{000000..000011}.tar",
+        "--train_shards=/wds_shards/{000000..000001}.tar",
         "--train_steps=1000",
-        "--val_shards=/mmfs1/gscratch/efml/hvn2002/ow_440K_wds/073468.tar",
+        "--val_shards=/wds_shards/073468.tar",
         "--run_id=None",
+        "--ckpt_file_name=None",
         "--rank=None",
         "--world_size=None",
         "--lr=1.5e-3",
@@ -27,7 +28,7 @@ if __name__ == "__main__":
         "--num_workers=4",
         "--pin_memory=True",
         "--persistent_workers=False",
-        "--run_val=False",
+        "--run_val=True",
         "--run_eval=True"
     ]
     torch_run(command)
