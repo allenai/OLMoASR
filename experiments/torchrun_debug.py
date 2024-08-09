@@ -14,6 +14,8 @@ if __name__ == "__main__":
         "--val_shards=/wds_shards/073468.tar",
         "--run_id=None",
         "--ckpt_file_name=None",
+        "--log_dir=/data/huongn/ow_logs",
+        "--eval_dir=/ow_eval",
         "--rank=None",
         "--world_size=None",
         "--lr=1.5e-3",
