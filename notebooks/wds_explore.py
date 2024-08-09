@@ -56,6 +56,7 @@ def decode_sample(sample: Dict[str, bytes]) -> Tuple[np.ndarray, str]:
     return audio_path, audio_arr, text_path, transcript_str
 
 def preprocess_audio(audio_arr: np.ndarray) -> torch.Tensor:
+    audio_arr = audio_arr.astype(np.float32) / 32768.0
     audio_arr = audio.pad_or_trim(audio_arr)
     mel_spec = audio.log_mel_spectrogram(audio_arr)
 
@@ -108,34 +109,40 @@ def preprocess(sample, tokenizer, n_text_ctx):
 
     return audio_path, text_path, padded_audio_arr, audio_input, text_input, text_y, padding_mask
 
-#%%
-dataset = wds.WebDataset("data/tars/{000000..000019}.tar").map(lambda sample: preprocess(sample, 448))
-
-#%%
-dataloader = DataLoader(dataset, batch_size=1, drop_last=False)
-for batch in dataloader:
-    audio_path, text_path, padded_audio_arr, audio_input, text_input, text_y, padding_mask = batch
-    print(audio_input.shape, text_input.shape, text_y.shape, padding_mask.shape)
-    break
-
 # %%
+tokenizer = get_tokenizer(multilingual=False)
+n_text_ctx = 448
+
 dataset = wds.DataPipeline(
-    wds.SimpleShardList("data/tars/{000000..000019}.tar"),
-
+    wds.SimpleShardList("/mmfs1/gscratch/efml/hvn2002/ow_440K_wds/036123.tar"),
+    wds.split_by_node,
     wds.split_by_worker,
-
     wds.shuffle(bufsize=1000, initial=100),
-
     # at this point, we have an iterator over the shards assigned to each worker
     wds.tarfile_to_samples(),
-
     # this shuffles the samples in memory
     wds.shuffle(bufsize=1000, initial=100),
+    wds.map(decode_sample),
+    wds.map(lambda sample: preprocess(sample, tokenizer, n_text_ctx)),
+    wds.shuffle(bufsize=1000, initial=100),
+    wds.batched(8))
 
-    # this decodes the images and json
-    wds.decode("pil"),
-    wds.to_tuple("png", "json"),
-    wds.map(preprocess),
-    wds.shuffle(1000),
-    wds.batched(16)
-)
+#%%
+dataloader = wds.WebLoader(
+        dataset,
+        batch_size=None,
+        shuffle=False,
+        pin_memory=True,
+        num_workers=4,
+        drop_last=False,
+        persistent_workers=True,
+    )
+
+#%%
+for batch in dataloader:
+    audio_path, text_path, padded_audio_arr, audio_input, text_input, text_y, padding_mask = batch
+    break
+
+#%%
+# tested this with dataloader - didn't return just 10 samples per epoch (buggy?)
+dataset.with_epoch(10)
