@@ -41,23 +41,34 @@ def write_to_tar(segment_shards: List[Tuple]) -> None:
                 f.write(f"{shard_idx}: {len(segments)}\n") 
 
     shutil.move(tar_path, os.path.join(TARS_PATH, tar_name))
-    os.remove(tar_path)
-
-
-def preprocess(data_shard_path: str, num_output_shards: int = 25) -> None:
+def preprocess(
+    job_batch_idx: int, job_idx: int, data_shard_path: str, num_output_shards: int = 30, in_memory: bool = True
+) -> None:
+    if not os.path.exists(data_shard_path):
+        print(f"{data_shard_path} does not exist, do not proceed to preprocess to webdataset shards")
+        return None
+    
     print(f"Preprocessing {data_shard_path} with {num_output_shards} output shards")
     log_dir = "logs/data/preprocess"
     os.makedirs(TARS_PATH, exist_ok=True)
     audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
     transcript_files = sorted(glob.glob(data_shard_path + "/*/*.srt"))
+    data_shard_idx = int(data_shard_path.split("/")[-1])
 
     print(f"{len(audio_files)} audio files")
     print(f"{len(transcript_files)} transcript files")
 
     if len(audio_files) != len(transcript_files):
-        with open(os.path.join(log_dir, "uneven_data_shards.txt"), "a") as f:
-            f.write(f"{data_shard_path}\t{len(audio_files)}\t{len(transcript_files)}\n")
+        with open(
+            os.path.join(LOG_DIR, f"uneven_data_shards_{job_batch_idx}.txt"), "a"
+        ) as f:
+            f.write(f"{data_shard_idx}\t{len(audio_files)}\t{len(transcript_files)}\n")
         return None
+
+    with open(
+        os.path.join(LOG_DIR, f"processing_data_shards_{job_batch_idx}.txt"), "a"
+    ) as f:
+        f.write(f"{job_idx}\t{data_shard_path}\n")
 
     # Chunk the audio and transcript files
     with TemporaryDirectory() as data_shard_temp_dir:    
