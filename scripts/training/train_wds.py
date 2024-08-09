@@ -1715,6 +1715,7 @@ def main(
     run_id: Optional[str] = None,
     ckpt_file_name: Optional[str] = None,
     log_dir: str = "logs",
+    eval_dir: str = "data/eval",
     rank: Optional[int] = None,
     world_size: Optional[int] = None,
     lr: float = 1.5e-3,
@@ -1810,7 +1811,7 @@ def main(
     eval_sets = ["librispeech_clean", "librispeech_other"]
     eval_loaders = []
     for eval_set in eval_sets:
-        eval_dataset = EvalDataset(eval_set=eval_set)
+        eval_dataset = EvalDataset(eval_set=eval_set, eval_dir=eval_dir)
 
         eval_dataloader = DataLoader(
             eval_dataset,
