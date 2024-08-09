@@ -1583,6 +1583,7 @@ def validate(
                     exp_name=exp_name,
                     run_id=run_id,
                     file_name="best_val",
+                    log_dir=log_dir,
                 )
 
     return best_val_loss, val_res_added
