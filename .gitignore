@@ -12,5 +12,4 @@ whisper
 data
 checkpoints
 *.out
-demo
 logs/training
