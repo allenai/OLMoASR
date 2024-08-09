@@ -23,3 +23,6 @@ moviepy
 fastparquet
 openai-whisper
 webdataset
+wget
+transformers
+IPython
