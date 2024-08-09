@@ -12,6 +12,7 @@ import librosa
 from fire import Fire
 from tqdm import tqdm
 from torchaudio.datasets import TEDLIUM
+from scripts.eval.get_eval_set import get_eval_set
 
 
 class Librispeech:
@@ -120,31 +121,64 @@ class EvalDataset(Dataset):
         eval_dir: str = "data/eval",
     ):
         if eval_set == "librispeech_clean":
+            root_dir = f"{eval_dir}/librispeech_test_clean"
+            if not os.path.exists(root_dir):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
             self.dataset = Librispeech(
-                root_dir=f"{eval_dir}/librispeech_test_clean"
-            )
+                root_dir=root_dir)
         elif eval_set == "librispeech_other":
+            root_dir = f"{eval_dir}/librispeech_test_other"
+            if not os.path.exists(root_dir):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
             self.dataset = Librispeech(
-                root_dir=f"{eval_dir}/librispeech_test_other")
+                root_dir=root_dir)
         elif eval_set == "artie_bias_corpus":
+            root_dir = f"{eval_dir}/artie-bias-corpus"
+            if not os.path.exists(root_dir):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
             self.dataset = ArtieBiasCorpus(
-                root_dir=f"{eval_dir}/artie-bias-corpus")
+                root_dir=root_dir)
         elif eval_set == "fleurs":
-            self.dataset = Fleurs(root_dir=f"{eval_dir}/fleurs")
+            root_dir = f"{eval_dir}/fleurs"
+            if not os.path.exists(root_dir):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+                
+            self.dataset = Fleurs(root_dir=root_dir)
         elif eval_set == "tedlium":
+            if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
             self.dataset = TEDLIUM(root=f"{eval_dir}", release="release3", subset="test")
         elif eval_set == "voxpopuli":
-            self.dataset = VoxPopuli(root_dir=f"{eval_dir}/voxpopuli")
+            root_dir = f"{eval_dir}/voxpopuli"
+            if not os.path.exists(root_dir):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+            self.dataset = VoxPopuli(root_dir=root_dir)
         elif eval_set == "common_voice":
+            if not os.path.exists(f"{eval_dir}/mozilla-foundation/common_voice_5_1"):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir, hf_token=hf_token)
+
             self.dataset = load_dataset(
                 path="mozilla-foundation/common_voice_5_1",
                 name="en",
                 token=hf_token,
                 split="test",)
         elif eval_set == "ami_ihm":
-            self.dataset = AMI(root_dir=f"{eval_dir}/ami/ihm")
+            root_dir = f"{eval_dir}/ami/ihm"
+            if not os.path.exists(root_dir):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+            self.dataset = AMI(root_dir=root_dir)
         elif eval_set == "ami_sdm":
-            self.dataset = AMI(root_dir=f"{eval_dir}/ami/sdm")        
+            root_dir = f"{eval_dir}/ami/sdm"
+            if not os.path.exists(root_dir):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+            self.dataset = AMI(root_dir=root_dir)        
 
         self.eval_set = eval_set
 
