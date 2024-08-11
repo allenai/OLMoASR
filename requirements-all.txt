@@ -9,7 +9,6 @@ pysrt
 pytest
 regex
 scipy
-tiktoken
 torch
 torchaudio
 tqdm
@@ -23,6 +22,5 @@ moviepy
 fastparquet
 openai-whisper
 webdataset
-wget
 transformers
 IPython

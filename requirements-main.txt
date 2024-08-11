@@ -1,0 +1,15 @@
+datasets
+fire
+jiwer
+pysrt
+regex
+scipy
+torch
+torchaudio
+tqdm
+webvtt_py
+wandb
+tiktoken
+numpy
+openai-whisper
+webdataset

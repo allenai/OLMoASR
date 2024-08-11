@@ -1,0 +1,11 @@
+fastparquet
+transformers
+IPython
+langdetect
+moviepy
+seaborn
+yt-dlp
+pytest
+librosa
+pandas
+pydub
