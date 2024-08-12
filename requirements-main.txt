@@ -14,3 +14,4 @@ numpy
 openai-whisper
 webdataset
 soundfile
+wget
