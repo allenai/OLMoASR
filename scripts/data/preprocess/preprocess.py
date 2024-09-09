@@ -76,16 +76,12 @@ def preprocess(
     with TemporaryDirectory() as data_shard_temp_dir:
         print("Chunking audio and transcript files")
         start = time.time()
-        with multiprocessing.Pool() as pool:
-            out = list(
+        with multiprocessing.Pool(multiprocessing.cpu_count() * 7) as pool:
+            segments_group = list(
                 tqdm(
                     pool.imap_unordered(
                         parallel_chunk_audio_transcript,
-                        zip(
-                            transcript_files,
-                            audio_files,
-                            repeat(data_shard_temp_dir)
-                        ),
+                        zip(transcript_files, audio_files, repeat(data_shard_temp_dir), repeat(in_memory)),
                     ),
                     total=len(transcript_files),
                 )
