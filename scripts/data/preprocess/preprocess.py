@@ -27,7 +27,9 @@ def split_list(data_shard_idx: int, lst: List, n: int) -> List[Tuple]:
     ]
 
 
-def write_to_tar(segment_shards: List[Tuple]) -> None:
+def write_to_tar(
+    job_batch_idx: int, job_idx: int, data_shard_idx: int, segment_shards: List[Tuple]
+) -> None:
     segments, shard_idx = segment_shards
     tar_name = f"{shard_idx:06}.tar"
 
@@ -71,7 +73,7 @@ def preprocess(
         f.write(f"{job_idx}\t{data_shard_path}\n")
 
     # Chunk the audio and transcript files
-    with TemporaryDirectory() as data_shard_temp_dir:    
+    with TemporaryDirectory() as data_shard_temp_dir:
         print("Chunking audio and transcript files")
         start = time.time()
         with multiprocessing.Pool() as pool:
