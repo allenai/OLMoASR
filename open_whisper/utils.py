@@ -1,14 +1,11 @@
 from datetime import datetime, timedelta
 import re
-import os
-import numpy as np
-import shutil
+from typing import Dict, Union, Tuple, List, Optional, Literal
 import subprocess
 from subprocess import CalledProcessError
-from typing import Dict, Union, Tuple, List, Optional, Literal
+import numpy as np
 import pysrt
 import webvtt
-from pydub import AudioSegment
 import jiwer
 from whisper.normalizers import BasicTextNormalizer, EnglishTextNormalizer
 from whisper import utils, load_audio
