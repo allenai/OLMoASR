@@ -6,8 +6,8 @@ git clone https://github.com/huongngo-8/open_whisper.git
 cd open_whisper
 ```
 
-If you are installing packages with the requirements.txt file, you should just run after cloning the repo 
-`pip install -r scripts/data/data_transfer/requirements.txt`
+If you are installing packages with the requirements-data-transfer.txt file, you should just run after cloning the repo 
+`pip install -r scripts/data/data_transfer/requirements-data-transfer.txt`
 
 Otherwise, follow the steps below. 
 

@@ -8,7 +8,7 @@ import jiwer
 from whisper import audio, DecodingOptions
 from whisper.normalizers import EnglishTextNormalizer
 from open_whisper import load_model
-import librosa
+import torchaudio
 from fire import Fire
 from tqdm import tqdm
 from torchaudio.datasets import TEDLIUM
@@ -197,20 +197,21 @@ class EvalDataset(Dataset):
         audio_arr = ""
 
         if self.eval_set == "tedlium":
-            waveform, sample_rate, text_y, *_ = self.dataset[index]
+            waveform, _, text_y, *_ = self.dataset[index]
             audio_arr = audio.pad_or_trim(waveform[0])
             audio_input = audio.log_mel_spectrogram(audio_arr)
         elif self.eval_set == "common_voice":
-            raw_audio = self.dataset[index]["audio"]["array"]
+            waveform = self.dataset[index]["audio"]["array"]
             sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
             text_y = self.dataset[index]["sentence"]
 
             if sampling_rate != 16000:
-                raw_audio = librosa.resample(
-                    raw_audio, orig_sr=sampling_rate, target_sr=16000
+                resampler = torchaudio.transforms.Resample(
+                    orig_freq=sampling_rate, new_freq=16000
                 )
+                waveform = resampler(waveform)
 
-            audio_arr = audio.pad_or_trim(raw_audio)
+            audio_arr = audio.pad_or_trim(waveform)
             audio_arr = audio_arr.astype(np.float32)
             audio_input = audio.log_mel_spectrogram(audio_arr)
         else:

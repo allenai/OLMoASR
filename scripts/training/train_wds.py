@@ -1139,6 +1139,7 @@ def train(
                         tags=tags if rank == 0 else None,
                         exp_name=exp_name if rank == 0 else None,
                         run_id=run_id if rank == 0 else None,
+                        log_dir=log_dir,
                     )
 
                 if (
@@ -1167,6 +1168,7 @@ def train(
                         tags=tags if rank == 0 else None,
                         exp_name=exp_name if rank == 0 else None,
                         run_id=run_id if rank == 0 else None,
+                        log_dir=log_dir,
                     )
 
                 if (
