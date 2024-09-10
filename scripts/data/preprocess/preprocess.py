@@ -9,10 +9,14 @@ import time
 import multiprocessing
 from fire import Fire
 from tempfile import TemporaryDirectory, NamedTemporaryFile
-from itertools import repeat
+from itertools import repeat, chain
 import numpy as np
+from io import BytesIO
 
 TARS_PATH = "/mmfs1/gscratch/efml/hvn2002/ow_440K_wds"
+LOG_DIR = "logs/data/preprocess"
+CUSTOM_TEMP_DIR = "/mmfs1/gscratch/efml/hvn2002/temp_dir"
+
 
 def split_list(data_shard_idx: int, lst: List, n: int) -> List[Tuple]:
     rng = np.random.default_rng(42)
@@ -33,16 +37,41 @@ def write_to_tar(
     segments, shard_idx = segment_shards
     tar_name = f"{shard_idx:06}.tar"
 
-    with NamedTemporaryFile(delete=False, suffix=".tar") as temp_tar:
+    with NamedTemporaryFile(delete=False, suffix=".tar", dir=CUSTOM_TEMP_DIR) as temp_tar:
         tar_path = temp_tar.name
 
         with tarfile.open(tar_path, "w") as tar:
-            for path in tqdm(segments, total=len(segments)):
-                tar.add(path, arcname=path.split("/")[-2])
+            for paths_data in tqdm(segments, total=len(segments)):
+                t_output_file, transcript_string, a_output_file, audio_arr = paths_data
+                # Adding transcript to tar
+                transcript_buffer = BytesIO()
+                transcript_buffer.write(transcript_string.encode('utf-8'))
+                transcript_buffer.seek(0)
+                tarinfo_transcript = tarfile.TarInfo(name="/".join(t_output_file.split("/")[-2:]))
+                tarinfo_transcript.size = transcript_buffer.getbuffer().nbytes
+                tar.addfile(tarinfo_transcript, transcript_buffer)
+
+                # Adding audio array to tar
+                audio_buffer = BytesIO()
+                np.save(audio_buffer, audio_arr)
+                audio_buffer.seek(0)
+                tarinfo_audio = tarfile.TarInfo(name="/".join(a_output_file.split("/")[-2:]))
+                tarinfo_audio.size = audio_buffer.getbuffer().nbytes
+                tar.addfile(tarinfo_audio, audio_buffer)
             with open("logs/data/preprocess/num_files.txt", "a") as f:
-                f.write(f"{shard_idx}: {len(segments)}\n") 
+                f.write(f"{shard_idx}: {len(segments)}\n")
 
     shutil.move(tar_path, os.path.join(TARS_PATH, tar_name))
+
+    with open(
+        os.path.join(LOG_DIR, f"completed_tars_{job_batch_idx}.txt"), "a"
+    ) as f:
+        f.write(f"{job_idx}\t{data_shard_idx}\t{tar_name}\n")
+
+
+def parallel_write_to_tar(args):
+    return write_to_tar(*args)
+
 def preprocess(
     job_batch_idx: int, job_idx: int, data_shard_path: str, num_output_shards: int = 30, in_memory: bool = True
 ) -> None:
