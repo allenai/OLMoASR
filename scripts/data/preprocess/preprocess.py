@@ -133,18 +133,32 @@ def preprocess(
         with multiprocessing.Pool() as pool:
             out = list(
                 tqdm(
-                    pool.imap_unordered(write_to_tar, segment_shards),
+                    pool.imap_unordered(
+                        parallel_write_to_tar,
+                        zip(
+                            repeat(job_batch_idx),
+                            repeat(job_idx),
+                            repeat(data_shard_idx),
+                            segment_shards,
+                        ),
+                    ),
                     total=len(segment_shards),
                 )
             )
         print(
             f"Time taken to write to {num_output_shards} tar files: {time.time() - start}"
         )
-    
-    print(f"Completed processing data shard {data_shard_path}, cleaning up now")
+
     start = time.time()
     shutil.rmtree(data_shard_path)
     print(f"Time taken to clean up: {time.time() - start}")
+
+    print(f"Completed processing data shard {data_shard_path}, cleaning up now")
+    with open(
+        os.path.join(LOG_DIR, f"completed_data_shards_{job_batch_idx}.txt"), "a"
+    ) as f:
+        f.write(f"{job_idx}\t{data_shard_path}\n")
+
 
 if __name__ == "__main__":
     Fire(preprocess)
