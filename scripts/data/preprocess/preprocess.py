@@ -98,7 +98,7 @@ def preprocess(
         data_shard_idx = int(data_shard_path.split("/")[-1])
         segments_list = list(chain(*segments_group))
         segment_shards = split_list(
-            data_shard_idx=data_shard_idx, lst=segment_files, n=num_output_shards
+            data_shard_idx=data_shard_idx, lst=segments_list, n=num_output_shards
         )
 
         with multiprocessing.Pool() as pool:
