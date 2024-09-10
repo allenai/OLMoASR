@@ -86,6 +86,8 @@ def preprocess(
                     total=len(transcript_files),
                 )
             )
+        print(segments_group[:5])
+        segments_group = [group for group in segments_group if group is not None]
         print(f"Time taken to segment: {time.time() - start}")
 
         # Write the data to tar files
