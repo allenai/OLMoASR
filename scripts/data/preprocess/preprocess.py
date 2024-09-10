@@ -17,7 +17,7 @@ TARS_PATH = "/mmfs1/gscratch/efml/hvn2002/ow_440K_wds"
 def split_list(data_shard_idx: int, lst: List, n: int) -> List[Tuple]:
     rng = np.random.default_rng(42)
     rng.shuffle(lst)
-    start_shard_idx = data_shard_idx + (n * data_shard_idx)
+    start_shard_idx = data_shard_idx + ((n - 1) * data_shard_idx)
     # Calculate size of each portion
     k, m = divmod(len(lst), n)
     # Create each portion and append to the result
