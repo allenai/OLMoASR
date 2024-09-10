@@ -87,6 +87,8 @@ def preprocess(
                 )
             )
         print(segments_group[:5])
+        # segments group is [[(t_output_file, transcript_string, a_output_file, audio_arr), ...], ...] 
+        # where each inner list is a group of segments from one audio-transcript file, and each tuple is a segment
         segments_group = [group for group in segments_group if group is not None]
         print(f"Time taken to segment: {time.time() - start}")
 
@@ -94,7 +96,7 @@ def preprocess(
         print("Writing data to tar files")
         start = time.time()
         data_shard_idx = int(data_shard_path.split("/")[-1])
-        segment_files = glob.glob(data_shard_temp_dir + "/*/*")
+        segments_list = list(chain(*segments_group))
         segment_shards = split_list(
             data_shard_idx=data_shard_idx, lst=segment_files, n=num_output_shards
         )
