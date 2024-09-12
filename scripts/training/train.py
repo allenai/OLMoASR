@@ -1,5 +1,6 @@
 import os
 import glob
+import json
 import numpy as np
 import wandb
 from typing import List, Tuple, Union, Optional, Dict
@@ -1584,7 +1585,7 @@ def main(
     model_variant: str,
     exp_name: str,
     job_type: str,
-    segs_dirs_file: str,
+    samples_dicts_file: str,
     train_steps: int,
     run_id: Optional[str] = None,
     ckpt_file_name: Optional[str] = None,
@@ -1653,12 +1654,10 @@ def main(
     normalizer = EnglishTextNormalizer()
     n_text_ctx = model_dims.n_text_ctx
 
-    # generate samples dicts
-    smpls_dicts_gen = SampleGenerator(segs_dirs_file=segs_dirs_file)
-    samples_dicts = smpls_dicts_gen.gen_smpl_dicts()
-    print(len(samples_dicts))
-    print(samples_dicts[:2])
-
+    # load samples dicts
+    with open(samples_dicts_file, "r") as f:
+        samples_dicts = [json.loads(line) for line in f]
+        
     # prepare dataset
     train_dataloader, val_dataloader = prepare_data(
         rank=rank,
