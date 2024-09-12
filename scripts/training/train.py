@@ -1656,6 +1656,8 @@ def main(
     # generate samples dicts
     smpls_dicts_gen = SampleGenerator(segs_dirs_file=segs_dirs_file)
     samples_dicts = smpls_dicts_gen.gen_smpl_dicts()
+    print(len(samples_dicts))
+    print(samples_dicts[:2])
 
     # prepare dataset
     train_dataloader, val_dataloader = prepare_data(
