@@ -212,7 +212,7 @@ def prepare_dataloader(
         persistent_workers=persistent_workers,
     )
 
-    return sampler, dataloader
+    return dataloader
 
 
 def prepare_data(
@@ -228,7 +228,7 @@ def prepare_data(
     num_workers: int = 0,
     persistent_workers: bool = True,
     subset: Union[int, None] = None,
-) -> Tuple[DistributedSampler, DataLoader, DistributedSampler, DataLoader]:
+) -> Tuple[DataLoader, DataLoader]:
     """Prepares the data for training
 
     Given the list of audio and transcript files, prepares the distributed sampler and dataloader for training and validation
@@ -250,7 +250,7 @@ def prepare_data(
         subset: The subset of the data to use
 
     Returns:
-        A tuple containing the distributed sampler and dataloader for training and validation
+        A tuple containing the dataloaders for training and validation
     """
     if subset is not None:
         rng = np.random.default_rng(seed=42)
@@ -274,7 +274,7 @@ def prepare_data(
     )
 
     # prepare the dataloaders
-    train_sampler, train_dataloader = prepare_dataloader(
+    train_dataloader = prepare_dataloader(
         dataset=train_dataset,
         rank=rank,
         world_size=world_size,
@@ -285,7 +285,7 @@ def prepare_data(
         persistent_workers=persistent_workers,
     )
 
-    val_sampler, val_dataloader = prepare_dataloader(
+    val_dataloader = prepare_dataloader(
         dataset=val_dataset,
         rank=rank,
         world_size=world_size,
@@ -296,7 +296,7 @@ def prepare_data(
         persistent_workers=persistent_workers,
     )
 
-    return train_sampler, train_dataloader, val_sampler, val_dataloader
+    return train_dataloader, val_dataloader
 
 
 def prepare_optim(
@@ -347,7 +347,6 @@ def prepare_sched(
         world_size: The total number of processes
         train_batch_size: The batch size for training
         eff_batch_size: The effective train batch size
-        epochs: The number of epochs
         optimizer: The optimizer for training
 
     Returns:
@@ -486,7 +485,7 @@ def save_ckpt(
 ) -> None:
     """Save model (DDP) checkpoint
 
-    Saves non-DDP and DDP model checkpoints to checkpoints/{exp_name}_{run_id} directory in the format of {file_name}_{epoch}_{model_variant}_{tags}_{ddp}.pt
+    Saves non-DDP and DDP model checkpoints to checkpoints/{exp_name}_{run_id} directory in the format of {file_name}_{model_variant}_{tags}_{ddp}.pt
 
     Args:
         current_step: The current step
@@ -565,13 +564,12 @@ def load_ckpt(
         run_id: The run ID
         rank: The rank of the current process
         world_size: The world size
-        epochs: The number of epochs
         train_batch_size: The batch size for training.
         eff_size: The effective size
         train_dataloader: The training dataloader
 
     Returns:
-        A tuple containing the current epoch, the best validation loss, the model, the optimizer, the gradient scaler,
+        A tuple containing the current step, the best validation loss, the model, the optimizer, the gradient scaler,
         the scheduler, the number of steps over which to accumulate gradients, the number of warmup steps, and the total number of steps
     """
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
@@ -622,10 +620,8 @@ def load_ckpt(
 
 def train(
     rank: int,
-    epoch: int,
     current_step: int,
     train_batch_size: int,
-    train_sampler: DistributedSampler,
     train_dataloader: DataLoader,
     train_steps: int,
     scaler: GradScaler,
@@ -639,7 +635,6 @@ def train(
     train_res: Optional[wandb.Artifact],
     train_res_added: Optional[bool],
     run_val: bool,
-    val_sampler: Optional[DistributedSampler],
     val_dataloader: Optional[DataLoader],
     model_dims: Optional[ModelDimensions],
     model_variant: Optional[str],
@@ -668,9 +663,7 @@ def train(
 
     Args:
         rank: The rank of the current process
-        epoch: The current epoch number
         train_batch_size: The batch size for training
-        train_sampler: The distributed sampler for training
         train_dataloader: The dataloader for training
         scaler: The gradient scaler
         model: The model to train
@@ -696,7 +689,6 @@ def train(
     batch_audio_arr = []
     logging_steps = (train_batch_size * accumulation_steps) // WANDB_EXAMPLES
     total_loss = 0.0
-    train_sampler.set_epoch(epoch)
     model.train()
     optimizer.zero_grad()
 
@@ -747,7 +739,7 @@ def train(
         # alerting if loss is nan
         if rank == 0:
             if torch.isnan(train_loss):
-                text = f"Loss is NaN for {audio_files} at epoch {epoch} and batch {batch_idx}!"
+                text = f"Loss is NaN for {audio_files} at step {current_step}!"
                 wandb.alert(title="NaN Loss", text=text)
 
         probs = F.softmax(logits, dim=-1)
@@ -990,7 +982,7 @@ def train(
                             wer,
                         )
 
-                    wandb.log({f"train_table_{epoch}": train_table})
+                    wandb.log({f"train_table_{current_step}": train_table})
                     train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
 
             # validation
@@ -1002,7 +994,6 @@ def train(
                         rank=rank,
                         current_step=current_step,
                         best_val_loss=best_val_loss,
-                        val_sampler=val_sampler,
                         val_dataloader=val_dataloader,
                         scaler=scaler,
                         model=model,
@@ -1220,10 +1211,8 @@ def train(
 
 def validate(
     rank: int,
-    epoch: int,
     current_step: int,
     best_val_loss: float,
-    val_sampler: DistributedSampler,
     val_dataloader: DataLoader,
     scaler: GradScaler,
     model: DDP,
@@ -1244,9 +1233,7 @@ def validate(
 
     Args:
         rank: The rank of the current process
-        epoch: The current epoch number
         best_val_loss: The best validation loss
-        val_sampler: The distributed sampler for validation
         val_dataloader: The dataloader for validation
         scaler: The gradient scaler
         model: The model to validate
@@ -1265,7 +1252,6 @@ def validate(
     Returns:
         A tuple containing the best validation loss and a boolean indicating whether the validation results artifact has been added
     """
-    val_sampler.set_epoch(epoch)
     val_loss = 0.0
     ave_val_loss = torch.tensor(0.0, device=rank)
     val_steps = 0
@@ -1498,7 +1484,6 @@ def evaluate(
 
     Args:
         rank: The rank of the current process
-        epoch: The current epoch number
         eval_batch_size: The batch size for evaluation
         num_workers: The number of workers for the dataloader
         model: The model to evaluate
@@ -1627,7 +1612,7 @@ def main(
 ) -> None:
     """Main function for training
 
-    Conducts a training loop for the specified number of epochs, with validation and evaluation (if run_eval is True)
+    Conducts a training loop for the specified number of steps, with validation and evaluation (if run_eval is True)
 
     Args:
         model_variant: The variant of the model to use
@@ -1643,7 +1628,6 @@ def main(
         weight_decay: The weight decay for the optimizer
         max_grad_norm: The maximum gradient norm
         subset: The subset of the dataset to use
-        epochs: The number of epochs to train for
         eff_size: The size of the efficientnet model
         train_batch_size: The batch size for training
         val_batch_size: The batch size for validation
@@ -1674,7 +1658,7 @@ def main(
     samples_dicts = smpls_dicts_gen.gen_smpl_dicts()
 
     # prepare dataset
-    train_sampler, train_dataloader, val_sampler, val_dataloader = prepare_data(
+    train_dataloader, val_dataloader = prepare_data(
         rank=rank,
         world_size=world_size,
         samples_dicts=samples_dicts,
@@ -1787,10 +1771,8 @@ def main(
             val_res_added,
         ) = train(
             rank=rank,
-            epoch=epoch,
             current_step=current_step,
             train_batch_size=train_batch_size,
-            train_sampler=train_sampler,
             train_dataloader=train_dataloader,
             train_steps=train_steps,
             scaler=scaler,
@@ -1804,7 +1786,6 @@ def main(
             train_res=train_res if rank == 0 else None,
             train_res_added=train_res_added if rank == 0 else None,
             run_val=run_val,
-            val_sampler=val_sampler,
             val_dataloader=val_dataloader,
             model_dims=model_dims,
             model_variant=model_variant,
@@ -1841,10 +1822,8 @@ def main(
         if run_val:
             best_val_loss, val_res_added = validate(
                 rank=rank,
-                epoch=epoch,
                 current_step=current_step,
                 best_val_loss=best_val_loss,
-                val_sampler=val_sampler,
                 val_dataloader=val_dataloader,
                 scaler=scaler,
                 model=model,
