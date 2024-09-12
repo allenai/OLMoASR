@@ -1658,6 +1658,9 @@ def main(
     with open(samples_dicts_file, "r") as f:
         samples_dicts = [json.loads(line) for line in f]
         
+    print(len(samples_dicts))
+    print(samples_dicts[:2])
+    
     # prepare dataset
     train_dataloader, val_dataloader = prepare_data(
         rank=rank,
