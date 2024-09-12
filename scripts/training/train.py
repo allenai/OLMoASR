@@ -96,10 +96,10 @@ class AudioTextDataset(Dataset):
             A tuple containing the name of audio file and the log mel spectrogram
         """
         audio_arr = np.load(audio_file).astype(np.float32) / 32768.0
-        padded_audio_arr = audio.pad_or_trim(audio_arr)
+        audio_arr = audio.pad_or_trim(audio_arr)
         mel_spec = audio.log_mel_spectrogram(audio_arr)
 
-        return mel_spec, padded_audio_arr
+        return mel_spec, audio_arr 
 
     def preprocess_text(
         self, transcript_file: str, tokenizer: whisper.tokenizer.Tokenizer
