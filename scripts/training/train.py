@@ -66,8 +66,8 @@ class AudioTextDataset(Dataset):
         tokenizer = get_tokenizer(multilingual=False)
 
         sample_dict = self.samples[index]
-        audio_file = "/".join([sample_dict["key"], sample_dict["npy"]])
-        transcript_file = "/".join([sample_dict["key"], sample_dict["srt"]])
+        audio_file = sample_dict["npy"]
+        transcript_file = sample_dict["srt"]
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
         text_input, text_y, padding_mask = self.preprocess_text(
             transcript_file, tokenizer
