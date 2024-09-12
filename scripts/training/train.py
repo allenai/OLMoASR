@@ -2,7 +2,7 @@ import os
 import glob
 import numpy as np
 import wandb
-from typing import List, Tuple, Union, Optional, Literal
+from typing import List, Tuple, Union, Optional, Dict
 import time
 import jiwer
 from fire import Fire
@@ -29,6 +29,7 @@ import open_whisper as ow
 
 from scripts.eval.eval import EvalDataset
 from scripts.training import for_logging
+from scripts.data.filtering.gen_smpls_dicts import SampleGenerator
 
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"
@@ -49,16 +50,14 @@ class AudioTextDataset(Dataset):
 
     def __init__(
         self,
-        audio_files: List,
-        transcript_files: List,
+        samples: List[Dict],
         n_text_ctx: int,
     ):
-        self.audio_files = sorted(audio_files)
-        self.transcript_files = sorted(transcript_files)
+        self.samples = samples
         self.n_text_ctx = n_text_ctx
 
     def __len__(self):
-        return len(self.audio_files)
+        return len(self.samples)
 
     def __getitem__(
         self, index
@@ -66,14 +65,18 @@ class AudioTextDataset(Dataset):
         # not sure if putting it here is bad...
         tokenizer = get_tokenizer(multilingual=False)
 
-        audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
-        transcript_file, text_input, text_y, padding_mask = self.preprocess_text(
-            self.transcript_files[index], tokenizer
+        sample_dict = self.samples[index]
+        audio_file = "/".join([sample_dict["key"], sample_dict["npy"]])
+        transcript_file = "/".join([sample_dict["key"], sample_dict["srt"]])
+        audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
+        text_input, text_y, padding_mask = self.preprocess_text(
+            transcript_file, tokenizer
         )
 
         return (
             audio_file,
             transcript_file,
+            padded_audio_arr,
             audio_input,
             text_input,
             text_y,
@@ -92,10 +95,10 @@ class AudioTextDataset(Dataset):
             A tuple containing the name of audio file and the log mel spectrogram
         """
         audio_arr = np.load(audio_file).astype(np.float32) / 32768.0
-        audio_arr = audio.pad_or_trim(audio_arr)
+        padded_audio_arr = audio.pad_or_trim(audio_arr)
         mel_spec = audio.log_mel_spectrogram(audio_arr)
 
-        return mel_spec, audio_arr
+        return mel_spec, padded_audio_arr
 
     def preprocess_text(
         self, transcript_file: str, tokenizer: whisper.tokenizer.Tokenizer
@@ -215,8 +218,7 @@ def prepare_dataloader(
 def prepare_data(
     rank: int,
     world_size: int,
-    audio_files_train: List,
-    transcript_files_train: List,
+    samples_dicts: List[Dict],
     train_val_split: int,
     train_batch_size: int,
     val_batch_size: int,
@@ -252,18 +254,13 @@ def prepare_data(
     """
     if subset is not None:
         rng = np.random.default_rng(seed=42)
-        start_idx = rng.choice(range(len(audio_files_train) - subset))
+        start_idx = rng.choice(range(len(samples_dicts) - subset))
 
     audio_text_dataset = AudioTextDataset(
-        audio_files=(
-            audio_files_train
+        samples=(
+            samples_dicts
             if subset is None
-            else audio_files_train[start_idx : start_idx + subset]
-        ),
-        transcript_files=(
-            transcript_files_train
-            if subset is None
-            else transcript_files_train[start_idx : start_idx + subset]
+            else samples_dicts[start_idx : start_idx + subset]
         ),
         n_text_ctx=n_text_ctx,
     )
@@ -1602,8 +1599,7 @@ def main(
     model_variant: str,
     exp_name: str,
     job_type: str,
-    audio_files_train: List[str],
-    transcript_files_train: List[str],
+    segs_dirs_file: str,
     train_steps: int,
     run_id: Optional[str] = None,
     ckpt_file_name: Optional[str] = None,
@@ -1673,12 +1669,15 @@ def main(
     normalizer = EnglishTextNormalizer()
     n_text_ctx = model_dims.n_text_ctx
 
+    # generate samples dicts
+    smpls_dicts_gen = SampleGenerator(segs_dirs_file=segs_dirs_file)
+    samples_dicts = smpls_dicts_gen.gen_smpl_dicts()
+
     # prepare dataset
     train_sampler, train_dataloader, val_sampler, val_dataloader = prepare_data(
         rank=rank,
         world_size=world_size,
-        audio_files_train=audio_files_train,
-        transcript_files_train=transcript_files_train,
+        samples_dicts=samples_dicts,
         train_val_split=train_val_split,
         train_batch_size=train_batch_size,
         val_batch_size=val_batch_size,
@@ -1754,7 +1753,6 @@ def main(
 
     # setting up wandb for logging
     if rank == 0:
-
         run_id, tags, train_res, val_res, train_res_added, val_res_added = setup_wandb(
             run_id=run_id,
             exp_name=exp_name,
@@ -1839,6 +1837,7 @@ def main(
                 file_name="latest_train",
                 log_dir=log_dir,
             )
+
         if run_val:
             best_val_loss, val_res_added = validate(
                 rank=rank,
@@ -1866,6 +1865,7 @@ def main(
             print(f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}")
             dist.barrier()
             print(f"Rank {rank} passing barrier w/ best val loss {best_val_loss}")
+
         if run_eval:
             print(f"Evaluation after epoch at {current_step=} on rank {rank}")
             evaluate(
@@ -1885,6 +1885,7 @@ def main(
             print(f"Rank {rank} reaching barrier")
             dist.barrier()
             print(f"Rank {rank} passing barrier")
+
     cleanup()
 
 
