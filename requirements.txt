@@ -24,4 +24,3 @@ openai-whisper
 webdataset
 transformers
 IPython
-wget
