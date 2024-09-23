@@ -1,12 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=ow_tiny
+#SBATCH --output=slurm_job_output/ow_tiny_%A_%a.out
 #SBATCH --partition=gpu-a40
 #SBATCH --account=efml
 #SBATCH --nodes=1
-#SBATCH --mem=180G
-#SBATCH --gres=gpu:5
-#SBATCH --cpus-per-gpu=9
-#SBATCH --time=120:00:00
+#SBATCH --mem=100G
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-gpu=4
+#SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=hvn2002@uw.edu
 
@@ -18,11 +19,11 @@ cd /mmfs1/gscratch/efml/hvn2002/open_whisper
 cat $0
 echo "--------------------"
 
-torchrun --nnodes 1 --nproc_per_node 5 scripts/training/train.py \
+torchrun --nnodes 1 --nproc_per_node 1 scripts/training/train.py \
     --model_variant=tiny \
     --exp_name=ow_tiny \
     --job_type=train \
-    --filter=baseline \
+    --data_shard_idx=0 \
     --run_id=None \
     --rank=None \
     --world_size=None \
@@ -32,14 +33,15 @@ torchrun --nnodes 1 --nproc_per_node 5 scripts/training/train.py \
     --weight_decay=0.1 \
     --max_grad_norm=1.0 \
     --subset=None \
-    --epochs=8 \
+    --epochs=10 \
     --eff_size=256 \
-    --train_batch_size=32 \
-    --val_batch_size=32 \
-    --eval_batch_size=32 \
-    --train_val_split=0.99 \
-    --num_workers=45 \
+    --train_batch_size=8 \
+    --val_batch_size=8 \
+    --eval_batch_size=8 \
+    --train_val_split=1 \
+    --num_workers=4 \
     --pin_memory=True \
     --shuffle=True \
     --persistent_workers=True \
-    --run_eval=True
+    --run_val=False \
+    --run_eval=False
