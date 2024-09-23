@@ -1023,6 +1023,7 @@ def train(
                         exp_name=exp_name if rank == 0 else None,
                         run_id=run_id if rank == 0 else None,
                         log_dir=log_dir,
+                        ckpt_dir=ckpt_dir,
                     )
 
                 if (
@@ -1033,7 +1034,7 @@ def train(
                     )
                 dist.barrier()
                 if (
-                    current_step % (int(np.ceil(train_steps / 200)))
+                    current_step % (int(np.ceil(train_steps / 100)))
                 ) == 0 and current_step > 0:
                     print(
                         f"Rank {rank} passing barrier w/ best val loss {best_val_loss}"
