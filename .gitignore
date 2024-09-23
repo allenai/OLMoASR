@@ -9,7 +9,8 @@ wandb
 *.pex
 .pexing
 whisper
-data
+data/eval
+data/untrainable
 checkpoints
 *.out
 logs/training
