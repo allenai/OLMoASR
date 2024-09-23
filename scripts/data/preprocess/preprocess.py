@@ -80,7 +80,6 @@ def preprocess(
         return None
     
     print(f"Preprocessing {data_shard_path} with {num_output_shards} output shards")
-    log_dir = "logs/data/preprocess"
     os.makedirs(TARS_PATH, exist_ok=True)
     audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
     transcript_files = sorted(glob.glob(data_shard_path + "/*/*.srt"))
