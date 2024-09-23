@@ -8,6 +8,8 @@ import time
 import jiwer
 from fire import Fire
 from tqdm import tqdm
+import multiprocessing
+from itertools import chain
 
 import torch
 import torch.nn.functional as F
@@ -30,7 +32,6 @@ import open_whisper as ow
 
 from scripts.eval.eval import EvalDataset
 from scripts.training import for_logging
-from scripts.data.filtering.gen_smpls_dicts import SampleGenerator
 
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"
@@ -99,7 +100,7 @@ class AudioTextDataset(Dataset):
         audio_arr = audio.pad_or_trim(audio_arr)
         mel_spec = audio.log_mel_spectrogram(audio_arr)
 
-        return mel_spec, audio_arr 
+        return mel_spec, audio_arr
 
     def preprocess_text(
         self, transcript_file: str, tokenizer: whisper.tokenizer.Tokenizer
@@ -164,6 +165,18 @@ def setup(rank: int, world_size: int) -> None:
         world_size: The total number of processes
     """
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+
+def open_dicts_file(samples_dicts_file) -> List[Dict]:
+    with open(samples_dicts_file, "r") as f:
+        samples_dicts = list(
+            chain.from_iterable(
+                json_line.get("sample_dicts")
+                for json_line in map(json.loads, f)
+                if json_line.get("sample_dicts") is not None
+            )
+        )
+    return samples_dicts
 
 
 def prepare_dataloader(
@@ -643,8 +656,6 @@ def train(
     val_res: Optional[wandb.Artifact],
     val_res_added: Optional[bool],
     run_eval: bool,
-    eval_batch_size: int,
-    eval_num_workers: int,
     eval_loaders: List[DataLoader],
     run_id: Optional[str],
     tags: Optional[List[str]],
@@ -1034,8 +1045,6 @@ def train(
                     evaluate(
                         rank=rank,
                         current_step=current_step,
-                        eval_batch_size=eval_batch_size,
-                        num_workers=eval_num_workers,
                         model=model,
                         eval_loaders=eval_loaders,
                         normalizer=normalizer,
@@ -1469,8 +1478,6 @@ def validate(
 def evaluate(
     rank: int,
     current_step: int,
-    eval_batch_size: int,
-    num_workers: int,
     model: torch.nn.Module,
     eval_loaders: List[DataLoader],
     normalizer: EnglishTextNormalizer,
@@ -1585,7 +1592,7 @@ def main(
     model_variant: str,
     exp_name: str,
     job_type: str,
-    samples_dicts_file: str,
+    samples_dicts_dir: str,
     train_steps: int,
     run_id: Optional[str] = None,
     ckpt_file_name: Optional[str] = None,
@@ -1655,12 +1662,21 @@ def main(
     n_text_ctx = model_dims.n_text_ctx
 
     # load samples dicts
-    with open(samples_dicts_file, "r") as f:
-        samples_dicts = [json.loads(line) for line in f]
-        
+    samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*/samples_dicts.jsonl")
+
+    with multiprocessing.Pool() as pool:
+        samples_dicts = list(
+            chain(
+                *tqdm(
+                    pool.imap_unordered(open_dicts_file, samples_dicts_files),
+                    total=len(samples_dicts_files),
+                )
+            )
+        )
+
     print(len(samples_dicts))
     print(samples_dicts[:2])
-    
+
     # prepare dataset
     train_dataloader, val_dataloader = prepare_data(
         rank=rank,
@@ -1854,8 +1870,6 @@ def main(
             evaluate(
                 rank=rank,
                 current_step=current_step,
-                eval_batch_size=eval_batch_size,
-                num_workers=num_workers,
                 model=model,
                 eval_loaders=eval_loaders,
                 normalizer=normalizer,
