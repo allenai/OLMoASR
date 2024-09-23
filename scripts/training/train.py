@@ -471,7 +471,7 @@ def setup_wandb(
         job_type=job_type,
         tags=(tags),
         name=exp_name,
-        dir=f"{log_dir}/training",
+        dir=f"{log_dir}",
     )
 
     train_res = wandb.Artifact("train_res", type="results")
@@ -495,7 +495,7 @@ def save_ckpt(
     exp_name: str,
     run_id: str,
     file_name: str,
-    log_dir: str,
+    ckpt_dir: str,
 ) -> None:
     """Save model (DDP) checkpoint
 
@@ -514,10 +514,10 @@ def save_ckpt(
         exp_name: The experiment name
         run_id: The run ID
         file_name: The file name
-        log_dir: Directory where all results are logged
+        ckpt_dir: Directory where all results are logged
     """
     ddp_checkpoint = {
-        "current_step": current_step,
+        "current_step": current_step + 1,
         "best_val_loss": best_val_loss,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
@@ -529,7 +529,7 @@ def save_ckpt(
     }
 
     non_ddp_checkpoint = {
-        "current_step": current_step,
+        "current_step": current_step + 1,
         "model_state_dict": model.module.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scaler_state_dict": scaler.state_dict(),
@@ -538,15 +538,15 @@ def save_ckpt(
         "dims": model_dims,
     }
 
-    os.makedirs(f"{log_dir}/checkpoints/{exp_name}_{run_id}", exist_ok=True)
+    os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
 
     torch.save(
         ddp_checkpoint,
-        f"{log_dir}/checkpoints/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_ddp.pt",
+        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_ddp.pt",
     )
     torch.save(
         non_ddp_checkpoint,
-        f"{log_dir}/checkpoints/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
+        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
     )
 
 
@@ -559,7 +559,8 @@ def load_ckpt(
     train_batch_size: int,
     eff_batch_size: int,
     file_name: str,
-    log_dir: str,
+    ckpt_dir: str,
+    model_variant: str,
 ) -> Tuple[
     int,
     float,
@@ -589,7 +590,7 @@ def load_ckpt(
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
 
     ckpt_file = glob.glob(
-        f"{log_dir}/checkpoints/{exp_name}_{run_id}/{file_name}_*_fp16_ddp.pt"
+        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{model_variant}_*_ddp.pt"
     )[0]
 
     ckpt = torch.load(ckpt_file, map_location=map_location)
@@ -661,6 +662,7 @@ def train(
     tags: Optional[List[str]],
     exp_name: Optional[str],
     log_dir: str,
+    ckpt_dir: str,
 ) -> Tuple[
     int,
     float,
@@ -907,7 +909,7 @@ def train(
                     }
                 )
 
-                if (current_step % (int(np.ceil(train_steps / 10000)))) == 0:
+                if (current_step % (int(np.ceil(train_steps / 500)))) == 0:
                     os.makedirs(
                         f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True
                     )
@@ -1238,6 +1240,7 @@ def validate(
     exp_name: Optional[str],
     run_id: Optional[str],
     log_dir: str,
+    ckpt_dir: str,
 ) -> Tuple[float, bool]:
     """Validation loop for 1 epoch
 
@@ -1469,7 +1472,7 @@ def validate(
                     exp_name=exp_name,
                     run_id=run_id,
                     file_name="best_val",
-                    log_dir=log_dir,
+                    ckpt_dir=ckpt_dir,
                 )
 
     return best_val_loss, val_res_added
@@ -1596,6 +1599,7 @@ def main(
     train_steps: int,
     run_id: Optional[str] = None,
     ckpt_file_name: Optional[str] = None,
+    ckpt_dir: str = "checkpoints",  
     log_dir: str = "logs",
     eval_dir: str = "data/eval",
     rank: Optional[int] = None,
@@ -1731,7 +1735,8 @@ def main(
             train_batch_size=train_batch_size,
             eff_batch_size=eff_batch_size,
             file_name=ckpt_file_name,
-            log_dir=log_dir,
+            ckpt_dir=ckpt_dir,
+            model_variant=model_variant,
         )
     else:
         model = ow.model.Whisper(dims=model_dims).to(rank)
@@ -1813,13 +1818,12 @@ def main(
             val_res=val_res if rank == 0 else None,
             val_res_added=val_res_added if rank == 0 else None,
             run_eval=run_eval,
-            eval_batch_size=eval_batch_size,
-            eval_num_workers=num_workers,
             eval_loaders=eval_loaders,
             run_id=run_id if rank == 0 else None,
             tags=tags if rank == 0 else None,
             exp_name=exp_name if rank == 0 else None,
             log_dir=log_dir,
+            ckpt_dir=ckpt_dir,
         )
 
         if rank == 0:
@@ -1836,7 +1840,7 @@ def main(
                 exp_name=exp_name,
                 run_id=run_id,
                 file_name="latest_train",
-                log_dir=log_dir,
+                ckpt_dir=ckpt_dir,
             )
 
         if run_val:
@@ -1859,6 +1863,7 @@ def main(
                 exp_name=exp_name if rank == 0 else None,
                 run_id=run_id if rank == 0 else None,
                 log_dir=log_dir,
+                ckpt_dir=ckpt_dir,
             )
 
             print(f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}")
