@@ -50,3 +50,4 @@ torch.save(
 )
 
 # %%
+# need to change the model dims to a __dict__ object
