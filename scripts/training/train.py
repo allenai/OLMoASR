@@ -65,6 +65,12 @@ class AudioTextDataset(Dataset):
         self, index
     ) -> Tuple[str, str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # not sure if putting it here is bad...
+<<<<<<< HEAD
+        global tokenizer
+        audio_file, audio_input = self.preprocess_audio(self.audio_files[index])
+        transcript_file, text_input, text_y, padding_mask = self.preprocess_text(
+            self.transcript_files[index], tokenizer
+=======
         tokenizer = get_tokenizer(multilingual=False)
 
         sample_dict = self.samples[index]
@@ -73,6 +79,7 @@ class AudioTextDataset(Dataset):
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
         text_input, text_y, padding_mask = self.preprocess_text(
             transcript_file, tokenizer
+>>>>>>> ce37c27beb054ad4c83f237589d9c2e7cdd63f0b
         )
 
         return (
@@ -157,6 +164,10 @@ class AudioTextDataset(Dataset):
         return text_input, text_y, padding_mask
 
 
+def init_tokenizer(worker_id: int):
+    global tokenizer
+    tokenizer = get_tokenizer(multilingual=False)
+
 def setup(rank: int, world_size: int) -> None:
     """Initializes the distributed process group
 
@@ -224,6 +235,7 @@ def prepare_dataloader(
         shuffle=False,
         sampler=sampler,
         persistent_workers=persistent_workers,
+        worker_init_fn=init_tokenizer,
     )
 
     return dataloader
