@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=ow_tiny_wds_mini
-#SBATCH --output=slurm_job_output/training/ow_tiny_wds_mini_%A_%a.out
+#SBATCH --job-name=ow_tiny_wds_rand
+#SBATCH --output=slurm_job_output/training/ow_tiny_wds_rand_%A_%a.out
 #SBATCH --partition=gpu-a40
-#SBATCH --account=raivn
+#SBATCH --account=efml
 #SBATCH --nodes=1
-#SBATCH --mem=100G
-#SBATCH --gres=gpu:4
+#SBATCH --mem=50G
+#SBATCH --gres=gpu:8
 #SBATCH --cpus-per-gpu=4
 #SBATCH --time=12:00:00
 #SBATCH --mail-type=ALL
@@ -23,14 +23,17 @@ export TORCH_NCCL_BLOCKING_WAIT=1
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export NCCL_DEBUG=INFO
 
-torchrun --nnodes 1 --nproc_per_node 4 scripts/training/train_wds.py \
+torchrun --nnodes 1 --nproc_per_node 1 --master-port=29504 scripts/training/train_wds_no_reslog_random.py \
     --model_variant=tiny \
-    --exp_name=ow_tiny_wds \
+    --exp_name=ow_tiny_random \
     --job_type=train \
-    --train_shards=/mmfs1/gscratch/efml/hvn2002/ow_440K_wds/\{014532..014535\}.tar \
-    --train_steps=1000 \
+    --train_shards=/mmfs1/gscratch/efml/hvn2002/ow_440K_wds/\{000000..000007\}.tar \
+    --train_steps=1048576 \
     --val_shards=/mmfs1/gscratch/efml/hvn2002/ow_440K_wds/073468.tar \
     --run_id=None \
+    --ckpt_file_name=None \
+    --log_dir=logs \
+    --eval_dir=data/eval \
     --rank=None \
     --world_size=None \
     --lr=1.5e-3 \
