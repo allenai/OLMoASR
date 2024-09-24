@@ -15,7 +15,6 @@ COPY requirements-main.txt requirements-main.txt
 RUN pip install -r requirements-main.txt
 
 # copying necessary files and directories to container
-COPY experiments/torchrun_debug.py torchrun_debug.py
 COPY open_whisper open_whisper/
 COPY scripts/eval scripts/eval/
 COPY scripts/training scripts/training/
