@@ -9,7 +9,14 @@ wandb
 *.pex
 .pexing
 whisper
-data
+data/eval
+data/untrainable
+data/00000
+data/00000_seg
+data/00000000
+data/bad_data
+data/sanity_check
+data/filtering_viz
 checkpoints
 *.out
 logs/training
