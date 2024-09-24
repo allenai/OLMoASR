@@ -821,6 +821,7 @@ def train(
         start_time = time.time()
 
     for batch_idx, batch in enumerate(train_dataloader):
+        start_loading = time.time()
         model.train()
         start_step = time.time()
 
@@ -846,7 +847,9 @@ def train(
             padding_mask = padding_mask.to(rank)
 
             # forward pass
+            start_forward = time.time()
             logits = model(audio_input, text_input, padding_mask)
+            end_forward = time.time()
 
             # calculate loss
             train_loss = F.cross_entropy(
@@ -1187,6 +1190,37 @@ def train(
             batch_audio_files = []
             batch_text_files = []
             batch_audio_arr = []
+        
+        end_loading = time.time()
+        dl_time = (end_loading - start_loading) / 60
+        forward_time = (end_forward - start_forward) / 60
+        dl_time_tensor = torch.tensor(dl_time, device=rank)
+        forward_time_tensor = torch.tensor(forward_time, device=rank)
+        # prepare list to gather throughput from all processes
+        if rank == 0:
+            gathered_dl_time = [
+                torch.zeros_like(dl_time_tensor).to(rank)
+                for _ in range(dist.get_world_size())
+            ]
+            gathered_forward_time = [
+                torch.zeros_like(forward_time_tensor).to(rank) 
+                for _ in range(dist.get_world_size())
+            ]
+        else:
+            gathered_dl_time = None
+            gathered_forward_time = None
+
+        dist.gather(dl_time_tensor, gather_list=gathered_dl_time, dst=0)
+        dist.gather(forward_time_tensor, gather_list=gathered_forward_time, dst=0)
+
+        if rank == 0:
+            gathered_dl_time = [t.item() for t in gathered_dl_time]
+            gathered_forward_time = [t.item() for t in gathered_forward_time]
+            for i, dl_time in enumerate(gathered_dl_time):
+                wandb.log({f"train/dataloading_time_per_iter_gpu={i}": dl_time})
+            
+            for i, forward_time in enumerate(gathered_forward_time):
+                wandb.log({f"train/forward_time_per_iter_gpu={i}": forward_time}) 
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
