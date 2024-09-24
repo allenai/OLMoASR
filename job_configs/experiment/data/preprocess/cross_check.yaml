@@ -1,0 +1,20 @@
+version: v2
+budget: ai2/oe-data
+description: Cross checking directories
+tasks:
+  - name: cross_check
+    image:
+      beaker: huongn/cross_check_2
+    command: ['/bin/bash', '-c']
+    arguments: ['python /stage/data_processing/cross_check.py']
+    datasets:
+    - mountPath: /weka
+      source:
+        weka: oe-data-default
+    result:
+      path: /data/huongn/data_processing
+    context:
+      preemptible: true
+    constraints:
+      cluster:
+        - ai2/jupiter-cirrascale-2
