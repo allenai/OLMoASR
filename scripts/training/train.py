@@ -479,6 +479,11 @@ def setup_wandb(
         dir=f"{log_dir}",
     )
 
+    wandb.define_metric("custom_step")
+    wandb.define_metric("train/*", step_metric="custom_step")
+    wandb.define_metric("val/*", step_metric="custom_step")
+    wandb.define_metric("eval/*", step_metric="custom_step")
+
     train_res = wandb.Artifact("train_res", type="results")
     train_res_added = False
     val_res = wandb.Artifact("val_res", type="results")
@@ -833,8 +838,8 @@ def train(
             scheduler.step()  # Adjust learning rate based on accumulated steps
 
             current_step += 1
-            if rank == 0:
-                wandb.log({"train/step": current_step})
+            # if rank == 0:
+            #     wandb.log({"train/step": current_step})
 
             if current_step >= train_steps:
                 # logging
@@ -848,6 +853,7 @@ def train(
                         {
                             "train/train_loss": train_loss_all,
                             "train/train_wer": train_wer_all,
+                            "custom_step": current_step,
                         }
                     )
 
@@ -895,15 +901,27 @@ def train(
                 gathered_throughput = [t.item() for t in gathered_throughput]
                 gathered_time = [t.item() for t in gathered_time]
                 for i, throughput in enumerate(gathered_throughput):
-                    wandb.log({f"train/audio_min_per_GPU_second_gpu={i}": throughput})
+                    wandb.log(
+                        {
+                            f"train/audio_min_per_GPU_second_gpu={i}": throughput,
+                            "custom_step": current_step,
+                        }
+                    )
 
                 for i, time_per_step in enumerate(gathered_time):
-                    wandb.log({f"train/time_per_step_gpu={i}": time_per_step})
+                    wandb.log(
+                        {
+                            f"train/time_per_step_gpu={i}": time_per_step,
+                            "custom_step": current_step,
+                        }
+                    )
 
             current_lr = optimizer.param_groups[0]["lr"]
             # logging learning rate
             if rank == 0:
-                wandb.log({"train/learning_rate": current_lr})
+                wandb.log(
+                    {"train/learning_rate": current_lr, "custom_step": current_step}
+                )
             optimizer.zero_grad()  # Reset gradients only after updating weights
             total_loss = 0.0
             if rank == 0:
@@ -915,10 +933,13 @@ def train(
                     {
                         "train/train_loss": train_loss_all,
                         "train/train_wer": train_wer_all,
+                        "custom_step": current_step,
                     }
                 )
 
-                if (current_step % (int(np.ceil(train_steps / train_txt_log_freq)))) == 0:
+                if (
+                    current_step % (int(np.ceil(train_steps / train_txt_log_freq)))
+                ) == 0:
                     os.makedirs(
                         f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True
                     )
@@ -1142,6 +1163,7 @@ def train(
                     {
                         "train/train_loss": train_loss_all,
                         "train/train_wer": train_wer_all,
+                        "custom_step": current_step,
                     }
                 )
 
@@ -1158,7 +1180,7 @@ def train(
 
         current_lr = optimizer.param_groups[0]["lr"]
         if rank == 0:
-            wandb.log({"train/learning_rate": current_lr})
+            wandb.log({"train/learning_rate": current_lr, "custom_step": current_step})
         optimizer.zero_grad()
         total_loss = 0.0
 
@@ -1171,6 +1193,7 @@ def train(
                 {
                     "train/train_loss": train_loss_all,
                     "train/train_wer": train_wer_all,
+                    "custom_step": current_step,
                 }
             )
 
@@ -1217,7 +1240,12 @@ def train(
             f.write(
                 f"train epoch took {(end_time - start_time) / 60} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
             )
-        wandb.log({"train/time_epoch": (end_time - start_time) / 60})
+        wandb.log(
+            {
+                "train/time_epoch": (end_time - start_time) / 60,
+                "custom_step": current_step,
+            }
+        )
 
     return (
         current_step,
@@ -1424,7 +1452,7 @@ def validate(
                             subs = measures["substitutions"]
                             dels = measures["deletions"]
                             ins = measures["insertions"]
-                    
+
                         val_table.add_data(
                             audio_files[i],
                             wandb.Audio(padded_audio_arr[i], sample_rate=16000),
@@ -1449,7 +1477,12 @@ def validate(
                 "a",
             ) as f:
                 f.write(f"val epoch took {(end_time - start_time) / 60.0} minutes\n")
-            wandb.log({"val/time_epoch": (end_time - start_time) / 60.0})
+            wandb.log(
+                {
+                    "val/time_epoch": (end_time - start_time) / 60.0,
+                    "custom_step": current_step,
+                }
+            )
 
         if len(norm_tgt_text) == 0 and len(norm_pred_text) == 0:
             val_wer = 0.0 * 100
@@ -1464,7 +1497,13 @@ def validate(
             print(f"val_loss: {ave_val_loss}")
             print(f"val_wer: {val_wer}")
 
-            wandb.log({"val/val_loss": ave_val_loss, "val/val_wer": val_wer})
+            wandb.log(
+                {
+                    "val/val_loss": ave_val_loss,
+                    "val/val_wer": val_wer,
+                    "custom_step": current_step,
+                }
+            )
 
             if ave_val_loss < best_val_loss:
                 best_val_loss = ave_val_loss
@@ -1582,7 +1621,9 @@ def evaluate(
                     "a",
                 ) as f:
                     f.write(f"{eval_set} average WER: {avg_wer}\n")
-                wandb.log({f"eval/{eval_set}_wer": avg_wer})
+                wandb.log(
+                    {f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step}
+                )
 
     if rank == 0:
         wandb.log({f"eval_table_{current_step}": eval_table})
@@ -1592,7 +1633,12 @@ def evaluate(
             "a",
         ) as f:
             f.write(f"eval epoch took {(end_time - start_time) / 60.0} minutes\n")
-        wandb.log({"eval/time_epoch": (end_time - start_time) / 60.0})
+        wandb.log(
+            {
+                "eval/time_epoch": (end_time - start_time) / 60.0,
+                "custom_step": current_step,
+            }
+        )
 
 
 def cleanup():
@@ -1609,7 +1655,7 @@ def main(
     train_steps: int,
     run_id: Optional[str] = None,
     ckpt_file_name: Optional[str] = None,
-    ckpt_dir: str = "checkpoints",  
+    ckpt_dir: str = "checkpoints",
     log_dir: str = "logs",
     eval_dir: str = "data/eval",
     rank: Optional[int] = None,
@@ -1862,6 +1908,7 @@ def main(
             )
 
         if run_val:
+            print(f"Validation after epoch at {current_step=} on rank {rank}")
             best_val_loss, val_res_added = validate(
                 rank=rank,
                 current_step=current_step,
