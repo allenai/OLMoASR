@@ -1,4 +1,5 @@
 TRAIN_TABLE_COLS = [
+    "run_id",
     "audio_file",
     "audio_input",
     "transcript_file",
@@ -15,6 +16,7 @@ TRAIN_TABLE_COLS = [
 ]
 
 VAL_TABLE_COLS = [
+    "run_id",
     "audio_file",
     "audio_input",
     "transcript_file",
@@ -31,6 +33,7 @@ VAL_TABLE_COLS = [
 ]
 
 EVAL_TABLE_COLS = [
+    "run_id",
     "corpi",
     "audio_input",
     "pred_text",
