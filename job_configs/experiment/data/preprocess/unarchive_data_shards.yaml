@@ -1,0 +1,20 @@
+version: v2
+budget: ai2/oe-data
+description: Unarchiving data shards
+tasks:
+  - name: unarchive_data_shards
+    image:
+      beaker: huongn/unarchive_tar
+    command: ['/bin/bash', '-c']
+    arguments: ['python /stage/data_processing/unarchive_tar.py unarchive_tar --source_dir=/weka/huongn/ow_440K_tar --result_path=/data/huongn/data_processing/unarchive_data_shards.txt']
+    datasets:
+    - mountPath: /weka
+      source:
+        weka: oe-data-default
+    result:
+      path: /data/huongn/data_processing
+    context:
+      preemptible: true
+    constraints:
+      cluster:
+        - ai2/jupiter-cirrascale-2

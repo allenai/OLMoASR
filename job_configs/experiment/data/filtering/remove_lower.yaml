@@ -1,0 +1,40 @@
+version: v2
+budget: ai2/oe-data
+description: Filtering out lower, upper case and empty transcripts with Ray
+tasks:
+  - name: remove_lower
+    image:
+      beaker: huongn/remove_lower_3
+    command: ["/bin/bash", "-c"]
+    arguments:
+      [
+        "python /stage/scripts/data/filtering/remove_lower.py remove_lower 
+        --data_dir=/weka/huongn/440K_full 
+        --label_data_dir=/weka/huongn/ow_filtering/transcript_casing/$(printf '%03d' $BEAKER_REPLICA_RANK)
+        --samples_dicts_dir=/weka/huongn/ow_filtering/transcript_casing/$(printf '%03d' $BEAKER_REPLICA_RANK) 
+        --labels='MIXED' 
+        --batch_size=245 
+        --batch_idx=$BEAKER_REPLICA_RANK
+        --filter_mode=False
+        --generate_mode=True"
+      ]
+    datasets:
+      - mountPath: /weka
+        source:
+          weka: oe-data-default
+    result:
+      path:
+    envVars:
+      - name: PYTHONPATH
+        value: /stage
+    resources:
+      cpuCount: 20
+      gpuCount: 1
+      memory: 10GiB
+    context:
+      priority: normal
+      preemptible: true
+    constraints:
+      cluster:
+        - ai2/jupiter-cirrascale-2
+    replicas: 10
