@@ -1013,6 +1013,7 @@ def train(
                             ins = measures["insertions"]
 
                         train_table.add_data(
+                            run_id,
                             batch_audio_files[i * logging_steps],
                             wandb.Audio(
                                 batch_audio_arr[i * logging_steps],
@@ -1464,6 +1465,7 @@ def validate(
                             ins = measures["insertions"]
 
                         val_table.add_data(
+                            run_id,
                             audio_files[i],
                             wandb.Audio(padded_audio_arr[i], sample_rate=16000),
                             transcript_files[i],
@@ -1604,6 +1606,7 @@ def evaluate(
                                 * 100
                             )
                             eval_table.add_data(
+                                run_id,
                                 eval_set,
                                 wandb.Audio(audio_fp[i], sample_rate=16000),
                                 pred_text[i],
