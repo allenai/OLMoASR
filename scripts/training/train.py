@@ -160,6 +160,7 @@ def init_tokenizer(worker_id: int):
     global tokenizer
     tokenizer = get_tokenizer(multilingual=False)
 
+
 def setup(rank: int, world_size: int) -> None:
     """Initializes the distributed process group
 
@@ -309,7 +310,7 @@ def prepare_data(
         world_size=world_size,
         batch_size=val_batch_size,
         pin_memory=pin_memory,
-        shuffle=shuffle,
+        shuffle=False,
         num_workers=num_workers,
         persistent_workers=persistent_workers,
     )
