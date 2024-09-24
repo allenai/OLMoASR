@@ -667,6 +667,10 @@ def train(
     exp_name: Optional[str],
     log_dir: str,
     ckpt_dir: str,
+    train_txt_log_freq: int,
+    train_tbl_log_freq: int,
+    val_freq: int,
+    eval_freq: int,
 ) -> Tuple[
     int,
     float,
@@ -913,7 +917,7 @@ def train(
                     }
                 )
 
-                if (current_step % (int(np.ceil(train_steps / 500)))) == 0:
+                if (current_step % (int(np.ceil(train_steps / train_txt_log_freq)))) == 0:
                     os.makedirs(
                         f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True
                     )
@@ -955,7 +959,7 @@ def train(
                         f.write(f"{train_loss_all=}\n")
                         f.write(f"{train_wer_all=}\n\n")
 
-                if (current_step % (int(np.ceil(train_steps / 200)))) == 0:
+                if (current_step % (int(np.ceil(train_steps / train_tbl_log_freq)))) == 0:
                     for i, (
                         tgt_text_instance,
                         pred_text_instance,
@@ -1006,7 +1010,7 @@ def train(
             # validation
             if run_val:
                 if (
-                    current_step % (int(np.ceil(train_steps / 200)))
+                    current_step % (int(np.ceil(train_steps / val_freq)))
                 ) == 0 and current_step > 0:
                     best_val_loss, val_res_added = validate(
                         rank=rank,
@@ -1031,14 +1035,14 @@ def train(
                     )
 
                 if (
-                    current_step % (int(np.ceil(train_steps / 200)))
+                    current_step % (int(np.ceil(train_steps / val_freq)))
                 ) == 0 and current_step > 0:
                     print(
                         f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}"
                     )
                 dist.barrier()
                 if (
-                    current_step % (int(np.ceil(train_steps / 100)))
+                    current_step % (int(np.ceil(train_steps / val_freq)))
                 ) == 0 and current_step > 0:
                     print(
                         f"Rank {rank} passing barrier w/ best val loss {best_val_loss}"
@@ -1047,7 +1051,7 @@ def train(
             # evaluation
             if run_eval:
                 if (
-                    current_step % (int(np.ceil(train_steps / 20)))
+                    current_step % (int(np.ceil(train_steps / eval_freq)))
                 ) == 0 and current_step > 0:
                     evaluate(
                         rank=rank,
@@ -1062,12 +1066,12 @@ def train(
                     )
 
                 if (
-                    current_step % (int(np.ceil(train_steps / 20)))
+                    current_step % (int(np.ceil(train_steps / eval_freq)))
                 ) == 0 and current_step > 0:
                     print(f"Rank {rank} reaching barrier")
                 dist.barrier()
                 if (
-                    current_step % (int(np.ceil(train_steps / 20)))
+                    current_step % (int(np.ceil(train_steps / eval_freq)))
                 ) == 0 and current_step > 0:
                     print(f"Rank {rank} passing barrier")
 
@@ -1419,7 +1423,7 @@ def validate(
                             subs = measures["substitutions"]
                             dels = measures["deletions"]
                             ins = measures["insertions"]
-
+                    
                         val_table.add_data(
                             audio_files[i],
                             wandb.Audio(padded_audio_arr[i], sample_rate=16000),
@@ -1626,6 +1630,10 @@ def main(
     persistent_workers: bool = True,
     run_val: bool = True,
     run_eval: bool = False,
+    train_txt_log_freq: int = 100,
+    train_tbl_log_freq: int = 20,
+    val_freq: int = 10,
+    eval_freq: int = 5,
 ) -> None:
     """Main function for training
 
@@ -1829,6 +1837,10 @@ def main(
             exp_name=exp_name if rank == 0 else None,
             log_dir=log_dir,
             ckpt_dir=ckpt_dir,
+            train_txt_log_freq=train_txt_log_freq,
+            train_tbl_log_freq=train_tbl_log_freq,
+            val_freq=val_freq,
+            eval_freq=eval_freq,
         )
 
         if rank == 0:
