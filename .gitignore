@@ -11,6 +11,8 @@ wandb
 whisper
 data/eval
 data/untrainable
+data/00000
+data/00000_seg
 checkpoints
 *.out
 logs/training
