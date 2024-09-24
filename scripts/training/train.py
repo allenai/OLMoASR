@@ -981,7 +981,12 @@ def train(
                         f.write(f"{train_loss_all=}\n")
                         f.write(f"{train_wer_all=}\n\n")
 
-                if (current_step % (int(np.ceil(train_steps / train_tbl_log_freq)))) == 0:
+                if (
+                    current_step % (int(np.ceil(train_steps / train_tbl_log_freq)))
+                ) == 0:
+                    table_idx = current_step // (
+                        int(np.ceil(train_steps / train_tbl_log_freq))
+                    )
                     for i, (
                         tgt_text_instance,
                         pred_text_instance,
@@ -1026,7 +1031,7 @@ def train(
                             wer,
                         )
 
-                    wandb.log({f"train_table_{current_step}": train_table})
+                    wandb.log({f"train_table_{table_idx}": train_table})
                     train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
 
             # validation
@@ -1034,6 +1039,7 @@ def train(
                 if (
                     current_step % (int(np.ceil(train_steps / val_freq)))
                 ) == 0 and current_step > 0:
+                    table_idx = current_step // (int(np.ceil(train_steps / val_freq)))
                     best_val_loss, val_res_added = validate(
                         rank=rank,
                         current_step=current_step,
@@ -1052,6 +1058,7 @@ def train(
                         tags=tags if rank == 0 else None,
                         exp_name=exp_name if rank == 0 else None,
                         run_id=run_id if rank == 0 else None,
+                        table_idx=table_idx if rank == 0 else None,
                         log_dir=log_dir,
                         ckpt_dir=ckpt_dir,
                     )
@@ -1075,6 +1082,7 @@ def train(
                 if (
                     current_step % (int(np.ceil(train_steps / eval_freq)))
                 ) == 0 and current_step > 0:
+                    table_idx = current_step // (int(np.ceil(train_steps / eval_freq)))
                     evaluate(
                         rank=rank,
                         current_step=current_step,
@@ -1084,6 +1092,7 @@ def train(
                         tags=tags if rank == 0 else None,
                         exp_name=exp_name if rank == 0 else None,
                         run_id=run_id if rank == 0 else None,
+                        table_idx=table_idx if rank == 0 else None,
                         log_dir=log_dir,
                     )
 
@@ -1277,6 +1286,7 @@ def validate(
     tags: Optional[List[str]],
     exp_name: Optional[str],
     run_id: Optional[str],
+    table_idx: Optional[Union[int, str]],
     log_dir: str,
     ckpt_dir: str,
 ) -> Tuple[float, bool]:
@@ -1470,7 +1480,7 @@ def validate(
                         )
 
         if rank == 0:
-            wandb.log({f"val_table_{current_step}": val_table})
+            wandb.log({f"val_table_{table_idx}": val_table})
             end_time = time.time()
             with open(
                 f"{log_dir}/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt",
@@ -1536,6 +1546,7 @@ def evaluate(
     tags: Optional[List[str]],
     exp_name: Optional[str],
     run_id: Optional[str],
+    table_idx: Optional[Union[int, str]],
     log_dir: str,
 ) -> None:
     """Evaluation loop for 1 epoch
@@ -1626,7 +1637,7 @@ def evaluate(
                 )
 
     if rank == 0:
-        wandb.log({f"eval_table_{current_step}": eval_table})
+        wandb.log({f"eval_table_{table_idx}": eval_table})
         end_time = time.time()
         with open(
             f"{log_dir}/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt",
@@ -1927,6 +1938,7 @@ def main(
                 tags=tags if rank == 0 else None,
                 exp_name=exp_name if rank == 0 else None,
                 run_id=run_id if rank == 0 else None,
+                table_idx=f"epoch_{current_step}" if rank == 0 else None,
                 log_dir=log_dir,
                 ckpt_dir=ckpt_dir,
             )
@@ -1946,6 +1958,7 @@ def main(
                 tags=tags if rank == 0 else None,
                 exp_name=exp_name if rank == 0 else None,
                 run_id=run_id if rank == 0 else None,
+                table_idx=f"epoch_{current_step}" if rank == 0 else None,
                 log_dir=log_dir,
             )
 
