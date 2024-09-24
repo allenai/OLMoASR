@@ -1,0 +1,20 @@
+version: v2
+budget: ai2/oe-data
+description: Combining every 30 wds shards into directories
+tasks:
+  - name: combine_wds_shards
+    image:
+      beaker: huongn/ow_data_processing
+    command: ['/bin/bash', '-c']
+    arguments: ['python /stage/data_processing/combine_wds_shards.py']
+    datasets:
+    - mountPath: /weka
+      source:
+        weka: oe-data-default
+    result:
+      path: /data/huongn/data_processing
+    context:
+      preemptible: true
+    constraints:
+      cluster:
+        - ai2/jupiter-cirrascale-2

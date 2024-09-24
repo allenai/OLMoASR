@@ -1,0 +1,16 @@
+beaker session create \
+--gpus 8 \
+--budget ai2/prior \
+--bare \
+--image beaker://huongn/ow_train_rand_noreslog_acc \
+--cpus 64.0 \
+--memory 20GiB \
+--mount beaker://huongn/mini-job-ow-dataset=/wds_shards \
+--mount beaker://huongn/mini-job-ow-evalset=/ow_eval \
+--name ow_thruput_rand_noreslog_acc \
+--priority normal \
+--result /data/huongn/ow_logs \
+--workspace ai2/open-whisper \
+--env PYTHONPATH="/stage" \
+--env WANDB_DIR=/data/huongn/ow_logs \
+--secret-env WANDB_API_KEY=WANDB_API_KEY
