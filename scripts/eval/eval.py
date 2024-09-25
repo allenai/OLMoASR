@@ -245,7 +245,7 @@ def main(
     hf_token: Optional[str] = None,
 ):
     if "inf" not in ckpt:
-        gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
+        ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
                 
     device = torch.device("cuda")
     dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
