@@ -48,6 +48,3 @@ torch.save(
     checkpoint,
     "checkpoints/tiny-en-non-ddp_tiny-en_ddp-train_grad-acc_fp16_subset=full_lr=0.0015_batch_size=8_workers=18_epochs=25_train_val_split=0.99_inf.pt"
 )
-
-# %%
-# need to change the model dims to a __dict__ object
