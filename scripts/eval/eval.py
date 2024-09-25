@@ -13,7 +13,7 @@ from fire import Fire
 from tqdm import tqdm
 from torchaudio.datasets import TEDLIUM
 from scripts.eval.get_eval_set import get_eval_set
-
+from scripts.eval.gen_inf_ckpt import gen_inf_ckpt
 
 class Librispeech:
     def __init__(self, root_dir):
@@ -244,6 +244,9 @@ def main(
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
 ):
+    if "inf" not in ckpt:
+        gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
+                
     device = torch.device("cuda")
     dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
     dataloader = DataLoader(dataset, batch_size=64, shuffle=False, drop_last=False)
