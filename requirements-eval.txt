@@ -1,0 +1,9 @@
+datasets
+fire
+jiwer
+torch
+torchaudio
+tqdm
+tiktoken
+numpy
+openai-whisper
