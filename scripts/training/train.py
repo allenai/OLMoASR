@@ -841,8 +841,7 @@ def train(
     exp_name: Optional[str],
     log_dir: str,
     ckpt_dir: str,
-    train_txt_log_freq: int,
-    train_tbl_log_freq: int,
+    train_log_freq: int,
     val_freq: int,
     eval_freq: int,
 ) -> Tuple[
@@ -887,6 +886,8 @@ def train(
     total_loss = 0.0
     model.train()
     optimizer.zero_grad()
+    train_txt_log_freq = train_log_freq
+    train_tbl_log_freq = train_log_freq // 5
 
     if rank == 0:
         train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
@@ -1859,8 +1860,7 @@ def main(
     persistent_workers: bool = True,
     run_val: bool = True,
     run_eval: bool = False,
-    train_txt_log_freq: int = 100,
-    train_tbl_log_freq: int = 20,
+    train_log_freq: int = 100,
     val_freq: int = 10,
     eval_freq: int = 5,
 ) -> None:
@@ -2066,8 +2066,7 @@ def main(
             exp_name=exp_name if rank == 0 else None,
             log_dir=log_dir,
             ckpt_dir=ckpt_dir,
-            train_txt_log_freq=train_txt_log_freq,
-            train_tbl_log_freq=train_tbl_log_freq,
+            train_log_freq=train_log_freq,
             val_freq=val_freq,
             eval_freq=eval_freq,
         )
