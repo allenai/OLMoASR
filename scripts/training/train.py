@@ -702,6 +702,55 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank):
     return norm_tgt_pred_pairs, train_wer_all
 
 
+def log_txt(
+    log_dir,
+    exp_name,
+    run_id,
+    tags,
+    train_res,
+    train_res_added,
+    norm_tgt_pred_pairs,
+    logging_steps,
+    current_step,
+    batch_idx,
+    accumulation_steps,
+    batch_text_files,
+    batch_pred_text,
+    batch_tgt_text,
+    train_loss_all,
+    train_wer_all,
+):
+    with open(
+        f"{log_dir}/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt",
+        "a",
+    ) as f:
+        if not train_res_added:  # only once
+            train_res.add_file(
+                f"{log_dir}/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt"
+            )
+            train_res_added = True
+            wandb.log_artifact(train_res)
+
+        for i, (
+            tgt_text_instance,
+            pred_text_instance,
+        ) in enumerate(
+            norm_tgt_pred_pairs[::logging_steps]  # should log just 8 examples
+        ):
+            f.write(f"{current_step=}\n")
+            f.write(
+                f"effective step in epoch={(batch_idx + 1) // accumulation_steps}\n"
+            )
+            f.write(f"text_file={batch_text_files[i * logging_steps]}\n")
+            f.write(f"{pred_text_instance=}\n")
+            f.write(f"unnorm_pred_text_instance={batch_pred_text[i * logging_steps]}\n")
+            f.write(f"{tgt_text_instance=}\n")
+            f.write(f"unnorm_tgt_text_instance={batch_tgt_text[i * logging_steps]}\n\n")
+
+        f.write(f"{train_loss_all=}\n")
+        f.write(f"{train_wer_all=}\n\n")
+
+
 
 def train(
     rank: int,
