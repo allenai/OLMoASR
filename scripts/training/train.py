@@ -666,6 +666,42 @@ def gen_pred(logits, text_y, tokenizer, normalizer):
     return microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text
 
 
+def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank):
+    norm_batch_tgt_text = [normalizer(text) for text in batch_tgt_text]
+    norm_batch_pred_text = [normalizer(text) for text in batch_pred_text]
+    norm_tgt_pred_pairs = list(zip(norm_batch_tgt_text, norm_batch_pred_text))
+    # no empty references - for WER calculation
+    batch_tgt_text_full = [
+        norm_batch_tgt_text[i]
+        for i in range(len(norm_batch_tgt_text))
+        if len(norm_batch_tgt_text[i]) > 0
+    ]
+    batch_pred_text_full = [
+        norm_batch_pred_text[i]
+        for i in range(len(norm_batch_pred_text))
+        if len(norm_batch_tgt_text[i]) > 0
+    ]
+
+    if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
+        train_wer = 0.0
+    else:
+        train_wer = (
+            jiwer.wer(
+                reference=batch_tgt_text_full,
+                hypothesis=batch_pred_text_full,
+            )
+            * 100
+        )
+    # Use torch.tensor to work with dist.all_reduce
+    train_wer_tensor = torch.tensor(train_wer, device=rank)
+    # Aggregate WER across all processes
+    dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
+    # Calculate the average WER across all processes
+    train_wer_all = train_wer_tensor.item() / dist.get_world_size()
+
+    return norm_tgt_pred_pairs, train_wer_all
+
+
 
 def train(
     rank: int,
