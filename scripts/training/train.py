@@ -643,6 +643,30 @@ def load_ckpt(
     )
 
 
+def gen_pred(logits, text_y, tokenizer, normalizer):
+    probs = F.softmax(logits, dim=-1)
+    pred = torch.argmax(probs, dim=-1)
+
+    # collecting data for logging
+    microbatch_pred_text = []
+    microbatch_unnorm_pred_text = []
+    for pred_instance in pred.cpu().numpy():
+        pred_instance_text = tokenizer.decode(list(pred_instance))
+        microbatch_unnorm_pred_text.append(pred_instance_text)
+        pred_instance_text = ow.utils.remove_after_endoftext(pred_instance_text)
+        microbatch_pred_text.append(pred_instance_text)
+
+    microbatch_tgt_text = []
+    for text_y_instance in text_y.cpu().numpy():
+        tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
+        tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
+        tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
+        microbatch_tgt_text.append(tgt_y_instance_text)
+
+    return microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text
+
+
+
 def train(
     rank: int,
     current_step: int,
