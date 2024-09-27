@@ -1,0 +1,12 @@
+fire
+jiwer
+pysrt
+regex
+torch
+torchaudio
+tqdm
+webvtt_py
+openai-whisper
+ray
+pandas
+pyarrow
