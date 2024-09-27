@@ -7,3 +7,6 @@ tqdm
 tiktoken
 numpy
 openai-whisper
+pysrt
+regex
+webvtt_py
