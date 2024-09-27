@@ -751,6 +751,65 @@ def log_txt(
         f.write(f"{train_wer_all=}\n\n")
 
 
+def log_tbl(
+    current_step,
+    train_steps,
+    train_tbl_log_freq,
+    train_table,
+    run_id,
+    batch_audio_files,
+    batch_audio_arr,
+    batch_text_files,
+    batch_pred_text,
+    batch_tgt_text,
+    batch_unnorm_pred_text,
+    norm_tgt_pred_pairs,
+    logging_steps,
+):
+    table_idx = current_step // (int(np.ceil(train_steps / train_tbl_log_freq)))
+    for i, (
+        tgt_text_instance,
+        pred_text_instance,
+    ) in enumerate(norm_tgt_pred_pairs[::logging_steps]):
+        wer = np.round(
+            ow.utils.calculate_wer((tgt_text_instance, pred_text_instance)),
+            2,
+        )
+        subs = 0
+        dels = 0
+        ins = 0
+        if len(tgt_text_instance) == 0:
+            subs = 0
+            dels = 0
+            ins = len(pred_text_instance.split())
+        else:
+            measures = jiwer.compute_measures(tgt_text_instance, pred_text_instance)
+            subs = measures["substitutions"]
+            dels = measures["deletions"]
+            ins = measures["insertions"]
+
+        train_table.add_data(
+            run_id,
+            batch_audio_files[i * logging_steps],
+            wandb.Audio(
+                batch_audio_arr[i * logging_steps],
+                sample_rate=16000,
+            ),
+            batch_text_files[i * logging_steps],
+            pred_text_instance,
+            batch_unnorm_pred_text[i * logging_steps],
+            batch_pred_text[i * logging_steps],
+            tgt_text_instance,
+            batch_tgt_text[i * logging_steps],
+            subs,
+            dels,
+            ins,
+            len(tgt_text_instance.split()),
+            wer,
+        )
+
+    wandb.log({f"train_table_{table_idx}": train_table})
+
 
 def train(
     rank: int,
