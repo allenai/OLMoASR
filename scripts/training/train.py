@@ -10,6 +10,7 @@ from fire import Fire
 from tqdm import tqdm
 import multiprocessing
 from itertools import chain
+from collections import defaultdict
 
 import torch
 import torch.nn.functional as F
@@ -908,11 +909,6 @@ def train(
                 padding_mask,
             ) = batch
 
-            # for logging purposes
-            batch_audio_files.extend(audio_files)
-            batch_text_files.extend(transcript_files)
-            batch_audio_arr.extend(padded_audio_arr)
-
             audio_input = audio_input.to(rank)
             text_input = text_input.to(rank)
             text_y = text_y.to(rank)
@@ -939,27 +935,21 @@ def train(
                 text = f"Loss is NaN for {audio_files} at step {current_step}!"
                 wandb.alert(title="NaN Loss", text=text)
 
-        probs = F.softmax(logits, dim=-1)
-        pred = torch.argmax(probs, dim=-1)
-
-        # collecting data for logging
-        microbatch_pred_text = []
-        microbatch_unnorm_pred_text = []
-        for pred_instance in pred.cpu().numpy():
-            pred_instance_text = tokenizer.decode(list(pred_instance))
-            microbatch_unnorm_pred_text.append(pred_instance_text)
-            pred_instance_text = ow.utils.remove_after_endoftext(pred_instance_text)
-            microbatch_pred_text.append(pred_instance_text)
-        batch_pred_text.extend(microbatch_pred_text)
-        batch_unnorm_pred_text.extend(microbatch_unnorm_pred_text)
-
-        microbatch_tgt_text = []
-        for text_y_instance in text_y.cpu().numpy():
-            tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
-            tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
-            tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
-            microbatch_tgt_text.append(tgt_y_instance_text)
-        batch_tgt_text.extend(microbatch_tgt_text)
+        if (current_step + 1) % (int(np.ceil(train_steps / train_txt_log_freq))):
+            microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text = (
+                gen_pred(
+                    logits,
+                    text_y,
+                    tokenizer,
+                    normalizer,
+                )
+            )
+            batch_pred_text.extend(microbatch_pred_text)
+            batch_unnorm_pred_text.extend(microbatch_unnorm_pred_text)
+            batch_tgt_text.extend(microbatch_tgt_text)
+            batch_audio_files.extend(audio_files)
+            batch_text_files.extend(transcript_files)
+            batch_audio_arr.extend(padded_audio_arr)
 
         # after accumulation_steps, update weights
         if ((batch_idx + 1) % accumulation_steps) == 0:
@@ -967,37 +957,10 @@ def train(
             dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
-            norm_batch_tgt_text = [normalizer(text) for text in batch_tgt_text]
-            norm_batch_pred_text = [normalizer(text) for text in batch_pred_text]
-            norm_tgt_pred_pairs = list(zip(norm_batch_tgt_text, norm_batch_pred_text))
-            # no empty references - for WER calculation
-            batch_tgt_text_full = [
-                norm_batch_tgt_text[i]
-                for i in range(len(norm_batch_tgt_text))
-                if len(norm_batch_tgt_text[i]) > 0
-            ]
-            batch_pred_text_full = [
-                norm_batch_pred_text[i]
-                for i in range(len(norm_batch_pred_text))
-                if len(norm_batch_tgt_text[i]) > 0
-            ]
-
-            if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
-                train_wer = 0.0
-            else:
-                train_wer = (
-                    jiwer.wer(
-                        reference=batch_tgt_text_full,
-                        hypothesis=batch_pred_text_full,
-                    )
-                    * 100
+            if (current_step + 1) % (int(np.ceil(train_steps / train_txt_log_freq))):
+                norm_tgt_pred_pairs, train_wer_all = calc_pred_wer(
+                    batch_tgt_text, batch_pred_text, normalizer, rank
                 )
-            # Use torch.tensor to work with dist.all_reduce
-            train_wer_tensor = torch.tensor(train_wer, device=rank)
-            # Aggregate WER across all processes
-            dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
-            # Calculate the average WER across all processes
-            train_wer_all = train_wer_tensor.item() / dist.get_world_size()
 
             # Gradient clipping, if necessary, should be done before optimizer.step()
             scaler.unscale_(optimizer)
@@ -1007,24 +970,23 @@ def train(
             scheduler.step()  # Adjust learning rate based on accumulated steps
 
             current_step += 1
-            # if rank == 0:
-            #     wandb.log({"train/step": current_step})
 
             if current_step >= train_steps:
                 # logging
                 if rank == 0:
+                    train_metrics = defaultdict(float)
                     print("Logging final training results")
                     print(f"current_step: {current_step}")
                     print(f"train_loss: {train_loss_all}")
-                    print(f"train_wer: {train_wer_all}")
 
-                    wandb.log(
-                        {
-                            "train/train_loss": train_loss_all,
-                            "train/train_wer": train_wer_all,
-                            "custom_step": current_step,
-                        }
-                    )
+                    train_metrics["train/train_loss"] = train_loss_all
+                    train_metrics["custom_step"] = current_step
+
+                    if current_step % (int(np.ceil(train_steps / train_txt_log_freq))):
+                        train_metrics["train/train_wer"] = train_wer_all
+                        print(f"train_wer: {train_wer_all}")
+
+                    wandb.log(train_metrics)
 
                 return (
                     current_step,
@@ -1094,17 +1056,19 @@ def train(
             optimizer.zero_grad()  # Reset gradients only after updating weights
             total_loss = 0.0
             if rank == 0:
+                train_metrics = defaultdict(float)
+                print("Logging final training results")
                 print(f"current_step: {current_step}")
                 print(f"train_loss: {train_loss_all}")
-                print(f"train_wer: {train_wer_all}")
 
-                wandb.log(
-                    {
-                        "train/train_loss": train_loss_all,
-                        "train/train_wer": train_wer_all,
-                        "custom_step": current_step,
-                    }
-                )
+                train_metrics["train/train_loss"] = train_loss_all
+                train_metrics["custom_step"] = current_step
+
+                if current_step % (int(np.ceil(train_steps / train_txt_log_freq))):
+                    train_metrics["train/train_wer"] = train_wer_all
+                    print(f"train_wer: {train_wer_all}")
+
+                wandb.log(train_metrics)
 
                 if (
                     current_step % (int(np.ceil(train_steps / train_txt_log_freq)))
@@ -1112,97 +1076,49 @@ def train(
                     os.makedirs(
                         f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True
                     )
-                    with open(
-                        f"{log_dir}/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt",
-                        "a",
-                    ) as f:
-                        if not train_res_added:  # only once
-                            train_res.add_file(
-                                f"{log_dir}/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt"
-                            )
-                            train_res_added = True
-                            wandb.log_artifact(train_res)
-
-                        for i, (
-                            tgt_text_instance,
-                            pred_text_instance,
-                        ) in enumerate(
-                            norm_tgt_pred_pairs[
-                                ::logging_steps
-                            ]  # should log just 8 examples
-                        ):
-                            f.write(f"{current_step=}\n")
-                            f.write(
-                                f"effective step in epoch={(batch_idx + 1) // accumulation_steps}\n"
-                            )
-                            f.write(
-                                f"text_file={batch_text_files[i * logging_steps]}\n"
-                            )
-                            f.write(f"{pred_text_instance=}\n")
-                            f.write(
-                                f"unnorm_pred_text_instance={batch_pred_text[i * logging_steps]}\n"
-                            )
-                            f.write(f"{tgt_text_instance=}\n")
-                            f.write(
-                                f"unnorm_tgt_text_instance={batch_tgt_text[i * logging_steps]}\n\n"
-                            )
-
-                        f.write(f"{train_loss_all=}\n")
-                        f.write(f"{train_wer_all=}\n\n")
-
+                    log_txt(
+                        log_dir=log_dir,
+                        exp_name=exp_name,
+                        run_id=run_id,
+                        tags=tags,
+                        train_res=train_res,
+                        train_res_added=train_res_added,
+                        norm_tgt_pred_pairs=norm_tgt_pred_pairs,
+                        logging_steps=logging_steps,
+                        current_step=current_step,
+                        batch_idx=batch_idx,
+                        accumulation_steps=accumulation_steps,
+                        batch_text_files=batch_text_files,
+                        batch_pred_text=batch_pred_text,
+                        batch_tgt_text=batch_tgt_text,
+                        train_loss_all=train_loss_all,
+                        train_wer_all=train_wer_all,
+                    )
                 if (
                     current_step % (int(np.ceil(train_steps / train_tbl_log_freq)))
                 ) == 0:
-                    table_idx = current_step // (
-                        int(np.ceil(train_steps / train_tbl_log_freq))
+                    log_tbl(
+                        current_step=current_step,
+                        train_steps=train_steps,
+                        train_tbl_log_freq=train_tbl_log_freq,
+                        train_table=train_table,
+                        run_id=run_id,
+                        batch_audio_files=batch_audio_files,
+                        batch_audio_arr=batch_audio_arr,
+                        batch_text_files=batch_text_files,
+                        batch_pred_text=batch_pred_text,
+                        batch_tgt_text=batch_tgt_text,
+                        batch_unnorm_pred_text=batch_unnorm_pred_text,
+                        norm_tgt_pred_pairs=norm_tgt_pred_pairs,
+                        logging_steps=logging_steps,
                     )
-                    for i, (
-                        tgt_text_instance,
-                        pred_text_instance,
-                    ) in enumerate(norm_tgt_pred_pairs[::logging_steps]):
-                        wer = np.round(
-                            ow.utils.calculate_wer(
-                                (tgt_text_instance, pred_text_instance)
-                            ),
-                            2,
-                        )
-                        subs = 0
-                        dels = 0
-                        ins = 0
-                        if len(tgt_text_instance) == 0:
-                            subs = 0
-                            dels = 0
-                            ins = len(pred_text_instance.split())
-                        else:
-                            measures = jiwer.compute_measures(
-                                tgt_text_instance, pred_text_instance
-                            )
-                            subs = measures["substitutions"]
-                            dels = measures["deletions"]
-                            ins = measures["insertions"]
-
-                        train_table.add_data(
-                            run_id,
-                            batch_audio_files[i * logging_steps],
-                            wandb.Audio(
-                                batch_audio_arr[i * logging_steps],
-                                sample_rate=16000,
-                            ),
-                            batch_text_files[i * logging_steps],
-                            pred_text_instance,
-                            batch_unnorm_pred_text[i * logging_steps],
-                            batch_pred_text[i * logging_steps],
-                            tgt_text_instance,
-                            batch_tgt_text[i * logging_steps],
-                            subs,
-                            dels,
-                            ins,
-                            len(tgt_text_instance.split()),
-                            wer,
-                        )
-
-                    wandb.log({f"train_table_{table_idx}": train_table})
                     train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
+                    batch_pred_text = []
+                    batch_tgt_text = []
+                    batch_unnorm_pred_text = []
+                    batch_audio_files = []
+                    batch_text_files = []
+                    batch_audio_arr = []
 
             # validation
             if run_val:
@@ -1276,13 +1192,6 @@ def train(
                 ) == 0 and current_step > 0:
                     print(f"Rank {rank} passing barrier")
 
-            batch_pred_text = []
-            batch_tgt_text = []
-            batch_unnorm_pred_text = []
-            batch_audio_files = []
-            batch_text_files = []
-            batch_audio_arr = []
-
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
 
@@ -1290,38 +1199,6 @@ def train(
         train_loss_tensor = total_loss.clone()
         dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
         train_loss_all = train_loss_tensor.item() / dist.get_world_size()
-
-        norm_batch_tgt_text = [normalizer(text) for text in batch_tgt_text]
-        norm_batch_pred_text = [normalizer(text) for text in batch_pred_text]
-        norm_tgt_pred_pairs = list(zip(norm_batch_tgt_text, norm_batch_pred_text))
-        # no empty references - for WER calculation
-        batch_tgt_text_full = [
-            norm_batch_tgt_text[i]
-            for i in range(len(norm_batch_tgt_text))
-            if len(norm_batch_tgt_text[i]) > 0
-        ]
-        batch_pred_text_full = [
-            norm_batch_pred_text[i]
-            for i in range(len(norm_batch_pred_text))
-            if len(norm_batch_tgt_text[i]) > 0
-        ]
-
-        if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
-            train_wer = 0.0
-        else:
-            train_wer = (
-                jiwer.wer(
-                    reference=batch_tgt_text_full, hypothesis=batch_pred_text_full
-                )
-                * 100
-            )
-
-        # Use torch.tensor to work with dist.all_reduce
-        train_wer_tensor = torch.tensor(train_wer, device=rank)
-        # Aggregate WER across all processes
-        dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
-        # Calculate the average WER across all processes
-        train_wer_all = train_wer_tensor.item() / dist.get_world_size()
 
         scaler.unscale_(optimizer)
         clip_grad_norm_(model.parameters(), max_grad_norm)
@@ -1336,12 +1213,10 @@ def train(
                 print("Logging final training results")
                 print(f"current_step: {current_step}")
                 print(f"train_loss: {train_loss_all}")
-                print(f"train_wer: {train_wer_all}")
 
                 wandb.log(
                     {
                         "train/train_loss": train_loss_all,
-                        "train/train_wer": train_wer_all,
                         "custom_step": current_step,
                     }
                 )
@@ -1366,48 +1241,13 @@ def train(
         if rank == 0:
             print(f"current_step: {current_step}")
             print(f"train_loss: {train_loss_all}")
-            print(f"train_wer: {train_wer_all}")
 
             wandb.log(
                 {
                     "train/train_loss": train_loss_all,
-                    "train/train_wer": train_wer_all,
                     "custom_step": current_step,
                 }
             )
-
-            os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
-            with open(
-                f"{log_dir}/training/{exp_name}/{run_id}/training_results_{'_'.join(tags)}.txt",
-                "a",
-            ) as f:
-                for i, (
-                    tgt_text_instance,
-                    pred_text_instance,
-                ) in enumerate(norm_tgt_pred_pairs[::logging_steps]):
-                    f.write(f"{current_step=}\n")
-                    f.write(
-                        f"effective step in epoch={(batch_idx + 1) // accumulation_steps}\n"
-                    )
-                    f.write(f"{batch_text_files[i * logging_steps]}\n")
-                    f.write(f"{pred_text_instance=}\n")
-                    f.write(
-                        f"unnorm_pred_text_instance={batch_pred_text[i * logging_steps]}\n"
-                    )
-                    f.write(f"{tgt_text_instance=}\n")
-                    f.write(
-                        f"unnorm_tgt_text_instance={batch_tgt_text[i * logging_steps]}\n\n"
-                    )
-
-                f.write(f"{train_loss_all=}\n")
-                f.write(f"{train_wer_all=}\n\n")
-
-        batch_pred_text = []
-        batch_tgt_text = []
-        batch_unnorm_pred_text = []
-        batch_audio_files = []
-        batch_text_files = []
-        batch_audio_arr = []
 
     if rank == 0:
         end_time = time.time()
