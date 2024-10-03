@@ -1057,7 +1057,6 @@ def train(
             total_loss = 0.0
             if rank == 0:
                 train_metrics = defaultdict(float)
-                print("Logging final training results")
                 print(f"current_step: {current_step}")
                 print(f"train_loss: {train_loss_all}")
 
@@ -1688,7 +1687,6 @@ def main(
     eps: float = 1e-6,
     weight_decay: float = 0.1,
     max_grad_norm: float = 1.0,
-    subset: Optional[int] = None,
     eff_batch_size: int = 256,
     train_batch_size: int = 8,
     val_batch_size: int = 8,
