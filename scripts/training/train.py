@@ -1112,12 +1112,6 @@ def train(
                         logging_steps=logging_steps,
                     )
                     train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
-                    batch_pred_text = []
-                    batch_tgt_text = []
-                    batch_unnorm_pred_text = []
-                    batch_audio_files = []
-                    batch_text_files = []
-                    batch_audio_arr = []
 
             # validation
             if run_val:
@@ -1190,6 +1184,13 @@ def train(
                     current_step % (int(np.ceil(train_steps / eval_freq)))
                 ) == 0 and current_step > 0:
                     print(f"Rank {rank} passing barrier")
+        
+        batch_pred_text = []
+        batch_tgt_text = []
+        batch_unnorm_pred_text = []
+        batch_audio_files = []
+        batch_text_files = []
+        batch_audio_arr = []
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
