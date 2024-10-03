@@ -750,6 +750,8 @@ def log_txt(
 
         f.write(f"{train_loss_all=}\n")
         f.write(f"{train_wer_all=}\n\n")
+    
+    return train_res_added
 
 
 def log_tbl(
@@ -1075,7 +1077,7 @@ def train(
                     os.makedirs(
                         f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True
                     )
-                    log_txt(
+                    train_res_added = log_txt(
                         log_dir=log_dir,
                         exp_name=exp_name,
                         run_id=run_id,
