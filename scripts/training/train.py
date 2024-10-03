@@ -1687,6 +1687,7 @@ def main(
     eps: float = 1e-6,
     weight_decay: float = 0.1,
     max_grad_norm: float = 1.0,
+    subset: Optional[str] = None,
     eff_batch_size: int = 256,
     train_batch_size: int = 8,
     val_batch_size: int = 8,
