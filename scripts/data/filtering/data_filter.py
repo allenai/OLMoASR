@@ -10,6 +10,9 @@ import io
 
 
 class FilenameProviders:
+    def __init__(self):
+        pass
+    
     @staticmethod
     class LabelsDictsFilenameProvider(FilenameProvider):
         def __init__(self, file_format: str):
@@ -28,6 +31,9 @@ class FilenameProviders:
 
 
 class DataReader:
+    def __init__(self):
+        pass
+
     @staticmethod
     def bytes_to_text(data_dict: Dict[str, Any]) -> Dict[str, Any]:
         data_dict["text"] = data_dict["bytes"].decode("utf-8")
@@ -41,7 +47,10 @@ class DataReader:
         return data_dict
 
 
-class DataLabeler:
+class FilterFunc:
+    def __init__(self):
+        pass
+
     @staticmethod
     def check_case(transcript_dict: Dict[str, Any]) -> Dict[str, Any]:
         reader = TranscriptReader(transcript_string=transcript_dict["text"], ext="srt")
