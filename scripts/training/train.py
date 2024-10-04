@@ -711,7 +711,6 @@ def log_txt(
     train_res,
     train_res_added,
     norm_tgt_pred_pairs,
-    logging_steps,
     current_step,
     batch_idx,
     accumulation_steps,
@@ -736,21 +735,21 @@ def log_txt(
             tgt_text_instance,
             pred_text_instance,
         ) in enumerate(
-            norm_tgt_pred_pairs[::logging_steps]  # should log just 8 examples
+            norm_tgt_pred_pairs
         ):
             f.write(f"{current_step=}\n")
             f.write(
                 f"effective step in epoch={(batch_idx + 1) // accumulation_steps}\n"
             )
-            f.write(f"text_file={batch_text_files[i * logging_steps]}\n")
+            f.write(f"text_file={batch_text_files[i]}\n")
             f.write(f"{pred_text_instance=}\n")
-            f.write(f"unnorm_pred_text_instance={batch_pred_text[i * logging_steps]}\n")
+            f.write(f"unnorm_pred_text_instance={batch_pred_text[i]}\n")
             f.write(f"{tgt_text_instance=}\n")
-            f.write(f"unnorm_tgt_text_instance={batch_tgt_text[i * logging_steps]}\n\n")
+            f.write(f"unnorm_tgt_text_instance={batch_tgt_text[i]}\n\n")
 
         f.write(f"{train_loss_all=}\n")
         f.write(f"{train_wer_all=}\n\n")
-    
+
     return train_res_added
 
 
@@ -767,13 +766,12 @@ def log_tbl(
     batch_tgt_text,
     batch_unnorm_pred_text,
     norm_tgt_pred_pairs,
-    logging_steps,
 ):
     table_idx = current_step // (int(np.ceil(train_steps / train_tbl_log_freq)))
     for i, (
         tgt_text_instance,
         pred_text_instance,
-    ) in enumerate(norm_tgt_pred_pairs[::logging_steps]):
+    ) in enumerate(norm_tgt_pred_pairs):
         wer = np.round(
             ow.utils.calculate_wer((tgt_text_instance, pred_text_instance)),
             2,
@@ -793,17 +791,17 @@ def log_tbl(
 
         train_table.add_data(
             run_id,
-            batch_audio_files[i * logging_steps],
+            batch_audio_files[i],
             wandb.Audio(
-                batch_audio_arr[i * logging_steps],
+                batch_audio_arr[i],
                 sample_rate=16000,
             ),
-            batch_text_files[i * logging_steps],
+            batch_text_files[i],
             pred_text_instance,
-            batch_unnorm_pred_text[i * logging_steps],
-            batch_pred_text[i * logging_steps],
+            batch_unnorm_pred_text[i],
+            batch_pred_text[i],
             tgt_text_instance,
-            batch_tgt_text[i * logging_steps],
+            batch_tgt_text[i],
             subs,
             dels,
             ins,
@@ -885,7 +883,7 @@ def train(
     batch_audio_files = []
     batch_text_files = []
     batch_audio_arr = []
-    logging_steps = (train_batch_size * accumulation_steps) // WANDB_EXAMPLES
+    # logging_steps = (train_batch_size * accumulation_steps) // WANDB_EXAMPLES
     total_loss = 0.0
     model.train()
     optimizer.zero_grad()
@@ -1111,7 +1109,6 @@ def train(
                         batch_tgt_text=batch_tgt_text,
                         batch_unnorm_pred_text=batch_unnorm_pred_text,
                         norm_tgt_pred_pairs=norm_tgt_pred_pairs,
-                        logging_steps=logging_steps,
                     )
                     train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
 
@@ -1186,7 +1183,7 @@ def train(
                     current_step % (int(np.ceil(train_steps / eval_freq)))
                 ) == 0 and current_step > 0:
                     print(f"Rank {rank} passing barrier")
-        
+
         batch_pred_text = []
         batch_tgt_text = []
         batch_unnorm_pred_text = []
