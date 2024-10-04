@@ -52,43 +52,62 @@ class FilterFunc:
         pass
 
     @staticmethod
-    def check_case(transcript_dict: Dict[str, Any]) -> Dict[str, Any]:
-        reader = TranscriptReader(transcript_string=transcript_dict["text"], ext="srt")
+    def not_lower(row: Dict[str, Any]) -> bool:
+        return not row["text"].islower()
+
+    @staticmethod
+    def not_lower_empty(row: Dict[str, Any]) -> bool:
+        if not row["text"].islower() or row["text"] == "":
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def min_comma_period(row: Dict[str, Any]) -> bool:
+        if "," in row["text"] and "." in row["text"]:
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def min_comma_period_exclaim(row: Dict[str, Any]) -> bool:
+        if "," in row["text"] and "." in row["text"] and "!" in row["text"]:
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def min_comma_period_question(row: Dict[str, Any]) -> bool:
+        if "," in row["text"] and "." in row["text"] and "?" in row["text"]:
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def min_comma_period_question_exclaim(row: Dict[str, Any]) -> bool:
+        if (
+            "," in row["text"]
+            and "." in row["text"]
+            and "!" in row["text"]
+            and "?" in row["text"]
+        ):
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def no_repeat(row: Dict[str, Any]):
+        reader = TranscriptReader(
+            file_path=None, transcript_string=row["text"], ext="srt"
+        )
         t_dict, *_ = reader.read()
-        text = reader.extract_text(t_dict)
+        transcript_text_list = list(t_dict.values())
+        unique_text = set(transcript_text_list)
 
-        seg_dir_label_dict = {}
-        seg_dir_label_dict["seg_dir"] = os.path.dirname(
-            transcript_dict["path"]
-        ).replace("440K_full", "440K_seg")
-
-        if text.islower():
-            seg_dir_label_dict["label"] = "LOWER"
-        elif text.isupper():
-            seg_dir_label_dict["label"] = "UPPER"
-        elif text == "":
-            seg_dir_label_dict["label"] = "EMPTY"
+        if len(transcript_text_list) != len(unique_text):
+            return False
         else:
-            seg_dir_label_dict["label"] = "MIXED"
-
-        return seg_dir_label_dict
-
-
-def filter_in_label(
-    label_dict: Dict[str, Any], labels: Union[str, Tuple[str]]
-) -> Dict[str, Any]:
-    if isinstance(labels, str):
-        if label_dict["label"] == labels:
-            return {"seg_dir": label_dict["seg_dir"]}
-        else:
-            return {"seg_dir": None}
-    elif isinstance(labels, Tuple):
-        if label_dict["label"] in labels:
-            return {"seg_dir": label_dict["seg_dir"]}
-        else:
-            return {"seg_dir": None}
-    else:
-        return {"seg_dir": None}
+            return True
 
 
 def gen_smpl_dict(segs_dir: Dict[str, Any]) -> Dict[str, Any]:
