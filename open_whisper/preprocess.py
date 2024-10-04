@@ -192,7 +192,7 @@ def chunk_audio_transcript(
             shutil.rmtree(video_id_dir)
             return None
 
-        transcript, *_ = utils.TranscriptReader(transcript_file).read()
+        transcript, *_ = utils.TranscriptReader(file_path=transcript_file, transcript_string=None, ext="srt").read()
 
         # if transcript file is empty (2nd ver)
         if len(transcript.keys()) == 0:
