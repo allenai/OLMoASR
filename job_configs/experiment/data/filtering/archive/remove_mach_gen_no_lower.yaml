@@ -1,0 +1,41 @@
+version: v2
+budget: ai2/oe-data
+description: Filtering out lower transcripts with Ray
+tasks:
+  - name: remove_mach_gen_no_lower
+    image:
+      beaker: huongn/filter_mach_gen_no_lower_2
+    command: ["/bin/bash", "-c"]
+    arguments:
+      [
+        "python /stage/scripts/data/filtering/data_filter.py 
+        --data_dir=/weka/huongn/440K_full 
+        --label_data_dir=/weka/huongn/ow_filtering/mach_gen_case/$(printf '%03d' $BEAKER_REPLICA_RANK)
+        --samples_dicts_dir=/weka/huongn/ow_filtering/mach_gen_case/$(printf '%03d' $BEAKER_REPLICA_RANK)
+        --labels=UPPER,MIXED,EMPTY
+        --batch_size=245 
+        --batch_idx=$BEAKER_REPLICA_RANK
+        --filter_mode=False
+        --generate_mode=True
+        case_filter"
+      ]
+    datasets:
+      - mountPath: /weka
+        source:
+          weka: oe-data-default
+    result:
+      path:
+    envVars:
+      - name: PYTHONPATH
+        value: /stage
+    resources:
+      cpuCount: 20
+      gpuCount: 1
+      memory: 10GiB
+    context:
+      priority: normal
+      preemptible: true
+    constraints:
+      cluster:
+        - ai2/jupiter-cirrascale-2
+    replicas: 10
