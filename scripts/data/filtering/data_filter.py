@@ -131,122 +131,327 @@ class DataFilter:
     def __init__(
         self,
         data_dir: str,
-        label_data_dir: str,
         samples_dicts_dir: str,
-        labels: str,
         batch_size: int,
         batch_idx: int,
         filter_mode: bool,
-        generate_mode: str,
+        metadata_path: str,
     ):
         self.data_dir = data_dir
-        self.label_data_dir = label_data_dir
         self.samples_dicts_dir = samples_dicts_dir
-        self.labels = labels
         self.batch_size = batch_size
         self.batch_idx = batch_idx
         self.filter_mode = filter_mode
-        self.generate_mode = generate_mode
+        self.metadata_path = metadata_path
+        os.makedirs(os.path.dirname(self.metadata_path), exist_ok=True)
 
-    def remove_lower(self):
-        ray.init(num_cpus=20, num_gpus=1)
-        # Loading data and converting binary data to text
-        if self.generate_mode:
-            data_dirs = [
-                f"{self.data_dir}/{((self.batch_idx * self.batch_size) + i):05}"
-                for i in range(self.batch_size)
-                if (self.batch_idx * self.batch_size) + i <= 2448
-            ]
-            print(data_dirs[:5])
+    def base_filter(self, filter_func: FilterFunc):
+        ray.init(num_cpus=20, num_gpus=0)
+        data_dirs = [
+            f"{self.data_dir}/{((self.batch_idx * self.batch_size) + i):05}"
+            for i in range(self.batch_size)
+            if (self.batch_idx * self.batch_size) + i <= 2448
+        ]
+        print(data_dirs[:5])
 
-            print("Start reading binary files")
-            ds = ray.data.read_binary_files(
-                paths=data_dirs, file_extensions=["srt"], include_paths=True
-            ).map(DataReader.bytes_to_text)
+        print("Start reading binary files")
+        ds = ray.data.read_binary_files(
+            paths=data_dirs, file_extensions=["srt"], include_paths=True
+        ).map(DataReader.bytes_to_text)
 
-            # Inspecting to execute transformation
-            print("Finish reading binary files")
-            print(ds.count())
+        print("Finish reading binary files")
+        total = ds.count()
 
-            # Labeling the data
-            ds = ds.map(DataLabeler.check_case)
+        if not self.filter_mode:
+            ds = ds.filter(filter_func)
+            filtered = ds.count()
+            removed = total - filtered
 
-            # Repartitioning the data to 1 block to write to 1 file only
-            ds.repartition(num_blocks=1).write_json(
-                self.label_data_dir,
-                filename_provider=FilenameProviders.LabelsDictsFilenameProvider(
-                    "jsonl"
-                ),
-            )
-            print(f"Finish writing the labeled data to {self.label_data_dir}")
+            return (removed, total)
 
-            # Inspecting to execute transformation
-            print("Finish labeling the data")
-            print(ds.count())
-        elif self.filter_mode:
-            ds = ray.data.read_json(self.label_data_dir, file_format="jsonl")
-            print(ds.count())
-
-        print("Filtering labeled data")
-        ds = ds.map(filter_in_label, fn_kwargs={"labels": self.labels})
-        print(ds.count())
-        print("Finish filtering labeled data")
-
-        ds = ds.map(gen_smpl_dict)
+        ds = ds.filter(filter_func).map(gen_smpl_dict)
+        filtered = ds.count()
+        removed = total - filtered
         ds.repartition(num_blocks=1).write_json(
             self.samples_dicts_dir,
             filename_provider=FilenameProviders.SamplesDictsFilenameProvider("jsonl"),
         )
-        print(
-            f"Finish generating samples dicts to {self.samples_dicts_dir}/samples_dicts.jsonl"
+        return (removed, total)
+
+    def not_lower(self):
+        removed_count, total_count = self.base_filter(filter_func=FilterFunc.not_lower)
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+
+    def not_lower_empty(self):
+        removed_count, total_count = self.base_filter(
+            filter_func=FilterFunc.not_lower_empty
         )
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+
+    def min_comma_period(self):
+        removed_count, total_count = self.base_filter(
+            filter_func=FilterFunc.min_comma_period
+        )
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+
+    def min_comma_period_exclaim(self):
+        removed_count, total_count = self.base_filter(
+            filter_func=FilterFunc.min_comma_period_exclaim
+        )
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+
+    def min_comma_period_question(self):
+        removed_count, total_count = self.base_filter(
+            filter_func=FilterFunc.min_comma_period_question
+        )
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+
+    def min_comma_period_question_exclaim(self):
+        removed_count, total_count = self.base_filter(
+            filter_func=FilterFunc.min_comma_period_question_exclaim
+        )
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+
+    def no_repeat(self):
+        removed_count, total_count = self.base_filter(filter_func=FilterFunc.no_repeat)
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+
 
 if __name__ == "__main__":
     Fire(DataFilter)
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-# ray.init(num_cpus=20, num_gpus=1)
-# if generate_mode:
-#     data_dirs = [
-#         f"{data_dir}/{((batch_idx * batch_size) + i):05}"
-#         for i in range(batch_size)
-#         if (batch_idx * batch_size) + i <= 2448
-#     ]
-#     print(data_dirs[:5])
 
-#     # read in data
-#     ds = ray.data.read_binary_files(
-#         paths=data_dirs, file_extensions=[], include_paths=True
-#     ).map(DataReader.bytes_to_text)
 
-#     # label data
+# class DataLabeler:
+#     def __init__(self):
+#         pass
+#     @staticmethod
+#     def label_case(transcript_dict: Dict[str, Any]) -> Dict[str, Any]:
+#         reader = TranscriptReader(transcript_string=transcript_dict["text"], ext="srt")
+#         t_dict, *_ = reader.read()
+#         text = reader.extract_text(t_dict)
 
-#     # Repartitioning the data to 1 block to write to 1 file only
-#     ds.repartition(num_blocks=1).write_json(
-#         label_data_dir, filename_provider=FilenameProviders.LabelsDictsFilenameProvider("jsonl")
-#     )
-#     print(f"Finish writing the labeled data to {label_data_dir}")
-# elif filter_mode:
-#     ds = ray.data.read_json(label_data_dir, file_format="jsonl")
-#     print(ds.count())
+#         seg_dir_label_dict = defaultdict(str)
+#         seg_dir_label_dict["seg_dir"] = os.path.dirname(transcript_dict["path"]).replace(
+#             "440K_full", "440K_seg"
+#         )
 
-# print("Filtering labeled data")
-# ds = ds.map(filter_in_label, fn_kwargs={"labels": labels})
-# print(ds.count())
-# print("Finish filtering labeled data")
+#         if text.islower():
+#             seg_dir_label_dict["label"] = "LOWER"
+#         elif text.isupper():
+#             seg_dir_label_dict["label"] = "UPPER"
+#         elif text == "":
+#             seg_dir_label_dict["label"] = "EMPTY"
+#         else:
+#             seg_dir_label_dict["label"] = "MIXED"
 
-# ds = ds.map(gen_smpl_dict)
-# ds.repartition(num_blocks=1).write_json(
-#     samples_dicts_dir, filename_provider=FilenameProviders.SamplesDictsFilenameProvider("jsonl")
-# )
-# print(f"Finish generating samples dicts to {samples_dicts_dir}/samples_dicts.jsonl")
+#         return seg_dir_label_dict
+
+#     @staticmethod
+#     def label_punct(transcript_dict: Dict[str, Any]) -> Dict[str, Any]:
+#         reader = TranscriptReader(transcript_string=transcript_dict["text"], ext="srt")
+#         t_dict, *_ = reader.read()
+#         text = reader.extract_text(t_dict)
+
+#         seg_dir_label_dict = defaultdict(str)
+#         seg_dir_label_dict["seg_dir"] = os.path.dirname(transcript_dict["path"]).replace(
+#             "440K_full", "440K_seg"
+#         )
+
+#         punct = [",", ".", "!", "?"]
+#         for p in punct:
+#             if p in text:
+#                 seg_dir_label_dict["label"] += p
+
+#         if "label" not in seg_dir_label_dict.keys():
+#             seg_dir_label_dict["label"] = "NO_PUNCT"
+
+#         return seg_dir_label_dict
+
+# class LabelFilter:
+#     def __init__(self):
+#         pass
+#     @staticmethod
+#     def label_case_filter(
+#         label_dict: Dict[str, Any], labels: Union[str, Tuple[str]]
+#     ) -> Dict[str, Any]:
+#         if isinstance(labels, str):
+#             if label_dict["label"] == labels:
+#                 return {"seg_dir": label_dict["seg_dir"]}
+#             else:
+#                 return {"seg_dir": None}
+#         elif isinstance(labels, Tuple):
+#             if label_dict["label"] in labels:
+#                 return {"seg_dir": label_dict["seg_dir"]}
+#             else:
+#                 return {"seg_dir": None}
+#         else:
+#             return {"seg_dir": None}
+
+#     @staticmethod
+#     def label_punct_filter(
+#         label_dict: Dict[str, Any], labels: Union[str, Tuple[str]]
+#     ) -> Dict[str, Any]:
+#         if all(char in label_dict["label"] for char in labels):
+#             return {"seg_dir": label_dict["seg_dir"]}
+#         else:
+#             return {"seg_dir": None}
+
+
+# def gen_smpl_dict(
+#     segs_dir_dict: Optional[Dict[str, Any]]
+# ) -> Dict[str, Any]:
+#     if segs_dir_dict is not None:
+#         segs_dir = segs_dir_dict["seg_dir"]
+#     else:
+#         return {"sample_dicts": None}
+
+#     srt_files = sorted(glob.glob(segs_dir + "/*.srt"))
+#     npy_files = sorted(glob.glob(segs_dir + "/*.npy"))
+#     srt_npy_samples = list(zip(srt_files, npy_files))
+#     smpl_dicts = []
+
+#     for srt_fp, npy_fp in srt_npy_samples:
+#         smpl_dict = {"key": segs_dir, "srt": srt_fp, "npy": npy_fp}
+#         smpl_dicts.append(smpl_dict)
+
+#     return {"sample_dicts": smpl_dicts}
+
+# class DataFilter:
+#     def __init__(
+#         self,
+#         data_dir: str,
+#         label_data_dir: str,
+#         samples_dicts_dir: str,
+#         labels: str,
+#         batch_size: int,
+#         batch_idx: int,
+#         filter_mode: bool,
+#         generate_mode: str,
+#     ):
+#         self.data_dir = data_dir
+#         self.label_data_dir = label_data_dir
+#         self.samples_dicts_dir = samples_dicts_dir
+#         self.labels = labels
+#         self.batch_size = batch_size
+#         self.batch_idx = batch_idx
+#         self.filter_mode = filter_mode
+#         self.generate_mode = generate_mode
+
+#     def punct_filter(self):
+#         ray.init(num_cpus=20, num_gpus=1)
+#         if self.generate_mode:
+#             data_dirs = [
+#                 f"{self.data_dir}/{((self.batch_idx * self.batch_size) + i):05}"
+#                 for i in range(self.batch_size)
+#                 if (self.batch_idx * self.batch_size) + i <= 2448
+#             ]
+#             print(data_dirs[:5])
+
+#             print("Start reading binary files")
+#             ds = ray.data.read_binary_files(
+#                 paths=data_dirs, file_extensions=["srt"], include_paths=True
+#             ).map(DataReader.bytes_to_text)
+
+#             # Inspecting to execute transformation
+#             print("Finish reading binary files")
+#             print(ds.count())
+
+#             # Labeling the data
+#             ds = ds.map(DataLabeler.label_punct)
+
+#             # Repartitioning the data to 1 block to write to 1 file only
+#             ds.repartition(num_blocks=1).write_json(
+#                 self.label_data_dir,
+#                 filename_provider=FilenameProviders.LabelsDictsFilenameProvider(
+#                     "jsonl"
+#                 ),
+#             )
+#             print(f"Finish writing the labeled data to {self.label_data_dir}")
+
+#             # Inspecting to execute transformation
+#             print("Finish labeling the data")
+#             print(ds.count())
+#         elif self.filter_mode:
+#             ds = ray.data.read_json(self.label_data_dir, file_format="jsonl")
+#             print(ds.count())
+
+#         print("Filtering labeled data")
+#         ds = ds.map(LabelFilter.label_punct_filter, fn_kwargs={"labels": self.labels})
+#         print(ds.count())
+#         print("Finish filtering labeled data")
+
+#         ds = ds.map(gen_smpl_dict)
+#         ds.repartition(num_blocks=1).write_json(
+#             self.samples_dicts_dir,
+#             filename_provider=FilenameProviders.SamplesDictsFilenameProvider("jsonl"),
+#         )
+#         print(
+#             f"Finish generating samples dicts to {self.samples_dicts_dir}/samples_dicts.jsonl"
+#         )
+
+#     def case_filter(self):
+#         ray.init(num_cpus=20, num_gpus=1)
+#         # Loading data and converting binary data to text
+#         if self.generate_mode:
+#             data_dirs = [
+#                 f"{self.data_dir}/{((self.batch_idx * self.batch_size) + i):05}"
+#                 for i in range(self.batch_size)
+#                 if (self.batch_idx * self.batch_size) + i <= 2448
+#             ]
+#             print(data_dirs[:5])
+
+#             print("Start reading binary files")
+#             ds = ray.data.read_binary_files(
+#                 paths=data_dirs, file_extensions=["srt"], include_paths=True
+#             ).map(DataReader.bytes_to_text)
+
+#             # Inspecting to execute transformation
+#             print("Finish reading binary files")
+#             print(ds.count())
+
+#             # Labeling the data
+#             ds = ds.map(DataLabeler.label_case)
+
+#             # Repartitioning the data to 1 block to write to 1 file only
+#             ds.repartition(num_blocks=1).write_json(
+#                 self.label_data_dir,
+#                 filename_provider=FilenameProviders.LabelsDictsFilenameProvider(
+#                     "jsonl"
+#                 ),
+#             )
+#             print(f"Finish writing the labeled data to {self.label_data_dir}")
+
+#             # Inspecting to execute transformation
+#             print("Finish labeling the data")
+#             print(ds.count())
+#         elif self.filter_mode:
+#             ds = ray.data.read_json(self.label_data_dir, file_format="jsonl")
+#             print(ds.count())
+
+#         print("Filtering labeled data")
+#         ds = ds.map(LabelFilter.label_case_filter, fn_kwargs={"labels": self.labels})
+#         print(ds.count())
+#         print("Finish filtering labeled data")
+
+#         ds = ds.map(gen_smpl_dict)
+#         ds.repartition(num_blocks=1).write_json(
+#             self.samples_dicts_dir,
+#             filename_provider=FilenameProviders.SamplesDictsFilenameProvider("jsonl"),
+#         )
+#         print(
+#             f"Finish generating samples dicts to {self.samples_dicts_dir}/samples_dicts.jsonl"
+#         )
