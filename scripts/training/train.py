@@ -935,7 +935,11 @@ def train(
                 text = f"Loss is NaN for {audio_files} at step {current_step}!"
                 wandb.alert(title="NaN Loss", text=text)
 
-        if (current_step + 1) % (int(np.ceil(train_steps / train_txt_log_freq))):
+        if (
+            ((current_step + 1) % (int(np.ceil(train_steps / train_txt_log_freq)))) == 0
+        ) or (
+            ((current_step + 1) % (int(np.ceil(train_steps / train_tbl_log_freq)))) == 0
+        ):
             microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text = (
                 gen_pred(
                     logits,
@@ -957,7 +961,13 @@ def train(
             dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
-            if (current_step + 1) % (int(np.ceil(train_steps / train_txt_log_freq))):
+            if (
+                ((current_step + 1) % (int(np.ceil(train_steps / train_txt_log_freq))))
+                == 0
+            ) or (
+                ((current_step + 1) % (int(np.ceil(train_steps / train_tbl_log_freq))))
+                == 0
+            ):
                 norm_tgt_pred_pairs, train_wer_all = calc_pred_wer(
                     batch_tgt_text, batch_pred_text, normalizer, rank
                 )
@@ -982,7 +992,19 @@ def train(
                     train_metrics["train/train_loss"] = train_loss_all
                     train_metrics["custom_step"] = current_step
 
-                    if current_step % (int(np.ceil(train_steps / train_txt_log_freq))):
+                    if (
+                        (
+                            current_step
+                            % (int(np.ceil(train_steps / train_txt_log_freq)))
+                        )
+                        == 0
+                    ) or (
+                        (
+                            current_step
+                            % (int(np.ceil(train_steps / train_tbl_log_freq)))
+                        )
+                        == 0
+                    ):
                         train_metrics["train/train_wer"] = train_wer_all
                         print(f"train_wer: {train_wer_all}")
 
@@ -1063,7 +1085,13 @@ def train(
                 train_metrics["train/train_loss"] = train_loss_all
                 train_metrics["custom_step"] = current_step
 
-                if current_step % (int(np.ceil(train_steps / train_txt_log_freq))):
+                if (
+                    (current_step % (int(np.ceil(train_steps / train_txt_log_freq))))
+                    == 0
+                ) or (
+                    (current_step % (int(np.ceil(train_steps / train_tbl_log_freq))))
+                    == 0
+                ):
                     train_metrics["train/train_wer"] = train_wer_all
                     print(f"train_wer: {train_wer_all}")
 
@@ -1075,6 +1103,9 @@ def train(
                     os.makedirs(
                         f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True
                     )
+                    print(
+                        f"{len(batch_audio_files)=}, {len(batch_audio_arr)=}, {len(batch_text_files)=}, {len(batch_pred_text)=}, {len(batch_tgt_text)=}, {len(batch_unnorm_pred_text)=}, {len(norm_tgt_pred_pairs)=}"
+                    )
                     train_res_added = log_txt(
                         log_dir=log_dir,
                         exp_name=exp_name,
@@ -1083,7 +1114,6 @@ def train(
                         train_res=train_res,
                         train_res_added=train_res_added,
                         norm_tgt_pred_pairs=norm_tgt_pred_pairs,
-                        logging_steps=logging_steps,
                         current_step=current_step,
                         batch_idx=batch_idx,
                         accumulation_steps=accumulation_steps,
@@ -1096,6 +1126,9 @@ def train(
                 if (
                     current_step % (int(np.ceil(train_steps / train_tbl_log_freq)))
                 ) == 0:
+                    print(
+                        f"{len(batch_audio_files)=}, {len(batch_audio_arr)=}, {len(batch_text_files)=}, {len(batch_pred_text)=}, {len(batch_tgt_text)=}, {len(batch_unnorm_pred_text)=}, {len(norm_tgt_pred_pairs)=}"
+                    )
                     log_tbl(
                         current_step=current_step,
                         train_steps=train_steps,
