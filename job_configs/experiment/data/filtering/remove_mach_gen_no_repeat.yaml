@@ -15,9 +15,8 @@ tasks:
         --batch_idx=$BEAKER_REPLICA_RANK
         --filter_mode=True
         --metadata_path=/weka/huongn/ow_filtering/no_repeat/metadata.txt
-        no_repeat
-        "
-      ]
+        no_repeat"
+        ]
     datasets:
       - mountPath: /weka
         source:

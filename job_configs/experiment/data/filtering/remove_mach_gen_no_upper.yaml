@@ -1,22 +1,21 @@
 version: v2
 budget: ai2/oe-data
-description: Filtering in data with transcripts that have at least ",.?" with Ray
+description: Filtering out upper transcripts with Ray
 tasks:
-  - name: remove_mach_gen_comma_period_question
+  - name: remove_mach_gen_no_upper
     image:
-      beaker: huongn/ow_filter_0
+      beaker: huongn/ow_filter_1
     command: ["/bin/bash", "-c"]
     arguments:
       [
-        "python /stage/scripts/data/filtering/data_filter.py 
+        "python /stage/scripts/data/filtering/data_filter.py
         --data_dir=/weka/huongn/440K_full 
-        --samples_dicts_dir=/weka/huongn/ow_filtering/mach_gen_punct/comma_period_question/$(printf '%03d' $BEAKER_REPLICA_RANK)
+        --samples_dicts_dir=/weka/huongn/ow_filtering/mach_gen_case/not_upper/$(printf '%03d' $BEAKER_REPLICA_RANK)
         --batch_size=245 
         --batch_idx=$BEAKER_REPLICA_RANK
         --filter_mode=True
-        --metadata_path=/weka/huongn/ow_filtering/mach_gen_punct/comma_period_question/metadata.txt
-        min_comma_period_question
-        "
+        --metadata_path=/weka/huongn/ow_filtering/mach_gen_case/not_upper/metadata.txt
+        not_upper"
       ]
     datasets:
       - mountPath: /weka
