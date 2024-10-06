@@ -28,9 +28,9 @@ tasks:
       - name: PYTHONPATH
         value: /stage
     resources:
-      cpuCount: 20
-      gpuCount: 1
-      memory: 10GiB
+      cpuCount: 62
+      gpuCount: 2
+      memory: 256GiB
     context:
       priority: normal
       preemptible: true
