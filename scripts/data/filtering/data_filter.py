@@ -58,7 +58,29 @@ class FilterFunc:
 
     @staticmethod
     def not_lower_empty(row: Dict[str, Any]) -> bool:
-        if not row["text"].islower() or row["text"] == "":
+        if not (row["text"].islower() or row["text"].strip() == ""):
+            return True
+        else:
+            return False
+    
+    @staticmethod
+    def not_upper(row: Dict[str, Any]) -> bool:
+        return not row["text"].isupper()
+
+    @staticmethod
+    def not_upper_empty(row: Dict[str, Any]) -> bool:
+        if not (row["text"].isupper() or row["text"].strip() == ""):
+            return True
+        else:
+            return False
+    
+    @staticmethod
+    def not_lower_upper(row: Dict[str, Any]) -> bool:
+        return not (row["text"].islower() or row["text"].isupper())
+    
+    @staticmethod
+    def only_mixed(row: Dict[str, Any]) -> bool:
+        if not(row["text"].islower() or row["text"].isupper() or row["text"].strip() == ""):
             return True
         else:
             return False
@@ -190,6 +212,36 @@ class DataFilter:
     def not_lower_empty(self):
         removed_count, total_count = self.base_filter(
             filter_func=FilterFunc.not_lower_empty
+        )
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+            
+    def not_upper(self):
+        removed_count, total_count = self.base_filter(filter_func=FilterFunc.not_upper)
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+        
+    def not_upper_empty(self):
+        removed_count, total_count = self.base_filter(
+            filter_func=FilterFunc.not_upper_empty
+        )
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+    
+    def not_lower_upper(self):
+        removed_count, total_count = self.base_filter(
+            filter_func=FilterFunc.not_lower_upper
+        )
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+    
+    def only_mixed(self):
+        removed_count, total_count = self.base_filter(
+            filter_func=FilterFunc.only_mixed
         )
 
         with open(self.metadata_path, "a") as f:
