@@ -1,0 +1,69 @@
+version: v2
+budget: ai2/prior
+description: filtering experiment with transcripts that don't have at least "," and "." and transcripts w/ repeats (proxy for identifying machine generated transcripts)
+tasks:
+  - name: min_comma_period_no_repeat_mach_gen
+    image:
+      beaker: huongn/ow_train_filter_exp_5
+    command: ['/bin/bash', '-c']
+    arguments: ['torchrun --nnodes 1 --nproc_per_node 8 scripts/training/train.py
+      --model_variant=tiny
+      --exp_name=min_comma_period_no_repeat_mach_gen
+      --job_type=filtering
+      --samples_dicts_dir=/weka/huongn/ow_filtering/min_comma_period_no_repeat
+      --train_steps=9375
+      --run_id=None
+      --ckpt_file_name=None
+      --ckpt_dir=/weka/huongn/ow_ckpts
+      --log_dir=/data/huongn/ow_logs
+      --eval_dir=/ow_eval
+      --rank=None
+      --world_size=None
+      --lr=1.5e-3
+      --betas="(0.9, 0.98)"
+      --eps=1e-6
+      --weight_decay=0.1
+      --max_grad_norm=1.0
+      --eff_batch_size=256
+      --train_batch_size=16
+      --val_batch_size=16
+      --eval_batch_size=16
+      --train_val_split=0.99
+      --num_workers=8
+      --pin_memory=True
+      --persistent_workers=True
+      --run_val=True
+      --run_eval=True
+      --train_log_freq=50
+      --val_freq=10
+      --eval_freq=5']
+    datasets:
+    - mountPath: /weka
+      source:
+        weka: oe-data-default
+    - mountPath: /ow_eval
+      source:
+        beaker: huongn/mini-job-ow-evalset
+    result:
+      # Beaker will capture anything that's written to this location and store it in the results
+      # dataset. This location is required to be a directory, not a file.
+      path: /data/huongn/ow_logs
+    envVars:
+    - name: PYTHONPATH
+      value: /stage
+    - name: WANDB_API_KEY
+      secret: WANDB_API_KEY
+    - name: TORCH_NCCL_BLOCKING_WAIT
+      value: 1
+    - name: TORCH_NCCL_ASYNC_ERROR_HANDLING
+      value:
+    - name: NCCL_DEBUG
+      value: INFO
+    resources:
+      cpuCount: 64
+      gpuCount: 8
+    context:
+      priority: normal
+      preemptible: True
+    constraints:
+      cluster: [ ai2/neptune-cirrascale ]
