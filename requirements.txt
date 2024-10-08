@@ -24,3 +24,4 @@ openai-whisper
 webdataset
 transformers
 IPython
+ray
