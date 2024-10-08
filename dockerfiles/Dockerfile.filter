@@ -12,6 +12,7 @@ WORKDIR /stage/
 COPY requirements-filter.txt requirements-filter.txt
 
 # installing dependencies
+RUN apt-get update && apt-get install -y git
 RUN pip install -r requirements-filter.txt
 
 # copying necessary files and directories to container
