@@ -1,0 +1,39 @@
+version: v2
+budget: ai2/oe-data
+description: Filtering out lower transcripts and transcripts w/ repeating lines w/ Ray
+tasks:
+  - name: remove_mach_gen_no_lower_repeat
+    image:
+      beaker: huongn/ow_filter_3
+    command: ["/bin/bash", "-c"]
+    arguments:
+      [
+        "python /stage/scripts/data/filtering/data_filter.py
+        --data_dir=/weka/huongn/440K_full 
+        --samples_dicts_dir=/weka/huongn/ow_filtering/not_lower_repeat/$(printf '%03d' $BEAKER_REPLICA_RANK)
+        --batch_size=245 
+        --batch_idx=$BEAKER_REPLICA_RANK
+        --filter_mode=True
+        --metadata_path=/weka/huongn/ow_filtering/not_lower_repeat/metadata.txt
+        no_lower_no_repeat"
+      ]
+    datasets:
+      - mountPath: /weka
+        source:
+          weka: oe-data-default
+    result:
+      path:
+    envVars:
+      - name: PYTHONPATH
+        value: /stage
+    resources:
+      cpuCount: 62
+      gpuCount: 2
+      memory: 256GiB
+    context:
+      priority: normal
+      preemptible: true
+    constraints:
+      cluster:
+        - ai2/neptune-cirrascale
+    replicas: 10
