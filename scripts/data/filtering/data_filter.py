@@ -189,9 +189,9 @@ class DataFilter:
         metadata_path: str,
     ):
         self.data_dir = data_dir
-        self.samples_dicts_dir = samples_dicts_dir + f"/{int(os.getenv("BEAKER_REPLICA_INDEX")):03}"
+        self.samples_dicts_dir = samples_dicts_dir + f"/{int(os.getenv("BEAKER_REPLICA_RANK")):03}"
         self.batch_size = batch_size
-        self.batch_idx = int(os.getenv("BEAKER_REPLICA_INDEX"))
+        self.batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
         self.filter_mode = filter_mode
         self.metadata_path = metadata_path
         os.makedirs(os.path.dirname(self.metadata_path), exist_ok=True)
