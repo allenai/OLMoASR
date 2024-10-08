@@ -1920,6 +1920,9 @@ def main(
         run_val: Whether to run validation
         run_eval: Whether to run evaluation
     """
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+        
     model_dims = VARIANT_TO_DIMS[model_variant]
 
     if rank is None and world_size is None:
