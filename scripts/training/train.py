@@ -1766,7 +1766,7 @@ def main(
         run_eval: Whether to run evaluation
     """
     if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+        os.makedirs(log_dir, exist_ok=True)
         
     model_dims = VARIANT_TO_DIMS[model_variant]
 
