@@ -160,6 +160,13 @@ class FilterFunc:
         else:
             return False
 
+    @staticmethod
+    def min_comma_period_mixed_no_repeat(row: Dict[str, Any]):
+        if FilterFunc.min_comma_period(row) and FilterFunc.only_mixed(row) and FilterFunc.no_repeat(row):
+            return True
+        else:
+            return False
+
 def gen_smpl_dict(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     segs_dir = os.path.dirname(row["path"]).replace("440K_full", "440K_seg")
 
@@ -338,6 +345,14 @@ class DataFilter:
     def mixed_no_repeat(self):
         removed_count, total_count = self.base_filter(
             filter_func=FilterFunc.mixed_no_repeat
+        )
+
+        with open(self.metadata_path, "a") as f:
+            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+            
+    def min_comma_period_mixed_no_repeat(self):
+        removed_count, total_count = self.base_filter(
+            filter_func=FilterFunc.min_comma_period_mixed_no_repeat
         )
 
         with open(self.metadata_path, "a") as f:
