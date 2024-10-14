@@ -122,7 +122,6 @@ def download_audio(
         command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
     )
 
-    os.makedirs(f"metadata/{output_dir}", exist_ok=True)
     identifiers = [
         "unavailable",
         "private",
@@ -135,13 +134,17 @@ def download_audio(
         "not available",
     ]
     if any(identifier in result.stderr for identifier in identifiers):
-        with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
-            f.write(f"{video_id}\n")
-            return None
-    elif "HTTP Error 403" in result.stderr:
-        with open(f"metadata/{output_dir}/blocked_ip.txt", "a") as f:
-            f.write(f"{video_id}\n")
-        return "requeue"
+        with open(f"metadata/unavailable_videos.txt", "a") as f:
+            f.write(f"{video_id}\t{output_dir}\n")
+            return "unavailable"
+    elif (
+        "HTTP Error 403" in result.stderr
+        or "Only images are available for download" in result.stderr
+        or "Requested format is not available" in result.stderr
+    ):
+        with open(f"metadata/blocked_ip.txt", "a") as f:
+            f.write(f"{video_id}\t{output_dir}\n")
+        return "blocked IP"
 
     return None
 
@@ -192,7 +195,9 @@ def chunk_audio_transcript(
             shutil.rmtree(video_id_dir)
             return None
 
-        transcript, *_ = utils.TranscriptReader(file_path=transcript_file, transcript_string=None, ext="srt").read()
+        transcript, *_ = utils.TranscriptReader(
+            file_path=transcript_file, transcript_string=None, ext="srt"
+        ).read()
 
         # if transcript file is empty (2nd ver)
         if len(transcript.keys()) == 0:
@@ -252,7 +257,9 @@ def chunk_audio_transcript(
                         in_memory=in_memory,
                     )
 
-                    if audio_arr is not None and not utils.too_short_audio(audio_arr=audio_arr):
+                    if audio_arr is not None and not utils.too_short_audio(
+                        audio_arr=audio_arr
+                    ):
                         segments_list.append(
                             (t_output_file, transcript_string, a_output_file, audio_arr)
                         )
@@ -299,7 +306,9 @@ def chunk_audio_transcript(
                             in_memory=in_memory,
                         )
 
-                    if audio_arr is not None and not utils.too_short_audio(audio_arr=audio_arr):
+                    if audio_arr is not None and not utils.too_short_audio(
+                        audio_arr=audio_arr
+                    ):
                         segments_list.append(
                             (t_output_file, transcript_string, a_output_file, audio_arr)
                         )
@@ -326,7 +335,9 @@ def chunk_audio_transcript(
                         in_memory=in_memory,
                     )
 
-                    if audio_arr is not None and not utils.too_short_audio(audio_arr=audio_arr):
+                    if audio_arr is not None and not utils.too_short_audio(
+                        audio_arr=audio_arr
+                    ):
                         segments_list.append(
                             (t_output_file, transcript_string, a_output_file, audio_arr)
                         )
@@ -350,6 +361,8 @@ def chunk_audio_transcript(
         return None
 
 
-def parallel_chunk_audio_transcript(args) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
+def parallel_chunk_audio_transcript(
+    args,
+) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
     """Parallelized version of chunk_audio_transcript function to work in multiprocessing context"""
     return chunk_audio_transcript(*args)
