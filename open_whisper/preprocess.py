@@ -57,7 +57,6 @@ def download_transcript(
         command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
     )
 
-    os.makedirs(f"metadata/{output_dir}", exist_ok=True)
     identifiers = [
         "unavailable",
         "private",
@@ -69,8 +68,9 @@ def download_transcript(
         "members" "not available",
     ]
     if any(identifier in result.stderr for identifier in identifiers):
-        with open(f"metadata/{output_dir}/unavailable_videos.txt", "a") as f:
-            f.write(f"{video_id}\n")
+        with open(f"metadata/unavailable_videos.txt", "a") as f:
+            f.write(f"{video_id}\t{output_dir}\ttranscript\n")
+        return "unavailable"
 
     return None
 
@@ -135,7 +135,7 @@ def download_audio(
     ]
     if any(identifier in result.stderr for identifier in identifiers):
         with open(f"metadata/unavailable_videos.txt", "a") as f:
-            f.write(f"{video_id}\t{output_dir}\n")
+            f.write(f"{video_id}\t{output_dir}\taudio\n")
             return "unavailable"
     elif (
         "HTTP Error 403" in result.stderr

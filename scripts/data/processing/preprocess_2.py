@@ -37,9 +37,7 @@ def write_to_tar(
     segments, shard_idx = segment_shards
     tar_name = f"{shard_idx:06}.tar"
 
-    with NamedTemporaryFile(
-        delete=False, suffix=".tar", dir=CUSTOM_TEMP_DIR
-    ) as temp_tar:
+    with NamedTemporaryFile(delete=False, suffix=".tar", dir=CUSTOM_TEMP_DIR) as temp_tar:
         tar_path = temp_tar.name
 
         with tarfile.open(tar_path, "w") as tar:
@@ -47,11 +45,9 @@ def write_to_tar(
                 t_output_file, transcript_string, a_output_file, audio_arr = paths_data
                 # Adding transcript to tar
                 transcript_buffer = BytesIO()
-                transcript_buffer.write(transcript_string.encode("utf-8"))
+                transcript_buffer.write(transcript_string.encode('utf-8'))
                 transcript_buffer.seek(0)
-                tarinfo_transcript = tarfile.TarInfo(
-                    name="/".join(t_output_file.split("/")[-2:])
-                )
+                tarinfo_transcript = tarfile.TarInfo(name="/".join(t_output_file.split("/")[-2:]))
                 tarinfo_transcript.size = transcript_buffer.getbuffer().nbytes
                 tar.addfile(tarinfo_transcript, transcript_buffer)
 
@@ -59,9 +55,7 @@ def write_to_tar(
                 audio_buffer = BytesIO()
                 np.save(audio_buffer, audio_arr)
                 audio_buffer.seek(0)
-                tarinfo_audio = tarfile.TarInfo(
-                    name="/".join(a_output_file.split("/")[-2:])
-                )
+                tarinfo_audio = tarfile.TarInfo(name="/".join(a_output_file.split("/")[-2:]))
                 tarinfo_audio.size = audio_buffer.getbuffer().nbytes
                 tar.addfile(tarinfo_audio, audio_buffer)
             with open("logs/data/preprocess/num_files.txt", "a") as f:
@@ -69,27 +63,22 @@ def write_to_tar(
 
     shutil.move(tar_path, os.path.join(TARS_PATH, tar_name))
 
-    with open(os.path.join(LOG_DIR, f"completed_tars_{job_batch_idx}.txt"), "a") as f:
+    with open(
+        os.path.join(LOG_DIR, f"completed_tars_{job_batch_idx}.txt"), "a"
+    ) as f:
         f.write(f"{job_idx}\t{data_shard_idx}\t{tar_name}\n")
 
 
 def parallel_write_to_tar(args):
     return write_to_tar(*args)
 
-
 def preprocess(
-    job_batch_idx: int,
-    job_idx: int,
-    data_shard_path: str,
-    num_output_shards: int = 30,
-    in_memory: bool = True,
+    job_batch_idx: int, job_idx: int, data_shard_path: str, num_output_shards: int = 30, in_memory: bool = True
 ) -> None:
     if not os.path.exists(data_shard_path):
-        print(
-            f"{data_shard_path} does not exist, do not proceed to preprocess to webdataset shards"
-        )
+        print(f"{data_shard_path} does not exist, do not proceed to preprocess to webdataset shards")
         return None
-
+    
     print(f"Preprocessing {data_shard_path} with {num_output_shards} output shards")
     os.makedirs(TARS_PATH, exist_ok=True)
     audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
@@ -120,18 +109,13 @@ def preprocess(
                 tqdm(
                     pool.imap_unordered(
                         parallel_chunk_audio_transcript,
-                        zip(
-                            transcript_files,
-                            audio_files,
-                            repeat(data_shard_temp_dir),
-                            repeat(in_memory),
-                        ),
+                        zip(transcript_files, audio_files, repeat(data_shard_temp_dir), repeat(in_memory)),
                     ),
                     total=len(transcript_files),
                 )
             )
         print(segments_group[:5])
-        # segments group is [[(t_output_file, transcript_string, a_output_file, audio_arr), ...], ...]
+        # segments group is [[(t_output_file, transcript_string, a_output_file, audio_arr), ...], ...] 
         # where each inner list is a group of segments from one audio-transcript file, and each tuple is a segment
         segments_group = [group for group in segments_group if group is not None]
         print(f"Time taken to segment: {time.time() - start}")
