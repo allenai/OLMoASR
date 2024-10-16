@@ -1,0 +1,8 @@
+# base image - pytorch
+FROM pytorch/pytorch:2.4.0-cuda11.8-cudnn9-runtime
+
+# setting the environment variables
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+
+RUN apt-get update && apt-get install -y git
