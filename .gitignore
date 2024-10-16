@@ -17,6 +17,9 @@ data/00000000
 data/bad_data
 data/sanity_check
 data/filtering_viz
+data/metadata
+data/440K_metadata
 checkpoints
 *.out
 logs/training
+logs/data/download
