@@ -20,6 +20,7 @@ def download_files(
     log_file: str,
 ):
     os.makedirs(local_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
     start_idx = int(os.getenv("BEAKER_REPLICA_RANK")) * batch_size
     end_idx = (start_idx + batch_size) - 1
     cmd = f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}' && gsutil -m cp -L {log_file} -r gs://huongn-openwhisper/[{start_idx:04}-{end_idx:04}].tar.gz {local_dir}",
