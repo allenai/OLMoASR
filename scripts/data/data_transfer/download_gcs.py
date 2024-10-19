@@ -21,25 +21,10 @@ def download_files(
 ):
     os.makedirs(local_dir, exist_ok=True)
     start_idx = int(os.getenv("BEAKER_REPLICA_RANK")) * batch_size
-    end_idx = ((start_idx * batch_size) + batch_size) - 1
-    cmd = [
-        "gcloud",
-        "auth",
-        "activate-service-account",
-        f"'{service_account}'",
-        f"--key-file='{key_file}'",
-        "&&",
-        "gsutil",
-        "-m",
-        "cp",
-        "-L",
-        f"{log_file}",
-        "-r",
-        f"gs://huongn-openwhisper/[{start_idx:04}-{end_idx:04}].tar.gz",
-        f"{local_dir}",
-    ]
+    end_idx = (start_idx + batch_size) - 1
+    cmd = f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}' && gsutil -m cp -L {log_file} -r gs://huongn-openwhisper/[{start_idx:04}-{end_idx:04}].tar.gz {local_dir}",
     try:
-        result = subprocess.run(cmd, capture_output=True)
+        result = subprocess.run(cmd, shell=True, capture_output=True)
         logger.info(result.stdout)
         logger.info(result.stderr)
     except Exception as e:
