@@ -198,7 +198,7 @@ def chunk_audio_transcript(
             return None
 
         transcript, *_ = utils.TranscriptReader(
-            file_path=transcript_file, transcript_string=None, ext="srt"
+            file_path=transcript_file, transcript_string=None, ext=transcript_ext
         ).read()
 
         # if transcript file is empty (2nd ver)
