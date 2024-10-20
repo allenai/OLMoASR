@@ -25,7 +25,7 @@ def download_file(
     log_file: str,
 ):
     cmd = (
-        f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}' && gsutil -m cp -L {log_file} -r gs://{bucket_name}/{bucket_prefix}/{file_idx:04}.tar.gz {local_dir}",
+        f"gsutil -m cp -L {log_file} -r gs://{bucket_name}/{bucket_prefix}/{file_idx:04}.tar.gz {local_dir}",
     )
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True)
@@ -55,6 +55,15 @@ def download_files(
     start_idx = (int(os.getenv("BEAKER_REPLICA_RANK")) * batch_size) + start_dir_idx
     end_idx = (start_idx + batch_size)
     logger.info(f"Downloading files {start_idx} to {end_idx}")
+
+    try:
+        cmd = f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}'"
+        result = subprocess.run(cmd, shell=True, capture_output=True)
+        logger.info(result.stdout)
+        logger.info(result.stderr)
+    except Exception as e:
+        logger.info(result.stderr)
+        logger.error(e)
 
     with multiprocessing.Pool() as pool:
         res = list(
