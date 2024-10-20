@@ -74,7 +74,7 @@ def preprocess(
         logger.info(f"Uneven number of audio and transcript files in {data_shard_path}")
         if len(audio_files) > len(transcript_files):
             missing_pairs = [
-                "/".join(p.split("/")[:2])
+                "/".join(p.split("/")[:6])
                 for p in (
                     set([p.split(".")[0] for p in audio_files])
                     - set([p.split(".")[0] for p in transcript_files])
@@ -83,7 +83,7 @@ def preprocess(
             new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs]
         elif len(audio_files) < len(transcript_files):
             missing_pairs = [
-                "/".join(p.split("/")[:2])
+                "/".join(p.split("/")[:6])
                 for p in (
                     set([p.split(".")[0] for p in transcript_files])
                     - set([p.split(".")[0] for p in audio_files])
