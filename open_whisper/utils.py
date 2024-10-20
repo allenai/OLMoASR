@@ -183,7 +183,7 @@ class TranscriptReader:
             self.ext = ext
             self.file_path = file_path
 
-    def read_vtt(self, file_path: str) -> Union[None, Tuple[Dict, str, str]]:
+    def read_vtt(self, file_path: Optional[str], transcript_string: Optional[str]) -> Union[None, Tuple[Dict, str, str]]:
         """Read a WebVTT file
 
         Args:
@@ -193,7 +193,10 @@ class TranscriptReader:
             A tuple containing the transcript, start timestamp, and end timestamp or None if the file is empty
         """
         transcript = {}
-        captions = webvtt.read(file_path)
+        if file_path is not None:
+            captions = webvtt.read(file_path)
+        elif transcript_string is not None:
+            captions = webvtt.from_string(transcript_string)
 
         if len(captions) == 0:
             return transcript, "", ""
@@ -246,7 +249,7 @@ class TranscriptReader:
             A tuple containing the transcript, start timestamp, and end timestamp or None if the file is empty
         """
         if self.ext == "vtt":
-            return self.read_vtt(file_path=self.file_path)
+            return self.read_vtt(file_path=self.file_path, transcript_string=self.transcript_string)
         elif self.ext == "srt":
             return self.read_srt(
                 file_path=self.file_path, transcript_string=self.transcript_string
