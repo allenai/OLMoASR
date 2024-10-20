@@ -5,9 +5,19 @@ import os
 import tarfile
 from fire import Fire
 from itertools import repeat
+from typing import Tuple
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(funcName)s - line %(lineno)d - %(message)s",
+    handlers=[logging.FileHandler("download.log"), logging.StreamHandler()],
+)
+
+logger = logging.getLogger(__name__)
 
 
-def unarchive_tar_file(tar_file, output_dir, result_path):
+def unarchive_tar_file(tar_files_dir_idx: Tuple, output_dir):
     """
     Unarchives a single tar file.
 
@@ -17,51 +27,49 @@ def unarchive_tar_file(tar_file, output_dir, result_path):
     Returns:
         str: Message indicating the completion of the task.
     """
-    if tar_file.endswith(".tar.gz"):
-        output_dir = os.path.join(
-            output_dir, f"{int(os.path.basename(tar_file)[:-7]):05}"
-        )
-        os.makedirs(output_dir, exist_ok=True)
+    output_dir = os.path.join(output_dir, tar_files_dir_idx[1])
+    os.makedirs(output_dir, exist_ok=True)
 
-    print(f"Extracting {tar_file} to {output_dir}")
-
-    if "tar" not in tar_file or not os.path.exists(tar_file):
-        return None
-    
-    try:
+    for tar_file, _ in tar_files_dir_idx[0]:
         with tarfile.open(tar_file, "r") as tar:
             tar.extractall(path=output_dir)
-
-        os.remove(tar_file)
-
-        with open(result_path, "a") as f:
-            f.write(f"{tar_file} successful\n")
-
-    except Exception as e:
-        with open(result_path, "a") as f:
-            f.write(f"{tar_file} failed: {e}\n")
 
 
 def unarchive_tar_file_parallel(args):
     return unarchive_tar_file(*args)
 
 
-def unarchive_tar(source_dir, result_path, batch_size, batch_idx):
-    source_dir = os.path.join("/".join(source_dir.split("/")[:-1]), f"{(int(source_dir.split('/')[-1]) + (batch_size * batch_idx)):05}")
-    print(source_dir)
-    tar_files = glob.glob(os.path.join(source_dir, "*"))
+def unarchive_tar(
+    source_dir: str,
+    base_output_dir: str,
+    start_dir_idx: int,
+    batch_size: int,
+    group_by: int,
+):
+    batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
+    batch_tar = sorted(
+        glob.glob(os.path.join(source_dir, "*"))[
+            batch_idx * batch_size : (batch_idx * batch_size) + batch_size
+        ]
+    )
+    tar_files_dir_idx = [
+        (batch_tar[i : i + group_by], f"{(start_dir_idx + (i // group_by)):05}")
+        for i in range(0, len(batch_tar), group_by)
+    ]
 
-    while len(glob.glob(os.path.join(source_dir, "*.tar"))) > 0:
-        with multiprocessing.Pool() as pool:
-            res = list(
-                tqdm(
-                    pool.imap_unordered(
-                        unarchive_tar_file_parallel,
-                        zip(tar_files, repeat(source_dir), repeat(result_path)),
+    with multiprocessing.Pool() as pool:
+        res = list(
+            tqdm(
+                pool.imap_unordered(
+                    unarchive_tar_file_parallel,
+                    zip(
+                        tar_files_dir_idx,
+                        repeat(base_output_dir),
                     ),
-                    total=len(tar_files),
-                )
+                ),
+                total=len(tar_files_dir_idx),
             )
+        )
 
 
 if __name__ == "__main__":
