@@ -30,7 +30,7 @@ def unarchive_tar_file(tar_files_dir_idx: Tuple, output_dir):
     output_dir = os.path.join(output_dir, tar_files_dir_idx[1])
     os.makedirs(output_dir, exist_ok=True)
 
-    for tar_file, _ in tar_files_dir_idx[0]:
+    for tar_file in tar_files_dir_idx[0]:
         with tarfile.open(tar_file, "r") as tar:
             tar.extractall(path=output_dir)
 
