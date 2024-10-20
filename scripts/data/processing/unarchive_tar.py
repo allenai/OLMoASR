@@ -52,11 +52,11 @@ def unarchive_tar(
             batch_idx * batch_size : (batch_idx * batch_size) + batch_size
         ]
     )
+    start_dir_idx = start_dir_idx + ((batch_size / group_by) * batch_idx)
     tar_files_dir_idx = [
         (batch_tar[i : i + group_by], f"{(start_dir_idx + (i // group_by)):05}")
         for i in range(0, len(batch_tar), group_by)
     ]
-    start_dir_idx = start_dir_idx + (len(tar_files_dir_idx) * batch_idx)
 
     with multiprocessing.Pool() as pool:
         res = list(
