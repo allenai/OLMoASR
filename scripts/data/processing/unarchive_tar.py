@@ -61,19 +61,19 @@ def unarchive_tar(
     print(f"{start_dir_idx=}")
     print(f"{tar_files_dir_idx=}")
 
-    # with multiprocessing.Pool() as pool:
-    #     res = list(
-    #         tqdm(
-    #             pool.imap_unordered(
-    #                 unarchive_tar_file_parallel,
-    #                 zip(
-    #                     tar_files_dir_idx,
-    #                     repeat(base_output_dir),
-    #                 ),
-    #             ),
-    #             total=len(tar_files_dir_idx),
-    #         )
-    #     )
+    with multiprocessing.Pool() as pool:
+        res = list(
+            tqdm(
+                pool.imap_unordered(
+                    unarchive_tar_file_parallel,
+                    zip(
+                        tar_files_dir_idx,
+                        repeat(base_output_dir),
+                    ),
+                ),
+                total=len(tar_files_dir_idx),
+            )
+        )
 
 
 if __name__ == "__main__":
