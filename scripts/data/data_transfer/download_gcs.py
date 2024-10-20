@@ -2,6 +2,9 @@ import subprocess
 import os
 import logging
 from fire import Fire
+import multiprocessing
+from tqdm import tqdm
+from itertools import repeat
 
 logging.basicConfig(
     level=logging.INFO,
@@ -12,7 +15,33 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def download_file(
+    file_idx: int,
+    local_dir: str,
+    bucket_name: str,
+    bucket_prefix: str,
+    service_account: str,
+    key_file: str,
+    log_file: str,
+):
+    cmd = (
+        f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}' && gsutil -m cp -L {log_file} -r gs://{bucket_name}/{bucket_prefix}/{file_idx:04}.tar.gz {local_dir}",
+    )
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True)
+        logger.info(result.stdout)
+        logger.info(result.stderr)
+    except Exception as e:
+        logger.info(result.stderr)
+        logger.error(e)
+
+
+def parallel_download_file(args):
+    return download_file(*args)
+
+
 def download_files(
+    start_dir_idx: int,
     batch_size: int,
     local_dir: str,
     bucket_name: str,
@@ -23,20 +52,27 @@ def download_files(
 ):
     os.makedirs(local_dir, exist_ok=True)
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    start_idx = int(os.getenv("BEAKER_REPLICA_RANK")) * batch_size
-    end_idx = start_idx + batch_size
+    start_idx = (int(os.getenv("BEAKER_REPLICA_RANK")) * batch_size) + start_dir_idx
+    end_idx = (start_idx + batch_size)
+    logger.info(f"Downloading files {start_idx} to {end_idx}")
 
-    for file_idx in range(start_idx, end_idx):
-        cmd = (
-            f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}' && gsutil -m cp -L {log_file} -r gs://{bucket_name}/{bucket_prefix}/{file_idx:04}.tar.gz {local_dir}",
+    with multiprocessing.Pool() as pool:
+        res = list(
+            tqdm(
+                pool.imap_unordered(
+                    parallel_download_file,
+                    zip(
+                        range(start_idx, end_idx),
+                        repeat(local_dir),
+                        repeat(bucket_name),
+                        repeat(bucket_prefix),
+                        repeat(service_account),
+                        repeat(key_file),
+                        repeat(log_file),
+                    ),
+                )
+            )
         )
-        try:
-            result = subprocess.run(cmd, shell=True, capture_output=True)
-            logger.info(result.stdout)
-            logger.info(result.stderr)
-        except Exception as e:
-            logger.info(result.stderr)
-            logger.error(e)
 
 
 if __name__ == "__main__":
