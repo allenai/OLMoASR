@@ -155,7 +155,12 @@ def parallel_download_audio(args) -> None:
 
 
 def chunk_audio_transcript(
-    transcript_file: str, audio_file: str, output_dir: str, in_memory: bool
+    transcript_file: str,
+    audio_file: str,
+    output_dir: str,
+    log_dir: str,
+    failed_dir: str,
+    in_memory: bool,
 ) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
     """Segment audio and transcript files into <= 30-second chunks
 
@@ -172,12 +177,9 @@ def chunk_audio_transcript(
     # already processed
     if not os.path.exists(video_id_dir):
         return None
-
-    log_dir = "logs/data/preprocess"
-    os.makedirs("logs/data/preprocess", exist_ok=True)
-    faulty_dir = "data/untrainable/faulty_transcripts"
-    os.makedirs(faulty_dir, exist_ok=True)
-    failed_dir = "data/untrainable/failed_chunking"
+    if not in_memory:
+        os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
     os.makedirs(failed_dir, exist_ok=True)
 
     try:
