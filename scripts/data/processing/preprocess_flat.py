@@ -37,6 +37,7 @@ def preprocess(
     source_dir: str,
     log_dir: str,
     preproc_fail_dir: str,
+    missing_pair_dir: str,
     jobs_batch_size: int,
     start_shard_idx: int,
     end_shard_idx: int,
@@ -45,16 +46,22 @@ def preprocess(
     job_batch_idx = int(os.getenv("JOB_BATCH_IDX"))
     job_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
     data_shard_path = sorted(glob.glob(source_dir + "/*"))[
-        start_shard_idx:end_shard_idx + 1
+        start_shard_idx : end_shard_idx + 1
     ][job_idx + (job_batch_idx * jobs_batch_size)]
 
     output_dir = os.path.join(output_dir, f"{data_shard_path.split('/')[-1]}")
     os.makedirs(output_dir, exist_ok=True)
     log_dir = os.path.join(log_dir, f"{data_shard_path.split('/')[-1]}")
     os.makedirs(log_dir, exist_ok=True)
-    preproc_fail_dir = os.path.join(preproc_fail_dir, f"{data_shard_path.split('/')[-1]}")
+    preproc_fail_dir = os.path.join(
+        preproc_fail_dir, f"{data_shard_path.split('/')[-1]}"
+    )
     os.makedirs(preproc_fail_dir, exist_ok=True)
-    logger.info(f"{output_dir=}, {log_dir=}, {preproc_fail_dir=}")
+    missing_pair_dir = os.path.join(
+        missing_pair_dir, f"{data_shard_path.split('/')[-1]}"
+    )
+    os.makedirs(missing_pair_dir, exist_ok=True)
+    logger.info(f"{output_dir=}, {log_dir=}, {preproc_fail_dir=}, {missing_pair_dir=}")
 
     logger.info(f"Preprocessing {data_shard_path}")
     audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
@@ -65,14 +72,35 @@ def preprocess(
 
     if len(audio_files) != len(transcript_files):
         logger.info(f"Uneven number of audio and transcript files in {data_shard_path}")
+        if len(audio_files) > len(transcript_files):
+            missing_pairs = [
+                "/".join(p.split("/")[:2])
+                for p in (
+                    set([p.split(".")[0] for p in audio_files])
+                    - set([p.split(".")[0] for p in transcript_files])
+                )
+            ]
+            new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs]
+        elif len(audio_files) < len(transcript_files):
+            missing_pairs = [
+                "/".join(p.split("/")[:2])
+                for p in (
+                    set([p.split(".")[0] for p in transcript_files])
+                    - set([p.split(".")[0] for p in audio_files])
+                )
+            ]
+            new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs] 
+        
+        logger.info(f"{new_paths[:5]=}")
+        
         with open(
-            os.path.join(
-                log_dir, f"uneven_data_shards.txt"
-            ),
+            os.path.join(log_dir, f"uneven_data_shards.txt"),
             "a",
         ) as f:
             f.write(f"{len(audio_files)}\t{len(transcript_files)}\n")
-        return None
+        
+        audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
+        transcript_files = sorted(glob.glob(data_shard_path + "/*/*.vtt"))
 
     # Chunk the audio and transcript files
     logger.info("Chunking audio and transcript files")
