@@ -53,7 +53,7 @@ def download_files(
     os.makedirs(local_dir, exist_ok=True)
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
     start_idx = (int(os.getenv("BEAKER_REPLICA_RANK")) * batch_size) + start_dir_idx
-    end_idx = (start_idx + batch_size)
+    end_idx = start_idx + batch_size
     logger.info(f"Downloading files {start_idx} to {end_idx}")
 
     try:
@@ -79,7 +79,8 @@ def download_files(
                         repeat(key_file),
                         repeat(log_file),
                     ),
-                )
+                ),
+                total=batch_size,
             )
         )
 
