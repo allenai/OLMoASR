@@ -47,17 +47,15 @@ def unarchive_tar(
     group_by: int,
 ):
     batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
-    batch_tar = sorted(
-        glob.glob(os.path.join(source_dir, "*"))[
-            batch_idx * batch_size : (batch_idx * batch_size) + batch_size
-        ]
-    )
+    batch_tar = sorted(glob.glob(os.path.join(source_dir, "*")))[
+        batch_idx * batch_size : (batch_idx * batch_size) + batch_size
+    ]
     start_dir_idx = start_dir_idx + ((batch_size // group_by) * batch_idx)
     tar_files_dir_idx = [
         (batch_tar[i : i + group_by], f"{(start_dir_idx + (i // group_by)):05}")
         for i in range(0, len(batch_tar), group_by)
     ]
-    
+
     print(f"{batch_idx=}")
     print(f"{batch_tar=}")
     print(f"{start_dir_idx=}")
