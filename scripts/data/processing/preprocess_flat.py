@@ -129,21 +129,21 @@ def preprocess(
     logger.info(f"Time taken to segment: {(time.time() - start) / 60} minutes")
 
     # Write the data to tar files
-    # logger.info("Writing data to disk")
-    # segments_list = list(chain(*segments_group))
+    logger.info("Writing data to disk")
+    segments_list = list(chain(*segments_group))
 
-    # start = time.time()
-    # with multiprocessing.Pool() as pool:
-    #     res = list(
-    #         tqdm(
-    #             pool.imap_unordered(
-    #                 write_to_disk,
-    #                 segments_list,
-    #             ),
-    #             total=len(segments_list),
-    #         )
-    #     )
-    # logger.info(f"Time taken to write to disk: {(time.time() - start) / 60} minutes")
+    start = time.time()
+    with multiprocessing.Pool() as pool:
+        res = list(
+            tqdm(
+                pool.imap_unordered(
+                    write_to_disk,
+                    segments_list,
+                ),
+                total=len(segments_list),
+            )
+        )
+    logger.info(f"Time taken to write to disk: {(time.time() - start) / 60} minutes")
 
     logger.info(f"Completed processing data shard {data_shard_path}")
 
