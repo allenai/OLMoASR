@@ -90,16 +90,16 @@ def preprocess(
                     - set([p.split(".")[0] for p in audio_files])
                 )
             ]
-            new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs] 
-        
+            new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs]
+
         logger.info(f"{new_paths[:5]=}")
-        
+
         with open(
             os.path.join(log_dir, f"uneven_data_shards.txt"),
             "a",
         ) as f:
             f.write(f"{len(audio_files)}\t{len(transcript_files)}\n")
-        
+
         audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
         transcript_files = sorted(glob.glob(data_shard_path + "/*/*.vtt"))
 
@@ -108,20 +108,20 @@ def preprocess(
     start = time.time()
     with multiprocessing.Pool(multiprocessing.cpu_count() * 7) as pool:
         segments_group = list(
-            tqdm(
-                pool.imap_unordered(
-                    parallel_chunk_audio_transcript,
-                    zip(
-                        transcript_files,
-                        audio_files,
-                        repeat(output_dir),
-                        repeat(log_dir),
-                        repeat(preproc_fail_dir),
-                        repeat(in_memory),
-                    ),
-                ),
-                total=len(transcript_files),
+            # tqdm(
+            pool.imap_unordered(
+                parallel_chunk_audio_transcript,
+                zip(
+                    transcript_files,
+                    audio_files,
+                    repeat(output_dir),
+                    repeat(log_dir),
+                    repeat(preproc_fail_dir),
+                    repeat(in_memory),
+                )
             )
+            #     total=len(transcript_files),
+            # )
         )
     logger.info(segments_group[:5])
     # segments group is [[(t_output_file, transcript_string, a_output_file, audio_arr), ...], ...]
