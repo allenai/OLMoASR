@@ -182,6 +182,7 @@ def chunk_audio_transcript(
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(failed_dir, exist_ok=True)
 
+    print(f"{transcript_file=}, {audio_file=}")
     try:
         segment_output_dir = os.path.join(output_dir, transcript_file.split("/")[-2])
         if not in_memory:
@@ -189,19 +190,10 @@ def chunk_audio_transcript(
         transcript_ext = transcript_file.split(".")[-1]
         segment_count = 0
 
-        # if transcript file is empty (1st ver)
-        cleaned_transcript = utils.clean_transcript(transcript_file)
-        if cleaned_transcript is None:
-            with open(f"{log_dir}/empty_transcripts.txt", "a") as f:
-                f.write(f"{video_id_dir.split('/')[-1]}\n")
-            shutil.rmtree(video_id_dir)
-            return None
-
         transcript, *_ = utils.TranscriptReader(
             file_path=transcript_file, transcript_string=None, ext=transcript_ext
         ).read()
 
-        # if transcript file is empty (2nd ver)
         if len(transcript.keys()) == 0:
             with open(f"{log_dir}/empty_transcripts.txt", "a") as f:
                 f.write(f"{video_id_dir.split('/')[-1]}\n")
