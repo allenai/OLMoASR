@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 def write_to_disk(segment: Tuple[str, str, str, np.ndarray]) -> None:
     t_output_file, transcript_string, a_output_file, audio_arr = segment
+    os.makedirs(os.path.dirname(t_output_file), exist_ok=True)
     # Write transcript
     with open(t_output_file, "w") as f:
         f.write(transcript_string)
