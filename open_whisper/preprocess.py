@@ -182,7 +182,6 @@ def chunk_audio_transcript(
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(failed_dir, exist_ok=True)
 
-    print(f"{transcript_file=}, {audio_file=}")
     try:
         segment_output_dir = os.path.join(output_dir, transcript_file.split("/")[-2])
         if not in_memory:
