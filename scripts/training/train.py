@@ -747,9 +747,7 @@ def log_txt(
         for i, (
             tgt_text_instance,
             pred_text_instance,
-        ) in enumerate(
-            norm_tgt_pred_pairs
-        ):
+        ) in enumerate(norm_tgt_pred_pairs):
             f.write(f"{current_step=}\n")
             f.write(
                 f"effective step in epoch={(batch_idx + 1) // accumulation_steps}\n"
@@ -858,6 +856,7 @@ def train(
     train_log_freq: int,
     val_freq: int,
     eval_freq: int,
+    ckpt_freq: int,
 ) -> Tuple[
     int,
     float,
@@ -1091,6 +1090,23 @@ def train(
             optimizer.zero_grad()  # Reset gradients only after updating weights
             total_loss = 0.0
             if rank == 0:
+                if current_step % ckpt_freq == 0:
+                    save_ckpt(
+                        current_step=current_step,
+                        best_val_loss=best_val_loss,
+                        model=model,
+                        optimizer=optimizer,
+                        scaler=scaler,
+                        scheduler=scheduler,
+                        model_dims=model_dims,
+                        tags=tags,
+                        model_variant=model_variant,
+                        exp_name=exp_name,
+                        run_id=run_id,
+                        file_name="checkpoint",
+                        ckpt_dir=ckpt_dir,
+                    )
+
                 train_metrics = defaultdict(float)
                 print(f"current_step: {current_step}")
                 print(f"train_loss: {train_loss_all}")
@@ -1748,6 +1764,7 @@ def main(
     train_log_freq: int = 100,
     val_freq: int = 10,
     eval_freq: int = 5,
+    ckpt_freq: int = 2500,
 ) -> None:
     """Main function for training
 
@@ -1957,6 +1974,7 @@ def main(
             train_log_freq=train_log_freq,
             val_freq=val_freq,
             eval_freq=eval_freq,
+            ckpt_freq=ckpt_freq,
         )
 
         if rank == 0:
