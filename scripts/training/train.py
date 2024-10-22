@@ -68,8 +68,8 @@ class AudioTextDataset(Dataset):
         # not sure if putting it here is bad...
         global tokenizer
         sample_dict = self.samples[index]
-        audio_file = sample_dict["npy"]
-        transcript_file = sample_dict["srt"]
+        audio_file = sample_dict["audio"]
+        transcript_file = sample_dict["transcript"]
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
         text_input, text_y, padding_mask = self.preprocess_text(
             transcript_file, tokenizer
