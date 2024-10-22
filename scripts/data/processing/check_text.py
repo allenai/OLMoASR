@@ -119,4 +119,4 @@ def main(
 
 
 if __name__ == "__main__":
-    Fire(check_text)
+    Fire(main)
