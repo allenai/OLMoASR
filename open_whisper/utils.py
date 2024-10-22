@@ -294,14 +294,14 @@ def write_segment(
     output_file = f"{output_dir}/{timestamps[0][0].replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
     transcript_string = ""
 
+    if ext == "vtt":
+        transcript_string += "WEBVTT\n\n"
+
     if transcript is None:
         if not in_memory:
             with open(output_file, "w") as f:
                 f.write(transcript_string)
         return output_file, transcript_string
-
-    if ext == "vtt":
-        transcript_string += "WEBVTT\n\n"
 
     for i in range(len(timestamps)):
         start = adjust_timestamp(
