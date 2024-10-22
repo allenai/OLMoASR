@@ -31,7 +31,7 @@ class FilenameProviders:
 def gen_smpl_dict(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     segs_dir = os.path.dirname(row["item"]).replace("440K_full", "440K_seg")
 
-    if int(row["item"].split("/")[-3]) > 2448:
+    if int(row["item"].split("/")[-2]) > 2448:
         text_files = sorted(glob.glob(segs_dir + "/*.vtt"))
     else:
         text_files = sorted(glob.glob(segs_dir + "/*.srt"))
