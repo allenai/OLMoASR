@@ -1743,11 +1743,11 @@ def main(
     job_type: str,
     samples_dicts_dir: str,
     train_steps: int,
-    run_id: Optional[str] = None,
     ckpt_file_name: Optional[str] = None,
     ckpt_dir: str = "checkpoints",
     log_dir: str = "logs",
     eval_dir: str = "data/eval",
+    run_id_dir: str = "run_ids",
     rank: Optional[int] = None,
     world_size: Optional[int] = None,
     lr: float = 1.5e-3,
@@ -1803,7 +1803,13 @@ def main(
     """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
-        
+
+    if not os.path.exists(f"{run_id_dir}/{exp_name}.txt"):
+        run_id = None
+    else:
+        with open(f"{run_id_dir}/{exp_name}.txt", "r") as f:
+            run_id = f.read().strip()
+
     model_dims = VARIANT_TO_DIMS[model_variant]
 
     if rank is None and world_size is None:
@@ -1936,6 +1942,10 @@ def main(
             train_val_split=train_val_split,
             log_dir=log_dir,
         )
+
+        if not os.path.exists(f"{run_id_dir}/{exp_name}.txt"):
+            with open(f"{run_id_dir}/{exp_name}.txt", "w") as f:
+                f.write(run_id)
 
     while current_step < train_steps:
         (
