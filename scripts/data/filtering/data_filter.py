@@ -208,7 +208,7 @@ class DataFilter:
         data_dirs = [
             f"{self.data_dir}/{((self.batch_idx * self.batch_size) + i):05}"
             for i in range(self.batch_size)
-            if (self.batch_idx * self.batch_size) + i <= 2448
+            if (self.batch_idx * self.batch_size) + i <= 8448
         ]
         print(data_dirs[:5])
 
