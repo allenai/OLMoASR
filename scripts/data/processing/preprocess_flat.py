@@ -17,7 +17,7 @@ import logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(funcName)s - line %(lineno)d - %(message)s",
-    handlers=[logging.FileHandler("download.log"), logging.StreamHandler()],
+    handlers=[logging.FileHandler("main.log"), logging.StreamHandler()],
 )
 
 logger = logging.getLogger(__name__)
