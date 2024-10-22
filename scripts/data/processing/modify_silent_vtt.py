@@ -3,6 +3,8 @@ from tqdm import tqdm
 import glob
 from itertools import chain
 import logging
+from fire import Fire
+import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,12 +30,13 @@ def main(
     start_shard_idx: int,
     end_shard_idx: int,
     batch_size: int,
-    job_idx: int,
 ):
+    job_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
     os.makedirs(log_dir, exist_ok=True)
     shard_paths = sorted(glob.glob(source_dir + "/*"))[
         start_shard_idx : end_shard_idx + 1
     ][job_idx * batch_size : (job_idx + 1) * batch_size]
+    logger.info(f"{shard_paths[0]=}, {shard_paths[-1]=}, {len(shard_paths)=}")
     vtt_files = list(chain(*[glob.glob(p + "/*/*.vtt") for p in shard_paths]))
 
     with multiprocessing.Pool() as pool:
@@ -56,3 +59,6 @@ def main(
     ) as f:
         for vtt in silent_vtt:
             f.write(f"{vtt}\n")
+            
+if __name__ == "__main__":
+    Fire(main)
