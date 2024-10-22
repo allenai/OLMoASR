@@ -258,6 +258,11 @@ def chunk_audio_transcript(
                             (t_output_file, transcript_string, a_output_file, audio_arr)
                         )
                         segment_count += 1
+                else:
+                    with open(
+                        os.path.join(log_dir, "over_ctx_len.txt"), "a"
+                    ) as f:
+                        f.write(f"{video_id_dir.split('/')[-1]}\tindex: {b}\n")
 
                 init_diff = 0
                 diff = 0
@@ -336,6 +341,11 @@ def chunk_audio_transcript(
                             (t_output_file, transcript_string, a_output_file, audio_arr)
                         )
                         segment_count += 1
+                else:
+                    with open(
+                        os.path.join(log_dir, "over_ctx_len.txt"), "a"
+                    ) as f:
+                        f.write(f"{video_id_dir.split('/')[-1]}\tindex: {b}\n")
 
                 break
         if len(segments_list) == 0:
