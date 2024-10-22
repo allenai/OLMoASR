@@ -19,8 +19,8 @@ def modify_silent_vtt(vtt_file):
     with open(vtt_file, "r") as f:
         lines = [line.strip() for line in f]
     if len(lines) == 0:
-        # with open(vtt_file, "w") as f:
-        #     f.write("WEBVTT\n\n")
+        with open(vtt_file, "w") as f:
+            f.write("WEBVTT\n\n")
         return vtt_file
 
 
