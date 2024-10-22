@@ -555,11 +555,11 @@ def save_ckpt(
 
     torch.save(
         ddp_checkpoint,
-        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_ddp.pt",
+        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}_ddp.pt",
     )
     torch.save(
         non_ddp_checkpoint,
-        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
+        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
     )
 
 
