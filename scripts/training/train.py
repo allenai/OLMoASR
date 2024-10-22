@@ -1803,6 +1803,12 @@ def main(
     """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
+    
+    if not os.path.exists(run_id_dir):
+        os.makedirs(run_id_dir, exist_ok=True)
+    
+    if not os.path.exists(ckpt_dir):
+        os.makedirs(ckpt_dir, exist_ok=True)
 
     if not os.path.exists(f"{run_id_dir}/{exp_name}.txt"):
         run_id = None
