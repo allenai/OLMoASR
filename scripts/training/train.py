@@ -606,17 +606,23 @@ def load_ckpt(
         the scheduler, the number of steps over which to accumulate gradients, the number of warmup steps, and the total number of steps
     """
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
-    
+
     if file_name is None:
-        all_ckpt_files = glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/*_{model_variant}_*_ddp.pt")
+        all_ckpt_files = glob.glob(
+            f"{ckpt_dir}/{exp_name}_{run_id}/*_{model_variant}_*_ddp.pt"
+        )
         latest_step = max([int(f.split("_")[2]) for f in all_ckpt_files])
-        ckpt_file = glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/*_{latest_step:08}_{model_variant}_*_ddp.pt")[0]
+        ckpt_file = glob.glob(
+            f"{ckpt_dir}/{exp_name}_{run_id}/*_{latest_step:08}_{model_variant}_*_ddp.pt"
+        )[0]
         print(f"{ckpt_file=}")
         # latest_ckpt_file = max(all_ckpt_files, key=os.path.getctime)
     else:
-        ckpt_file = glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*_{model_variant}_*_ddp.pt")[0]
+        ckpt_file = glob.glob(
+            f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*_{model_variant}_*_ddp.pt"
+        )[0]
         print(f"{ckpt_file=}")
-        
+
     ckpt = torch.load(ckpt_file, map_location=map_location)
 
     model = ow.model.Whisper(dims=ckpt["dims"]).to(rank)
