@@ -379,19 +379,22 @@ def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> bool:
     Returns:
         True if the transcript text exceeds the model context length, False otherwise
     """
-    text_lines = [transcript[timestamps[i]].strip() for i in range(len(timestamps))]
-    text = " ".join(text_lines)
+    try:
+        text_lines = [transcript[timestamps[i]].strip() for i in range(len(timestamps))]
+        text = " ".join(text_lines)
 
-    tokenizer = get_tokenizer(multilingual=False)
+        tokenizer = get_tokenizer(multilingual=False)
 
-    text_tokens = tokenizer.encode(text)
-    text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens
-    text_tokens.append(tokenizer.eot)
+        text_tokens = tokenizer.encode(text)
+        text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens
+        text_tokens.append(tokenizer.eot)
 
-    if len(text_tokens) > 448:
+        if len(text_tokens) > 448:
+            return True
+        else:
+            return False
+    except Exception as e:
         return True
-    else:
-        return False
 
 
 def too_short_audio(audio_arr: np.ndarray, sample_rate: int = 16000) -> bool:
