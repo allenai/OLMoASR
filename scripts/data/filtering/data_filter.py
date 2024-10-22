@@ -38,6 +38,8 @@ class DataReader:
     @staticmethod
     def bytes_to_text(data_dict: Dict[str, Any]) -> Dict[str, Any]:
         data_dict["text"] = data_dict["bytes"].decode("utf-8")
+        if data_dict["path"].endswith(".vtt"):
+            data_dict["text"] = data_dict["text"].replace("WEBVTT\n\n", "")
         del data_dict["bytes"]
         return data_dict
 
@@ -170,13 +172,16 @@ class FilterFunc:
 def gen_smpl_dict(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     segs_dir = os.path.dirname(row["path"]).replace("440K_full", "440K_seg")
 
-    srt_files = sorted(glob.glob(segs_dir + "/*.srt"))
+    if int(row["path"].split("/")[-2]) > 2448:
+        text_files = sorted(glob.glob(segs_dir + "/*.vtt"))
+    else:
+        text_files = sorted(glob.glob(segs_dir + "/*.srt"))
     npy_files = sorted(glob.glob(segs_dir + "/*.npy"))
-    srt_npy_samples = list(zip(srt_files, npy_files))
+    text_npy_samples = list(zip(text_files, npy_files))
     smpl_dicts = []
 
-    for srt_fp, npy_fp in srt_npy_samples:
-        smpl_dict = {"key": segs_dir, "srt": srt_fp, "npy": npy_fp}
+    for text_fp, npy_fp in text_npy_samples:
+        smpl_dict = {"key": segs_dir, "transcript": text_fp, "audio": npy_fp}
         smpl_dicts.append(smpl_dict)
 
     row["sample_dicts"] = smpl_dicts
@@ -214,7 +219,7 @@ class DataFilter:
 
         print("Start reading binary files")
         ds = ray.data.read_binary_files(
-            paths=data_dirs, file_extensions=["srt"], include_paths=True
+            paths=data_dirs, file_extensions=["srt", "vtt"], include_paths=True
         ).map(DataReader.bytes_to_text)
 
         print("Finish reading binary files")
