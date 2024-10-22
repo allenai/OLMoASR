@@ -553,6 +553,11 @@ def save_ckpt(
 
     os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
 
+    if file_name != "latest_train":
+        if len(glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*.pt")) > 0:
+            for p in glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*.pt"):
+                os.remove(p)
+
     torch.save(
         ddp_checkpoint,
         f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}_ddp.pt",
