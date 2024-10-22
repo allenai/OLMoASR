@@ -117,7 +117,9 @@ class AudioTextDataset(Dataset):
             A tuple containing the transcript file, the input text tensor, the target text tensor, and the padding mask
         """
         # transcript -> text
-        reader = ow.utils.TranscriptReader(file_path=transcript_file, ext="srt")
+        reader = ow.utils.TranscriptReader(
+            file_path=transcript_file, ext=transcript_file.split(".")[-1]
+        )
         transcript, *_ = reader.read()
 
         if not transcript:
