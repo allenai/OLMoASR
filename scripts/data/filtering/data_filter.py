@@ -204,7 +204,7 @@ class DataFilter:
         os.makedirs(os.path.dirname(self.metadata_path), exist_ok=True)
 
     def base_filter(self, filter_func: FilterFunc):
-        ray.init(num_cpus=20, num_gpus=0)
+        ray.init()
         data_dirs = [
             f"{self.data_dir}/{((self.batch_idx * self.batch_size) + i):05}"
             for i in range(self.batch_size)
