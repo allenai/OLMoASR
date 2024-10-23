@@ -1859,8 +1859,8 @@ def main(
             )
         )
 
-    print(len(samples_dicts))
-    print(samples_dicts[:2])
+    print(f"{len(samples_dicts)=}")
+    print(f"{samples_dicts_files=}")
 
     # prepare dataset
     train_dataloader, val_dataloader, train_sampler, val_sampler = prepare_data(
@@ -1877,6 +1877,8 @@ def main(
         persistent_workers=persistent_workers,
         subset=subset,
     )
+    
+    print(f"{len(train_dataloader)=}, {len(val_dataloader)=}")
 
     print(f"Preparing eval sets on rank {rank}")
     eval_sets = ["librispeech_clean", "librispeech_other"]
