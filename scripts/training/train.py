@@ -611,7 +611,7 @@ def load_ckpt(
         all_ckpt_files = glob.glob(
             f"{ckpt_dir}/{exp_name}_{run_id}/*_{model_variant}_*_ddp.pt"
         )
-        latest_step = max([int(f.split("_")[2]) for f in all_ckpt_files])
+        latest_step = max([int(f.split("/")[-1].split("_")[1]) for f in all_ckpt_files])
         ckpt_file = glob.glob(
             f"{ckpt_dir}/{exp_name}_{run_id}/*_{latest_step:08}_{model_variant}_*_ddp.pt"
         )[0]
