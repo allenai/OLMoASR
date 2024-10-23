@@ -553,7 +553,7 @@ def save_ckpt(
 
     os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
 
-    if file_name != "latest_train":
+    if file_name != "latesttrain":
         if len(glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*.pt")) > 0:
             for p in glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*.pt"):
                 os.remove(p)
@@ -1608,7 +1608,7 @@ def validate(
                     model_variant=model_variant,
                     exp_name=exp_name,
                     run_id=run_id,
-                    file_name="best_val",
+                    file_name="bestval",
                     ckpt_dir=ckpt_dir,
                 )
 
@@ -2012,7 +2012,7 @@ def main(
                 model_variant=model_variant,
                 exp_name=exp_name,
                 run_id=run_id,
-                file_name="latest_train",
+                file_name="latesttrain",
                 ckpt_dir=ckpt_dir,
             )
 
