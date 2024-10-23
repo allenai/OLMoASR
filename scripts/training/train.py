@@ -612,17 +612,17 @@ def load_ckpt(
 
     if file_name is None:
         all_ckpt_files = glob.glob(
-            f"{ckpt_dir}/{exp_name}_{run_id}/*_{model_variant}_*_ddp.pt"
+            f"{ckpt_dir}/{exp_name}_{run_id}/*_{model_variant}_*_fp16_ddp.pt"
         )
         latest_step = max([int(f.split("/")[-1].split("_")[1]) for f in all_ckpt_files])
         ckpt_file = glob.glob(
-            f"{ckpt_dir}/{exp_name}_{run_id}/*_{latest_step:08}_{model_variant}_*_ddp.pt"
+            f"{ckpt_dir}/{exp_name}_{run_id}/*_{latest_step:08}_{model_variant}_*_fp16_ddp.pt"
         )[0]
         print(f"{ckpt_file=}")
         # latest_ckpt_file = max(all_ckpt_files, key=os.path.getctime)
     else:
         ckpt_file = glob.glob(
-            f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*_{model_variant}_*_ddp.pt"
+            f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*_{model_variant}_*_fp16_ddp.pt"
         )[0]
         print(f"{ckpt_file=}")
 
