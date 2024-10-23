@@ -842,6 +842,7 @@ def train(
     train_dataloader: DataLoader,
     train_sampler: DistributedSampler,
     train_steps: int,
+    epoch_steps: int,
     epoch: int,
     scaler: GradScaler,
     model: DDP,
@@ -1007,6 +1008,48 @@ def train(
             scheduler.step()  # Adjust learning rate based on accumulated steps
 
             current_step += 1
+
+            if current_step >= epoch_steps:
+                # logging
+                if rank == 0:
+                    train_metrics = defaultdict(float)
+                    print("Logging results at an epoch")
+                    print(f"current_step: {current_step}")
+                    print(f"train_loss: {train_loss_all}")
+
+                    train_metrics["train/train_loss"] = train_loss_all
+                    train_metrics["custom_step"] = current_step
+
+                    if (
+                        (
+                            current_step
+                            % (int(np.ceil(train_steps / train_txt_log_freq)))
+                        )
+                        == 0
+                    ) or (
+                        (
+                            current_step
+                            % (int(np.ceil(train_steps / train_tbl_log_freq)))
+                        )
+                        == 0
+                    ):
+                        train_metrics["train/train_wer"] = train_wer_all
+                        print(f"train_wer: {train_wer_all}")
+
+                    wandb.log(train_metrics)
+
+                return (
+                    current_step,
+                    epoch,
+                    best_val_loss,
+                    model,
+                    optimizer,
+                    scaler,
+                    scheduler,
+                    train_res_added,
+                    val_res_added,
+                )
+                
 
             if current_step >= train_steps:
                 # logging
@@ -1286,6 +1329,49 @@ def train(
         scheduler.step()
 
         current_step += 1
+        
+        if current_step >= epoch_steps:
+                # logging
+                if rank == 0:
+                    train_metrics = defaultdict(float)
+                    print("Logging results at an epoch")
+                    print(f"current_step: {current_step}")
+                    print(f"train_loss: {train_loss_all}")
+
+                    train_metrics["train/train_loss"] = train_loss_all
+                    train_metrics["custom_step"] = current_step
+
+                    if (
+                        (
+                            current_step
+                            % (int(np.ceil(train_steps / train_txt_log_freq)))
+                        )
+                        == 0
+                    ) or (
+                        (
+                            current_step
+                            % (int(np.ceil(train_steps / train_tbl_log_freq)))
+                        )
+                        == 0
+                    ):
+                        train_metrics["train/train_wer"] = train_wer_all
+                        print(f"train_wer: {train_wer_all}")
+
+                    wandb.log(train_metrics)
+
+                return (
+                    current_step,
+                    epoch,
+                    best_val_loss,
+                    model,
+                    optimizer,
+                    scaler,
+                    scheduler,
+                    train_res_added,
+                    val_res_added,
+                )
+                
+                
         if current_step >= train_steps:
             # logging
             if rank == 0:
@@ -1759,6 +1845,7 @@ def main(
     job_type: str,
     samples_dicts_dir: str,
     train_steps: int,
+    epoch_steps: int,
     ckpt_file_name: Optional[str] = None,
     ckpt_dir: str = "checkpoints",
     log_dir: str = "logs",
@@ -1877,8 +1964,6 @@ def main(
         persistent_workers=persistent_workers,
         subset=subset,
     )
-    
-    print(f"{len(train_dataloader)=}, {len(val_dataloader)=}")
 
     print(f"Preparing eval sets on rank {rank}")
     eval_sets = ["librispeech_clean", "librispeech_other"]
@@ -1991,6 +2076,7 @@ def main(
             train_dataloader=train_dataloader,
             train_sampler=train_sampler,
             train_steps=train_steps,
+            epoch_steps=epoch_steps,
             epoch=epoch,
             scaler=scaler,
             model=model,
