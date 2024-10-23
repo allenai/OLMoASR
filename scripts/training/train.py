@@ -234,7 +234,7 @@ def prepare_dataloader(
         worker_init_fn=init_tokenizer,
     )
 
-    return dataloader
+    return dataloader, sampler
 
 
 def prepare_data(
@@ -296,7 +296,7 @@ def prepare_data(
     )
 
     # prepare the dataloaders
-    train_dataloader = prepare_dataloader(
+    train_dataloader, train_sampler = prepare_dataloader(
         dataset=train_dataset,
         rank=rank,
         world_size=world_size,
@@ -307,7 +307,7 @@ def prepare_data(
         persistent_workers=persistent_workers,
     )
 
-    val_dataloader = prepare_dataloader(
+    val_dataloader, val_sampler = prepare_dataloader(
         dataset=val_dataset,
         rank=rank,
         world_size=world_size,
@@ -318,7 +318,7 @@ def prepare_data(
         persistent_workers=persistent_workers,
     )
 
-    return train_dataloader, val_dataloader
+    return train_dataloader, val_dataloader, train_sampler, val_sampler
 
 
 def prepare_optim(
@@ -497,6 +497,7 @@ def setup_wandb(
 
 def save_ckpt(
     current_step: int,
+    epoch: int,
     best_val_loss: float,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -530,7 +531,8 @@ def save_ckpt(
         ckpt_dir: Directory where all results are logged
     """
     ddp_checkpoint = {
-        "current_step": current_step + 1,
+        "current_step": current_step,
+        "epoch": epoch,
         "best_val_loss": best_val_loss,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
@@ -542,7 +544,8 @@ def save_ckpt(
     }
 
     non_ddp_checkpoint = {
-        "current_step": current_step + 1,
+        "current_step": current_step,
+        "epoch": epoch,
         "model_state_dict": model.module.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scaler_state_dict": scaler.state_dict(),
@@ -630,6 +633,8 @@ def load_ckpt(
 
     # if end at training step i, then start at step i+1 when resuming
     current_step = ckpt["current_step"] + 1
+    
+    epoch = ckpt["epoch"]
 
     best_val_loss = ckpt["best_val_loss"]
 
@@ -652,6 +657,7 @@ def load_ckpt(
 
     return (
         current_step,
+        epoch,
         best_val_loss,
         model,
         optimizer,
@@ -834,7 +840,9 @@ def train(
     current_step: int,
     train_batch_size: int,
     train_dataloader: DataLoader,
+    train_sampler: DistributedSampler,
     train_steps: int,
+    epoch: int,
     scaler: GradScaler,
     model: DDP,
     tokenizer: whisper.tokenizer.Tokenizer,
@@ -912,6 +920,7 @@ def train(
         train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
         start_time = time.time()
 
+    train_sampler.set_epoch(epoch)
     for batch_idx, batch in enumerate(train_dataloader):
         model.train()
         start_step = time.time()
@@ -1030,6 +1039,7 @@ def train(
 
                 return (
                     current_step,
+                    epoch,
                     best_val_loss,
                     model,
                     optimizer,
@@ -1099,6 +1109,7 @@ def train(
                 if current_step % ckpt_freq == 0:
                     save_ckpt(
                         current_step=current_step,
+                        epoch=epoch,
                         best_val_loss=best_val_loss,
                         model=model,
                         optimizer=optimizer,
@@ -1189,6 +1200,7 @@ def train(
                     best_val_loss, val_res_added = validate(
                         rank=rank,
                         current_step=current_step,
+                        epoch=epoch,
                         best_val_loss=best_val_loss,
                         val_dataloader=val_dataloader,
                         scaler=scaler,
@@ -1290,6 +1302,7 @@ def train(
 
             return (
                 current_step,
+                epoch,
                 best_val_loss,
                 model,
                 optimizer,
@@ -1335,6 +1348,7 @@ def train(
 
     return (
         current_step,
+        epoch,
         best_val_loss,
         model,
         optimizer,
@@ -1348,6 +1362,7 @@ def train(
 def validate(
     rank: int,
     current_step: int,
+    epoch: int,
     best_val_loss: float,
     val_dataloader: DataLoader,
     scaler: GradScaler,
@@ -1598,6 +1613,7 @@ def validate(
                 print("Saving best model")
                 save_ckpt(
                     current_step=current_step,
+                    epoch=epoch,
                     best_val_loss=best_val_loss,
                     model=model,
                     optimizer=optimizer,
@@ -1847,7 +1863,7 @@ def main(
     print(samples_dicts[:2])
 
     # prepare dataset
-    train_dataloader, val_dataloader = prepare_data(
+    train_dataloader, val_dataloader, train_sampler, val_sampler = prepare_data(
         rank=rank,
         world_size=world_size,
         samples_dicts=samples_dicts,
@@ -1883,6 +1899,7 @@ def main(
     if run_id is not None:
         (
             current_step,
+            epoch,
             best_val_loss,
             model,
             optimizer,
@@ -1924,6 +1941,7 @@ def main(
 
         best_val_loss = float("inf")
         current_step = 0
+        epoch = 0
 
     # setting up wandb for logging
     if rank == 0:
@@ -1956,6 +1974,7 @@ def main(
     while current_step < train_steps:
         (
             current_step,
+            epoch,
             best_val_loss,
             model,
             optimizer,
@@ -1968,7 +1987,9 @@ def main(
             current_step=current_step,
             train_batch_size=train_batch_size,
             train_dataloader=train_dataloader,
+            train_sampler=train_sampler,
             train_steps=train_steps,
+            epoch=epoch,
             scaler=scaler,
             model=model,
             tokenizer=tokenizer,
@@ -1999,9 +2020,12 @@ def main(
             ckpt_freq=ckpt_freq,
         )
 
+        epoch += 1
+        
         if rank == 0:
             save_ckpt(
                 current_step=current_step,
+                epoch=epoch,
                 best_val_loss=best_val_loss,
                 model=model,
                 optimizer=optimizer,
@@ -2021,6 +2045,7 @@ def main(
             best_val_loss, val_res_added = validate(
                 rank=rank,
                 current_step=current_step,
+                epoch=epoch,
                 best_val_loss=best_val_loss,
                 val_dataloader=val_dataloader,
                 scaler=scaler,
