@@ -632,7 +632,7 @@ def load_ckpt(
     model = DDP(model, device_ids=[rank], output_device=rank)
 
     # if end at training step i, then start at step i+1 when resuming
-    current_step = ckpt["current_step"] + 1
+    current_step = ckpt["current_step"]
     
     epoch = ckpt["epoch"]
 
