@@ -1009,7 +1009,7 @@ def train(
 
             current_step += 1
 
-            if current_step >= epoch_steps:
+            if current_step >= epoch_steps + (epoch_steps * epoch):
                 # logging
                 if rank == 0:
                     train_metrics = defaultdict(float)
@@ -1330,7 +1330,7 @@ def train(
 
         current_step += 1
         
-        if current_step >= epoch_steps:
+        if current_step >= epoch_steps + (epoch_steps * epoch):
                 # logging
                 if rank == 0:
                     train_metrics = defaultdict(float)
