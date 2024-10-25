@@ -37,9 +37,10 @@ class DataReader:
 
     @staticmethod
     def bytes_to_text(data_dict: Dict[str, Any]) -> Dict[str, Any]:
-        data_dict["text"] = data_dict["bytes"].decode("utf-8")
-        if data_dict["path"].endswith(".vtt"):
-            data_dict["text"] = data_dict["text"].replace("WEBVTT\n\n", "")
+        transcript_string = data_dict["bytes"].decode("utf-8")
+        reader = TranscriptReader(file_path=None, transcript_string=transcript_string, ext=data_dict["path"].split(".")[-1])
+        t_dict, *_ = reader.read()
+        data_dict["text"] = reader.extract_text(t_dict)
         del data_dict["bytes"]
         return data_dict
 
@@ -123,7 +124,7 @@ class FilterFunc:
     @staticmethod
     def no_repeat(row: Dict[str, Any]):
         reader = TranscriptReader(
-            file_path=None, transcript_string=row["text"], ext="srt"
+            file_path=None, transcript_string=row["text"], ext=row["path"].split(".")[-1]
         )
         t_dict, *_ = reader.read()
         transcript_text_list = list(t_dict.values())
@@ -172,10 +173,8 @@ class FilterFunc:
 def gen_smpl_dict(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     segs_dir = os.path.dirname(row["path"]).replace("440K_full", "440K_seg")
 
-    if int(row["path"].split("/")[-3]) > 2448:
-        text_files = sorted(glob.glob(segs_dir + "/*.vtt"))
-    else:
-        text_files = sorted(glob.glob(segs_dir + "/*.srt"))
+    text_files = sorted(glob.glob(segs_dir + f"/*.{row['path'].split('.')[-1]}"))
+
     npy_files = sorted(glob.glob(segs_dir + "/*.npy"))
     text_npy_samples = list(zip(text_files, npy_files))
     smpl_dicts = []
