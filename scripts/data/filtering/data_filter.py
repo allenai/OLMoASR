@@ -41,6 +41,7 @@ class DataReader:
         reader = TranscriptReader(file_path=None, transcript_string=transcript_string, ext=data_dict["path"].split(".")[-1])
         t_dict, *_ = reader.read()
         data_dict["text"] = reader.extract_text(t_dict)
+        data_dict["transcript"] = transcript_string
         del data_dict["bytes"]
         return data_dict
 
@@ -124,7 +125,7 @@ class FilterFunc:
     @staticmethod
     def no_repeat(row: Dict[str, Any]):
         reader = TranscriptReader(
-            file_path=None, transcript_string=row["text"], ext=row["path"].split(".")[-1]
+            file_path=None, transcript_string=row["transcript"], ext=row["path"].split(".")[-1]
         )
         t_dict, *_ = reader.read()
         transcript_text_list = list(t_dict.values())
@@ -186,6 +187,7 @@ def gen_smpl_dict(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     row["sample_dicts"] = smpl_dicts
     del row["path"]
     del row["text"]
+    del row["transcript"]
 
     return row
 
