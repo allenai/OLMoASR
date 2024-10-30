@@ -13,7 +13,7 @@ from collections import defaultdict
 class FilenameProviders:
     def __init__(self):
         pass
-    
+
     @staticmethod
     class LabelsDictsFilenameProvider(FilenameProvider):
         def __init__(self, file_format: str):
@@ -38,7 +38,11 @@ class DataReader:
     @staticmethod
     def bytes_to_text(data_dict: Dict[str, Any]) -> Dict[str, Any]:
         transcript_string = data_dict["bytes"].decode("utf-8")
-        reader = TranscriptReader(file_path=None, transcript_string=transcript_string, ext=data_dict["path"].split(".")[-1])
+        reader = TranscriptReader(
+            file_path=None,
+            transcript_string=transcript_string,
+            ext=data_dict["path"].split(".")[-1],
+        )
         t_dict, *_ = reader.read()
         data_dict["text"] = reader.extract_text(t_dict)
         data_dict["transcript"] = transcript_string
@@ -66,7 +70,7 @@ class FilterFunc:
             return True
         else:
             return False
-    
+
     @staticmethod
     def not_upper(row: Dict[str, Any]) -> bool:
         return not row["text"].isupper()
@@ -77,14 +81,16 @@ class FilterFunc:
             return True
         else:
             return False
-    
+
     @staticmethod
     def not_lower_upper(row: Dict[str, Any]) -> bool:
         return not (row["text"].islower() or row["text"].isupper())
-    
+
     @staticmethod
     def only_mixed(row: Dict[str, Any]) -> bool:
-        if not(row["text"].islower() or row["text"].isupper() or row["text"].strip() == ""):
+        if not (
+            row["text"].islower() or row["text"].isupper() or row["text"].strip() == ""
+        ):
             return True
         else:
             return False
@@ -125,7 +131,9 @@ class FilterFunc:
     @staticmethod
     def no_repeat(row: Dict[str, Any]):
         reader = TranscriptReader(
-            file_path=None, transcript_string=row["transcript"], ext=row["path"].split(".")[-1]
+            file_path=None,
+            transcript_string=row["transcript"],
+            ext=row["path"].split(".")[-1],
         )
         t_dict, *_ = reader.read()
         transcript_text_list = list(t_dict.values())
@@ -135,7 +143,7 @@ class FilterFunc:
             return False
         else:
             return True
-        
+
     @staticmethod
     def no_upper_no_repeat(row: Dict[str, Any]):
         if not row["text"].isupper() and FilterFunc.no_repeat(row):
@@ -149,7 +157,7 @@ class FilterFunc:
             return True
         else:
             return False
-        
+
     @staticmethod
     def min_comma_period_no_repeat(row: Dict[str, Any]):
         if FilterFunc.min_comma_period(row) and FilterFunc.no_repeat(row):
@@ -166,10 +174,15 @@ class FilterFunc:
 
     @staticmethod
     def min_comma_period_mixed_no_repeat(row: Dict[str, Any]):
-        if FilterFunc.min_comma_period(row) and FilterFunc.only_mixed(row) and FilterFunc.no_repeat(row):
+        if (
+            FilterFunc.min_comma_period(row)
+            and FilterFunc.only_mixed(row)
+            and FilterFunc.no_repeat(row)
+        ):
             return True
         else:
             return False
+
 
 def gen_smpl_dict(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     segs_dir = os.path.dirname(row["path"]).replace("440K_full", "440K_seg")
@@ -198,24 +211,33 @@ class DataFilter:
         data_dir: str,
         samples_dicts_dir: str,
         batch_size: int,
+        start_shard_idx: int,
+        end_shard_idx: int,
         filter_mode: bool,
         metadata_path: str,
     ):
         self.data_dir = data_dir
-        self.samples_dicts_dir = samples_dicts_dir + f"/{int(os.getenv("BEAKER_REPLICA_RANK")):03}"
+        self.samples_dicts_dir = (
+            samples_dicts_dir + f"/{int(os.getenv("BEAKER_REPLICA_RANK")):03}"
+        )
         self.batch_size = batch_size
-        self.batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
+        self.job_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
+        self.start_shard_idx = start_shard_idx
+        self.end_shard_idx = end_shard_idx
         self.filter_mode = filter_mode
         self.metadata_path = metadata_path
         os.makedirs(os.path.dirname(self.metadata_path), exist_ok=True)
 
     def base_filter(self, filter_func: FilterFunc):
         ray.init()
-        data_dirs = [
-            f"{self.data_dir}/{((self.batch_idx * self.batch_size) + i):05}"
-            for i in range(self.batch_size)
-            if (self.batch_idx * self.batch_size) + i <= 8448
-        ]
+        # data_dirs = [
+        #     f"{self.data_dir}/{((self.batch_idx * self.batch_size) + i):05}"
+        #     for i in range(self.batch_size)
+        #     if (self.batch_idx * self.batch_size) + i <= 8448
+        # ]
+        data_dirs = sorted(glob.glob(self.data_dir + "/*"))[
+            self.start_shard_idx : self.end_shard_idx + 1
+        ][self.job_idx * self.batch_size : (self.job_idx + 1) * self.batch_size]
         print(data_dirs[:5])
 
         print("Start reading binary files")
@@ -255,13 +277,13 @@ class DataFilter:
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
-            
+
     def not_upper(self):
         removed_count, total_count = self.base_filter(filter_func=FilterFunc.not_upper)
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
-        
+
     def not_upper_empty(self):
         removed_count, total_count = self.base_filter(
             filter_func=FilterFunc.not_upper_empty
@@ -269,7 +291,7 @@ class DataFilter:
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
-    
+
     def not_lower_upper(self):
         removed_count, total_count = self.base_filter(
             filter_func=FilterFunc.not_lower_upper
@@ -277,11 +299,9 @@ class DataFilter:
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
-    
+
     def only_mixed(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.only_mixed
-        )
+        removed_count, total_count = self.base_filter(filter_func=FilterFunc.only_mixed)
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
@@ -323,7 +343,7 @@ class DataFilter:
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
-    
+
     def no_upper_no_repeat(self):
         removed_count, total_count = self.base_filter(
             filter_func=FilterFunc.no_upper_no_repeat
@@ -339,7 +359,7 @@ class DataFilter:
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
-    
+
     def min_comma_period_no_repeat(self):
         removed_count, total_count = self.base_filter(
             filter_func=FilterFunc.min_comma_period_no_repeat
@@ -347,7 +367,7 @@ class DataFilter:
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
-    
+
     def mixed_no_repeat(self):
         removed_count, total_count = self.base_filter(
             filter_func=FilterFunc.mixed_no_repeat
@@ -355,7 +375,7 @@ class DataFilter:
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
-            
+
     def min_comma_period_mixed_no_repeat(self):
         removed_count, total_count = self.base_filter(
             filter_func=FilterFunc.min_comma_period_mixed_no_repeat
@@ -363,6 +383,7 @@ class DataFilter:
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
+
 
 if __name__ == "__main__":
     Fire(DataFilter)
