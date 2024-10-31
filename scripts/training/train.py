@@ -1701,7 +1701,7 @@ def evaluate(
 
                 if rank == 0:
                     if (batch_idx + 1) % int(np.ceil(len(eval_dataloader) / 10)) == 0:
-                        for i in range(0, len(pred_text), 8):
+                        for i in range(0, len(pred_text), 16):
                             wer = (
                                 np.round(
                                     jiwer.wer(
