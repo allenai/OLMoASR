@@ -36,8 +36,11 @@ EVAL_TABLE_COLS = [
     "run_id",
     "corpi",
     "audio_input",
-    "pred_text",
     "unnorm_pred_text",
+    "pred_text",
     "tgt_text",
+    "substitutions",
+    "deletions",
+    "insertions",
     "wer",
 ]
