@@ -1207,7 +1207,7 @@ def train(
             # validation
             if run_val:
                 if (
-                    current_step % (int(np.ceil(train_steps / val_freq)))
+                    current_step % val_freq
                 ) == 0 and current_step > 0:
                     table_idx = current_step // (int(np.ceil(train_steps / val_freq)))
                     best_val_loss, val_res_added = validate(
@@ -1235,14 +1235,14 @@ def train(
                     )
 
                 if (
-                    current_step % (int(np.ceil(train_steps / val_freq)))
+                    current_step % val_freq
                 ) == 0 and current_step > 0:
                     print(
                         f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}"
                     )
                 dist.barrier()
                 if (
-                    current_step % (int(np.ceil(train_steps / val_freq)))
+                    current_step % val_freq
                 ) == 0 and current_step > 0:
                     print(
                         f"Rank {rank} passing barrier w/ best val loss {best_val_loss}"
@@ -1250,11 +1250,8 @@ def train(
 
             # evaluation
             if run_eval:
-                if (
-                    current_step % (int(np.ceil(train_steps / eval_freq)))
-                ) == 0 and current_step > 0:
-                    table_idx = current_step // (int(np.ceil(train_steps / eval_freq)))
-                    evaluate(
+                if (current_step % eval_freq) == 0 and current_step > 0:
+                    best_eval_wer = evaluate(
                         rank=rank,
                         current_step=current_step,
                         model=model,
@@ -1267,14 +1264,10 @@ def train(
                         log_dir=log_dir,
                     )
 
-                if (
-                    current_step % (int(np.ceil(train_steps / eval_freq)))
-                ) == 0 and current_step > 0:
+                if (current_step % eval_freq) == 0 and current_step > 0:
                     print(f"Rank {rank} reaching barrier")
                 dist.barrier()
-                if (
-                    current_step % (int(np.ceil(train_steps / eval_freq)))
-                ) == 0 and current_step > 0:
+                if (current_step % eval_freq) == 0 and current_step > 0:
                     print(f"Rank {rank} passing barrier")
 
         batch_pred_text = []
