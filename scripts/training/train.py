@@ -509,7 +509,8 @@ def setup_wandb(
 def save_ckpt(
     current_step: int,
     epoch: int,
-    best_val_loss: float,
+    best_val_loss: Optional[float],
+    best_eval_wer: Optional[float],
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
@@ -545,6 +546,7 @@ def save_ckpt(
         "current_step": current_step,
         "epoch": epoch,
         "best_val_loss": best_val_loss,
+        "best_eval_wer": best_eval_wer,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scaler_state_dict": scaler.state_dict(),
@@ -557,6 +559,7 @@ def save_ckpt(
     non_ddp_checkpoint = {
         "current_step": current_step,
         "epoch": epoch,
+        "best_eval_wer": best_eval_wer,
         "model_state_dict": model.module.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scaler_state_dict": scaler.state_dict(),
@@ -644,10 +647,12 @@ def load_ckpt(
 
     # if end at training step i, then start at step i+1 when resuming
     current_step = ckpt["current_step"]
-    
+
     epoch = ckpt["epoch"]
 
     best_val_loss = ckpt["best_val_loss"]
+
+    best_eval_wer = ckpt["best_eval_wer"]
 
     model.load_state_dict(ckpt["model_state_dict"])
 
@@ -670,6 +675,7 @@ def load_ckpt(
         current_step,
         epoch,
         best_val_loss,
+        best_eval_wer,
         model,
         optimizer,
         scaler,
@@ -927,8 +933,6 @@ def train(
         scheduler: The scheduler for training
         accumulation_steps: The number of steps over which to accumulate gradients
         max_grad_norm: The maximum gradient norm
-        train_res: The training results artifact
-        train_res_added: A boolean indicating whether the training results artifact has been added
         tags: The tags to use for logging
         exp_name: The experiment name
 
@@ -1057,6 +1061,7 @@ def train(
                     current_step,
                     epoch,
                     best_val_loss,
+                    best_eval_wer,
                     model,
                     optimizer,
                     scaler,
@@ -1088,6 +1093,7 @@ def train(
                     current_step,
                     epoch,
                     best_val_loss,
+                    best_eval_wer,
                     model,
                     optimizer,
                     scaler,
@@ -1156,6 +1162,7 @@ def train(
                         current_step=current_step,
                         epoch=epoch,
                         best_val_loss=best_val_loss,
+                        best_eval_wer=best_eval_wer,
                         model=model,
                         optimizer=optimizer,
                         scaler=scaler,
@@ -1215,6 +1222,7 @@ def train(
                         current_step=current_step,
                         epoch=epoch,
                         best_val_loss=best_val_loss,
+                        best_eval_wer=best_eval_wer,
                         val_dataloader=val_dataloader,
                         scaler=scaler,
                         model=model,
@@ -1254,14 +1262,23 @@ def train(
                     best_eval_wer = evaluate(
                         rank=rank,
                         current_step=current_step,
+                        epoch=epoch,
                         model=model,
+                        optimizer=optimizer,
+                        scaler=scaler,
+                        scheduler=scheduler,
+                        model_dims=model_dims,
+                        model_variant=model_variant,
                         eval_loaders=eval_loaders,
                         normalizer=normalizer,
+                        best_val_loss=best_val_loss,
+                        best_eval_wer=best_eval_wer,
                         tags=tags if rank == 0 else None,
                         exp_name=exp_name if rank == 0 else None,
                         run_id=run_id if rank == 0 else None,
-                        table_idx=table_idx if rank == 0 else None,
+                        table_idx=None,
                         log_dir=log_dir,
+                        ckpt_dir=ckpt_dir,
                     )
 
                 if (current_step % eval_freq) == 0 and current_step > 0:
@@ -1313,19 +1330,17 @@ def train(
 
                     wandb.log(train_metrics)
 
-                return (
-                    current_step,
-                    epoch,
-                    best_val_loss,
-                    model,
-                    optimizer,
-                    scaler,
-                    scheduler,
-                    train_res_added,
-                    val_res_added,
-                )
-                
-                
+            return (
+                current_step,
+                epoch,
+                best_val_loss,
+                best_eval_wer,
+                model,
+                optimizer,
+                scaler,
+                scheduler,
+            )
+
         if current_step >= train_steps:
             # logging
             if rank == 0:
@@ -1344,6 +1359,7 @@ def train(
                 current_step,
                 epoch,
                 best_val_loss,
+                best_eval_wer,
                 model,
                 optimizer,
                 scaler,
@@ -1388,6 +1404,7 @@ def train(
         current_step,
         epoch,
         best_val_loss,
+        best_eval_wer,
         model,
         optimizer,
         scaler,
@@ -1399,7 +1416,8 @@ def validate(
     rank: int,
     current_step: int,
     epoch: int,
-    best_val_loss: float,
+    best_val_loss: Optional[float],
+    best_eval_wer: Optional[float],
     val_dataloader: DataLoader,
     scaler: GradScaler,
     model: DDP,
@@ -1649,6 +1667,7 @@ def validate(
                     current_step=current_step,
                     epoch=epoch,
                     best_val_loss=best_val_loss,
+                    best_eval_wer=best_eval_wer,
                     model=model,
                     optimizer=optimizer,
                     scaler=scaler,
@@ -1668,14 +1687,23 @@ def validate(
 def evaluate(
     rank: int,
     current_step: int,
+    epoch: int,
     model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    scheduler: LambdaLR,
+    model_dims: ModelDimensions,
+    model_variant: str,
     eval_loaders: List[DataLoader],
     normalizer: EnglishTextNormalizer,
+    best_val_loss: Optional[float],
+    best_eval_wer: Optional[float],
     tags: Optional[List[str]],
     exp_name: Optional[str],
     run_id: Optional[str],
-    table_idx: Optional[Union[int, str]],
+    table_idx: Optional[str],
     log_dir: str,
+    ckpt_dir: str,
 ) -> None:
     """Evaluation loop for 1 epoch
 
@@ -1695,6 +1723,8 @@ def evaluate(
 
     non_ddp_model = model.module
     non_ddp_model.eval()
+    
+    eval_wers = []
 
     for eval_set, eval_dataloader in eval_loaders:
         print(f"Evaluating {eval_set}\n")
@@ -1764,6 +1794,7 @@ def evaluate(
                             f.write(f"{eval_set} batch {batch_idx} WER: {wer}\n")
 
             avg_wer = jiwer.wer(references, hypotheses) * 100
+            eval_wers.append(avg_wer)
 
             if rank == 0:
                 with open(
@@ -1789,6 +1820,31 @@ def evaluate(
                 "custom_step": current_step,
             }
         )
+        
+        avg_eval_wer = np.mean(eval_wers)
+        
+        if avg_eval_wer < best_eval_wer:
+            best_eval_wer = avg_eval_wer
+            print("Saving best eval model")
+            save_ckpt(
+                current_step=current_step,
+                epoch=epoch,
+                best_val_loss=best_val_loss,
+                best_eval_wer=best_eval_wer,
+                model=model,
+                optimizer=optimizer,
+                scaler=scaler,
+                scheduler=scheduler,
+                model_dims=model_dims,
+                tags=tags,
+                model_variant=model_variant,
+                exp_name=exp_name,
+                run_id=run_id,
+                file_name="besteval",
+                ckpt_dir=ckpt_dir,
+            )
+    
+    return best_eval_wer
 
 
 def cleanup():
@@ -1946,6 +2002,7 @@ def main(
             current_step,
             epoch,
             best_val_loss,
+            best_eval_wer,
             model,
             optimizer,
             scaler,
@@ -1989,6 +2046,11 @@ def main(
         else:
             best_val_loss = None
         
+        if run_eval:
+            best_eval_wer = float("inf")
+        else:
+            best_eval_wer = None
+            
         current_step = 0
         epoch = 0
 
@@ -2026,6 +2088,7 @@ def main(
             current_step,
             epoch,
             best_val_loss,
+            best_eval_wer,
             model,
             optimizer,
             scaler,
@@ -2072,12 +2135,13 @@ def main(
         )
 
         epoch += 1
-        
+
         if rank == 0:
             save_ckpt(
                 current_step=current_step,
                 epoch=epoch,
                 best_val_loss=best_val_loss,
+                best_eval_wer=best_eval_wer,
                 model=model,
                 optimizer=optimizer,
                 scaler=scaler,
@@ -2098,6 +2162,7 @@ def main(
                 current_step=current_step,
                 epoch=epoch,
                 best_val_loss=best_val_loss,
+                best_eval_wer=best_eval_wer,
                 val_dataloader=val_dataloader,
                 scaler=scaler,
                 model=model,
@@ -2123,17 +2188,26 @@ def main(
 
         if run_eval:
             print(f"Evaluation after epoch at {current_step=} on rank {rank}")
-            evaluate(
+            best_eval_wer = evaluate(
                 rank=rank,
                 current_step=current_step,
+                epoch=epoch,
                 model=model,
+                optimizer=optimizer,
+                scaler=scaler,
+                scheduler=scheduler,
+                model_dims=model_dims,
+                model_variant=model_variant,
                 eval_loaders=eval_loaders,
                 normalizer=normalizer,
+                best_val_loss=best_val_loss,
+                best_eval_wer=best_eval_wer,
                 tags=tags if rank == 0 else None,
                 exp_name=exp_name if rank == 0 else None,
                 run_id=run_id if rank == 0 else None,
-                table_idx=f"epoch_{current_step}" if rank == 0 else None,
+                table_idx=f"epoch_{epoch}" if rank == 0 else None,
                 log_dir=log_dir,
+                ckpt_dir=ckpt_dir,
             )
 
             print(f"Rank {rank} reaching barrier")
