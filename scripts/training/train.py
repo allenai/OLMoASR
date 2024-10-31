@@ -1884,9 +1884,9 @@ def main(
     persistent_workers: bool = True,
     run_val: bool = True,
     run_eval: bool = False,
-    train_log_freq: int = 100,
-    val_freq: int = 10,
-    eval_freq: int = 5,
+    train_log_freq: int = 20000,
+    val_freq: Optional[int] = 10000,
+    eval_freq: Optional[int] = 20000,
     ckpt_freq: int = 2500,
 ) -> None:
     """Main function for training
