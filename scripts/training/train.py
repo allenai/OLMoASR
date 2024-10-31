@@ -1879,6 +1879,9 @@ def main(
     else:
         with open(f"{run_id_dir}/{exp_name}.txt", "r") as f:
             run_id = f.read().strip()
+    
+    if ckpt_file_name is None:
+        ckpt_file_name = ""
 
     model_dims = VARIANT_TO_DIMS[model_variant]
 
