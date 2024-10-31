@@ -634,6 +634,8 @@ def load_ckpt(
         )[0]
         print(f"{ckpt_file=}")
         # latest_ckpt_file = max(all_ckpt_files, key=os.path.getctime)
+    elif "/" in file_name:
+        ckpt_file = file_name
     else:
         ckpt_file = glob.glob(
             f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*_{model_variant}_*_fp16_ddp.pt"
@@ -1964,7 +1966,7 @@ def main(
     print(f"{samples_dicts_files=}")
 
     # prepare dataset
-    train_dataloader, val_dataloader, train_sampler, val_sampler = prepare_data(
+    train_dataloader, train_sampler, val_dataloader, val_sampler = prepare_data(
         rank=rank,
         world_size=world_size,
         samples_dicts=samples_dicts,
@@ -1997,7 +1999,7 @@ def main(
         eval_loaders.append((eval_set, eval_dataloader))
 
     # model instantiation
-    if run_id is not None:
+    if run_id is not None or "/" in ckpt_file_name:
         (
             current_step,
             epoch,
