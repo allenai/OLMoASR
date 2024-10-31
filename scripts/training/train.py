@@ -503,12 +503,7 @@ def setup_wandb(
     wandb.define_metric("val/*", step_metric="custom_step")
     wandb.define_metric("eval/*", step_metric="custom_step")
 
-    train_res = wandb.Artifact("train_res", type="results")
-    train_res_added = False
-    val_res = wandb.Artifact("val_res", type="results")
-    val_res_added = False
-
-    return run_id, tags, train_res, val_res, train_res_added, val_res_added
+    return run_id, tags
 
 
 def save_ckpt(
@@ -794,8 +789,6 @@ def log_txt(
 
 def log_tbl(
     current_step,
-    train_steps,
-    train_tbl_log_freq,
     train_table,
     run_id,
     batch_audio_files,
@@ -868,15 +861,12 @@ def train(
     scheduler: LambdaLR,
     accumulation_steps: int,
     max_grad_norm: float,
-    train_res: Optional[wandb.Artifact],
-    train_res_added: Optional[bool],
     run_val: bool,
     val_dataloader: Optional[DataLoader],
     model_dims: Optional[ModelDimensions],
     model_variant: Optional[str],
-    best_val_loss: float,
-    val_res: Optional[wandb.Artifact],
-    val_res_added: Optional[bool],
+    best_val_loss: Optional[float],
+    best_eval_wer: Optional[float],
     run_eval: bool,
     eval_loaders: List[DataLoader],
     run_id: Optional[str],
@@ -930,8 +920,6 @@ def train(
     total_loss = 0.0
     model.train()
     optimizer.zero_grad()
-    train_txt_log_freq = train_log_freq
-    train_tbl_log_freq = train_log_freq // 5
 
     if rank == 0:
         train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
@@ -979,11 +967,7 @@ def train(
                 text = f"Loss is NaN for {audio_files} at step {current_step}!"
                 wandb.alert(title="NaN Loss", text=text)
 
-        if (
-            ((current_step + 1) % (int(np.ceil(train_steps / train_txt_log_freq)))) == 0
-        ) or (
-            ((current_step + 1) % (int(np.ceil(train_steps / train_tbl_log_freq)))) == 0
-        ):
+        if ((current_step + 1) % train_log_freq) == 0:
             microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text = (
                 gen_pred(
                     logits,
@@ -1005,16 +989,7 @@ def train(
             dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
-            if (
-                ((current_step + 1) % (int(np.ceil(train_steps / train_txt_log_freq))))
-                == 0
-            ) or (
-                ((current_step + 1) % (int(np.ceil(train_steps / train_tbl_log_freq))))
-                == 0
-            ):
-                norm_tgt_pred_pairs, train_wer_all = calc_pred_wer(
-                    batch_tgt_text, batch_pred_text, normalizer, rank
-                )
+            if ((current_step + 1) % train_log_freq) == 0:
 
             # Gradient clipping, if necessary, should be done before optimizer.step()
             scaler.unscale_(optimizer)
@@ -1036,19 +1011,7 @@ def train(
                     train_metrics["train/train_loss"] = train_loss_all
                     train_metrics["custom_step"] = current_step
 
-                    if (
-                        (
-                            current_step
-                            % (int(np.ceil(train_steps / train_txt_log_freq)))
-                        )
-                        == 0
-                    ) or (
-                        (
-                            current_step
-                            % (int(np.ceil(train_steps / train_tbl_log_freq)))
-                        )
-                        == 0
-                    ):
+                    if (current_step % train_log_freq) == 0:
                         train_metrics["train/train_wer"] = train_wer_all
                         print(f"train_wer: {train_wer_all}")
 
@@ -1062,10 +1025,7 @@ def train(
                     optimizer,
                     scaler,
                     scheduler,
-                    train_res_added,
-                    val_res_added,
                 )
-                
 
             if current_step >= train_steps:
                 # logging
@@ -1078,19 +1038,7 @@ def train(
                     train_metrics["train/train_loss"] = train_loss_all
                     train_metrics["custom_step"] = current_step
 
-                    if (
-                        (
-                            current_step
-                            % (int(np.ceil(train_steps / train_txt_log_freq)))
-                        )
-                        == 0
-                    ) or (
-                        (
-                            current_step
-                            % (int(np.ceil(train_steps / train_tbl_log_freq)))
-                        )
-                        == 0
-                    ):
+                    if (current_step % train_log_freq) == 0:
                         train_metrics["train/train_wer"] = train_wer_all
                         print(f"train_wer: {train_wer_all}")
 
@@ -1104,8 +1052,6 @@ def train(
                     optimizer,
                     scaler,
                     scheduler,
-                    train_res_added,
-                    val_res_added,
                 )
 
             # logging throughput
@@ -1190,54 +1136,18 @@ def train(
                 train_metrics["train/train_loss"] = train_loss_all
                 train_metrics["custom_step"] = current_step
 
-                if (
-                    (current_step % (int(np.ceil(train_steps / train_txt_log_freq))))
-                    == 0
-                ) or (
-                    (current_step % (int(np.ceil(train_steps / train_tbl_log_freq))))
-                    == 0
-                ):
+                if (current_step % train_log_freq) == 0:
                     train_metrics["train/train_wer"] = train_wer_all
                     print(f"train_wer: {train_wer_all}")
 
                 wandb.log(train_metrics)
 
-                if (
-                    current_step % (int(np.ceil(train_steps / train_txt_log_freq)))
-                ) == 0:
-                    os.makedirs(
-                        f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True
-                    )
-                    print(
-                        f"{len(batch_audio_files)=}, {len(batch_audio_arr)=}, {len(batch_text_files)=}, {len(batch_pred_text)=}, {len(batch_tgt_text)=}, {len(batch_unnorm_pred_text)=}, {len(norm_tgt_pred_pairs)=}"
-                    )
-                    train_res_added = log_txt(
-                        log_dir=log_dir,
-                        exp_name=exp_name,
-                        run_id=run_id,
-                        tags=tags,
-                        train_res=train_res,
-                        train_res_added=train_res_added,
-                        norm_tgt_pred_pairs=norm_tgt_pred_pairs,
-                        current_step=current_step,
-                        batch_idx=batch_idx,
-                        accumulation_steps=accumulation_steps,
-                        batch_text_files=batch_text_files,
-                        batch_pred_text=batch_pred_text,
-                        batch_tgt_text=batch_tgt_text,
-                        train_loss_all=train_loss_all,
-                        train_wer_all=train_wer_all,
-                    )
-                if (
-                    current_step % (int(np.ceil(train_steps / train_tbl_log_freq)))
-                ) == 0:
+                if (current_step % train_log_freq) == 0:
                     print(
                         f"{len(batch_audio_files)=}, {len(batch_audio_arr)=}, {len(batch_text_files)=}, {len(batch_pred_text)=}, {len(batch_tgt_text)=}, {len(batch_unnorm_pred_text)=}, {len(norm_tgt_pred_pairs)=}"
                     )
                     log_tbl(
                         current_step=current_step,
-                        train_steps=train_steps,
-                        train_tbl_log_freq=train_tbl_log_freq,
                         train_table=train_table,
                         run_id=run_id,
                         batch_audio_files=batch_audio_files,
@@ -1357,6 +1267,7 @@ def train(
                     train_metrics["train/train_loss"] = train_loss_all
                     train_metrics["custom_step"] = current_step
 
+                if (current_step % train_log_freq) == 0:
                     if (
                         (
                             current_step
@@ -1410,8 +1321,6 @@ def train(
                 optimizer,
                 scaler,
                 scheduler,
-                train_res_added,
-                val_res_added,
             )
 
         current_lr = optimizer.param_groups[0]["lr"]
@@ -1456,8 +1365,6 @@ def train(
         optimizer,
         scaler,
         scheduler,
-        train_res_added,
-        val_res_added,
     )
 
 
@@ -1475,8 +1382,6 @@ def validate(
     scheduler: LambdaLR,
     model_dims: ModelDimensions,
     model_variant: str,
-    val_res: Optional[wandb.Artifact],
-    val_res_added: Optional[bool],
     tags: Optional[List[str]],
     exp_name: Optional[str],
     run_id: Optional[str],
@@ -1922,10 +1827,10 @@ def main(
     """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
-    
+
     if not os.path.exists(run_id_dir):
         os.makedirs(run_id_dir, exist_ok=True)
-    
+
     if not os.path.exists(ckpt_dir):
         os.makedirs(ckpt_dir, exist_ok=True)
 
