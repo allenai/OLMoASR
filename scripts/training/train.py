@@ -721,6 +721,9 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank):
 
     if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
         train_wer = 0.0
+        subs = 0
+        dels = 0
+        ins = 0
     else:
         train_wer = (
             jiwer.wer(
@@ -729,14 +732,36 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank):
             )
             * 100
         )
+        measures = jiwer.compute_measures(
+            truth=batch_tgt_text_full, hypothesis=batch_pred_text_full
+        )
+        subs = measures["substitutions"]
+        dels = measures["deletions"]
+        ins = measures["insertions"]
+
     # Use torch.tensor to work with dist.all_reduce
     train_wer_tensor = torch.tensor(train_wer, device=rank)
+    train_subs_tensor = torch.tensor(subs, device=rank)
+    train_dels_tensor = torch.tensor(dels, device=rank)
+    train_ins_tensor = torch.tensor(ins, device=rank)
     # Aggregate WER across all processes
     dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
+    dist.all_reduce(train_subs_tensor, op=dist.ReduceOp.SUM)
+    dist.all_reduce(train_dels_tensor, op=dist.ReduceOp.SUM)
+    dist.all_reduce(train_ins_tensor, op=dist.ReduceOp.SUM)
     # Calculate the average WER across all processes
     train_wer_all = train_wer_tensor.item() / dist.get_world_size()
+    train_subs_all = train_subs_tensor.item() / dist.get_world_size()
+    train_dels_all = train_dels_tensor.item() / dist.get_world_size()
+    train_ins_all = train_ins_tensor.item() / dist.get_world_size()
 
-    return norm_tgt_pred_pairs, train_wer_all
+    return (
+        norm_tgt_pred_pairs,
+        train_wer_all,
+        train_subs_all,
+        train_dels_all,
+        train_ins_all,
+    )
 
 
 def log_txt(
@@ -990,6 +1015,13 @@ def train(
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
             if ((current_step + 1) % train_log_freq) == 0:
+                (
+                    norm_tgt_pred_pairs,
+                    train_wer_all,
+                    train_subs_all,
+                    train_dels_all,
+                    train_ins_all,
+                ) = calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank)
 
             # Gradient clipping, if necessary, should be done before optimizer.step()
             scaler.unscale_(optimizer)
@@ -1013,6 +1045,10 @@ def train(
 
                     if (current_step % train_log_freq) == 0:
                         train_metrics["train/train_wer"] = train_wer_all
+                        train_metrics["train/train_subs"] = train_subs_all
+                        train_metrics["train/train_dels"] = train_dels_all
+                        train_metrics["train/train_ins"] = train_ins_all
+
                         print(f"train_wer: {train_wer_all}")
 
                     wandb.log(train_metrics)
@@ -1040,6 +1076,10 @@ def train(
 
                     if (current_step % train_log_freq) == 0:
                         train_metrics["train/train_wer"] = train_wer_all
+                        train_metrics["train/train_subs"] = train_subs_all
+                        train_metrics["train/train_dels"] = train_dels_all
+                        train_metrics["train/train_ins"] = train_ins_all
+
                         print(f"train_wer: {train_wer_all}")
 
                     wandb.log(train_metrics)
@@ -1138,6 +1178,10 @@ def train(
 
                 if (current_step % train_log_freq) == 0:
                     train_metrics["train/train_wer"] = train_wer_all
+                    train_metrics["train/train_subs"] = train_subs_all
+                    train_metrics["train/train_dels"] = train_dels_all
+                    train_metrics["train/train_ins"] = train_ins_all
+
                     print(f"train_wer: {train_wer_all}")
 
                 wandb.log(train_metrics)
@@ -1268,21 +1312,11 @@ def train(
                     train_metrics["custom_step"] = current_step
 
                 if (current_step % train_log_freq) == 0:
-                    if (
-                        (
-                            current_step
-                            % (int(np.ceil(train_steps / train_txt_log_freq)))
-                        )
-                        == 0
-                    ) or (
-                        (
-                            current_step
-                            % (int(np.ceil(train_steps / train_tbl_log_freq)))
-                        )
-                        == 0
-                    ):
-                        train_metrics["train/train_wer"] = train_wer_all
-                        print(f"train_wer: {train_wer_all}")
+                    train_metrics["train/train_wer"] = train_wer_all
+                    train_metrics["train/train_subs"] = train_subs_all
+                    train_metrics["train/train_dels"] = train_dels_all
+                    train_metrics["train/train_ins"] = train_ins_all
+                    print(f"train_wer: {train_wer_all}")
 
                     wandb.log(train_metrics)
 
@@ -1704,6 +1738,13 @@ def evaluate(
                                 )
                                 * 100
                             )
+                            measures = jiwer.compute_measures(
+                                truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                            )
+                            subs = measures["substitutions"]
+                            dels = measures["deletions"]
+                            ins = measures["insertions"]
+                            
                             eval_table.add_data(
                                 run_id,
                                 eval_set,
@@ -1711,6 +1752,9 @@ def evaluate(
                                 pred_text[i],
                                 norm_pred_text[i],
                                 norm_tgt_text[i],
+                                subs,
+                                dels,
+                                ins,
                                 wer,
                             )
 
