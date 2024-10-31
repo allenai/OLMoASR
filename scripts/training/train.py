@@ -287,38 +287,52 @@ def prepare_data(
         n_text_ctx=n_text_ctx,
     )
 
-    train_size = int(train_val_split * len(audio_text_dataset))
-    val_size = len(audio_text_dataset) - train_size
+    if train_val_split == 1.0:
+        train_dataloader, train_sampler = prepare_dataloader(
+            dataset=audio_text_dataset,
+            rank=rank,
+            world_size=world_size,
+            batch_size=train_batch_size,
+            pin_memory=pin_memory,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            persistent_workers=persistent_workers,
+        )
 
-    generator = torch.Generator().manual_seed(42)
-    train_dataset, val_dataset = random_split(
-        audio_text_dataset, [train_size, val_size], generator=generator
-    )
+        return train_dataloader, train_sampler, None, None
+    else:
+        train_size = int(train_val_split * len(audio_text_dataset))
+        val_size = len(audio_text_dataset) - train_size
 
-    # prepare the dataloaders
-    train_dataloader, train_sampler = prepare_dataloader(
-        dataset=train_dataset,
-        rank=rank,
-        world_size=world_size,
-        batch_size=train_batch_size,
-        pin_memory=pin_memory,
-        shuffle=shuffle,
-        num_workers=num_workers,
-        persistent_workers=persistent_workers,
-    )
+        generator = torch.Generator().manual_seed(42)
+        train_dataset, val_dataset = random_split(
+            audio_text_dataset, [train_size, val_size], generator=generator
+        )
 
-    val_dataloader, val_sampler = prepare_dataloader(
-        dataset=val_dataset,
-        rank=rank,
-        world_size=world_size,
-        batch_size=val_batch_size,
-        pin_memory=pin_memory,
-        shuffle=False,
-        num_workers=num_workers,
-        persistent_workers=persistent_workers,
-    )
+        # prepare the dataloaders
+        train_dataloader, train_sampler = prepare_dataloader(
+            dataset=train_dataset,
+            rank=rank,
+            world_size=world_size,
+            batch_size=train_batch_size,
+            pin_memory=pin_memory,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            persistent_workers=persistent_workers,
+        )
 
-    return train_dataloader, val_dataloader, train_sampler, val_sampler
+        val_dataloader, val_sampler = prepare_dataloader(
+            dataset=val_dataset,
+            rank=rank,
+            world_size=world_size,
+            batch_size=val_batch_size,
+            pin_memory=pin_memory,
+            shuffle=False,
+            num_workers=num_workers,
+            persistent_workers=persistent_workers,
+        )
+
+        return train_dataloader, train_sampler, val_dataloader, val_sampler
 
 
 def prepare_optim(
@@ -2025,8 +2039,12 @@ def main(
         )
 
         scaler = GradScaler()
-
-        best_val_loss = float("inf")
+        
+        if run_val:
+            best_val_loss = float("inf")
+        else:
+            best_val_loss = None
+        
         current_step = 0
         epoch = 0
 
