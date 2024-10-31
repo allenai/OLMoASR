@@ -624,7 +624,7 @@ def load_ckpt(
     """
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
 
-    if file_name is None:
+    if file_name is "":
         all_ckpt_files = glob.glob(
             f"{ckpt_dir}/{exp_name}_{run_id}/*_{model_variant}_*_fp16_ddp.pt"
         )
