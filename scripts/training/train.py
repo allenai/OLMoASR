@@ -1748,13 +1748,17 @@ def evaluate(
                     f"{log_dir}/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
                     "a",
                 ) as f:
-                    f.write(f"{eval_set} average WER: {avg_wer}\n")
+                    f.write(f"{eval_set} average WER: {avg_wer}\n at step {current_step}\n")
                 wandb.log(
                     {f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step}
                 )
 
     if rank == 0:
-        wandb.log({f"eval_table_{table_idx}": eval_table})
+        if table_idx is not None:
+            wandb.log({f"eval_table_{table_idx}": eval_table})
+        else:
+            wandb.log({f"eval_table_{current_step}": eval_table})
+
         end_time = time.time()
 
         wandb.log(
