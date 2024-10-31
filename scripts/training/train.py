@@ -832,7 +832,6 @@ def log_tbl(
     batch_unnorm_pred_text,
     norm_tgt_pred_pairs,
 ):
-    table_idx = current_step // (int(np.ceil(train_steps / train_tbl_log_freq)))
     for i, (
         tgt_text_instance,
         pred_text_instance,
@@ -874,7 +873,7 @@ def log_tbl(
             wer,
         )
 
-    wandb.log({f"train_table_{table_idx}": train_table})
+    wandb.log({f"train_table_{current_step}": train_table})
 
 
 def train(
@@ -1218,8 +1217,7 @@ def train(
                 if (
                     current_step % val_freq
                 ) == 0 and current_step > 0:
-                    table_idx = current_step // (int(np.ceil(train_steps / val_freq)))
-                    best_val_loss, val_res_added = validate(
+                    best_val_loss = validate(
                         rank=rank,
                         current_step=current_step,
                         epoch=epoch,
@@ -1234,13 +1232,9 @@ def train(
                         scheduler=scheduler,
                         model_dims=model_dims,
                         model_variant=model_variant,
-                        val_res=val_res if rank == 0 else None,
-                        val_res_added=val_res_added if rank == 0 else None,
                         tags=tags if rank == 0 else None,
                         exp_name=exp_name if rank == 0 else None,
                         run_id=run_id if rank == 0 else None,
-                        table_idx=table_idx if rank == 0 else None,
-                        log_dir=log_dir,
                         ckpt_dir=ckpt_dir,
                     )
 
@@ -1311,17 +1305,17 @@ def train(
         scheduler.step()
 
         current_step += 1
-        
-        if current_step >= epoch_steps + (epoch_steps * epoch):
-                # logging
-                if rank == 0:
-                    train_metrics = defaultdict(float)
-                    print("Logging results at an epoch")
-                    print(f"current_step: {current_step}")
-                    print(f"train_loss: {train_loss_all}")
 
-                    train_metrics["train/train_loss"] = train_loss_all
-                    train_metrics["custom_step"] = current_step
+        if current_step >= epoch_steps + (epoch_steps * epoch):
+            # logging
+            if rank == 0:
+                train_metrics = defaultdict(float)
+                print("Logging results at an epoch")
+                print(f"current_step: {current_step}")
+                print(f"train_loss: {train_loss_all}")
+
+                train_metrics["train/train_loss"] = train_loss_all
+                train_metrics["custom_step"] = current_step
 
                 if (current_step % train_log_freq) == 0:
                     train_metrics["train/train_wer"] = train_wer_all
@@ -1330,7 +1324,7 @@ def train(
                     train_metrics["train/train_ins"] = train_ins_all
                     print(f"train_wer: {train_wer_all}")
 
-                    wandb.log(train_metrics)
+                wandb.log(train_metrics)
 
             return (
                 current_step,
@@ -1388,13 +1382,7 @@ def train(
     if rank == 0:
         end_time = time.time()
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
-        with open(
-            f"{log_dir}/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt",
-            "a",
-        ) as f:
-            f.write(
-                f"train epoch took {(end_time - start_time) / 60} minutes at effective step {(batch_idx + 1) // accumulation_steps}\n"
-            )
+
         wandb.log(
             {
                 "train/time_epoch": (end_time - start_time) / 60,
@@ -1432,8 +1420,6 @@ def validate(
     tags: Optional[List[str]],
     exp_name: Optional[str],
     run_id: Optional[str],
-    table_idx: Optional[Union[int, str]],
-    log_dir: str,
     ckpt_dir: str,
 ) -> Tuple[float, bool]:
     """Validation loop for 1 epoch
@@ -1450,8 +1436,6 @@ def validate(
         scheduler: The scheduler for training
         model_dims: The model dimensions
         model_variant: The variant of the model
-        val_res: The validation results artifact
-        val_res_added: A boolean indicating whether the validation results artifact has been added
         tags: The tags to use for logging
         exp_name: The experiment name
         run_id: The run ID
@@ -1553,37 +1537,6 @@ def validate(
                 print(f"val_loss by batch: {batch_val_loss}")
                 print(f"val_wer by batch: {batch_val_wer}")
 
-                if (batch_idx + 1) % 10 == 0:
-                    os.makedirs(
-                        f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True
-                    )
-                    with open(
-                        f"{log_dir}/training/{exp_name}/{run_id}/val_results_{'_'.join(tags)}.txt",
-                        "a",
-                    ) as f:
-                        for i, (tgt_text_instance, pred_text_instance) in enumerate(
-                            norm_tgt_pred_pairs
-                        ):
-                            if not val_res_added:  # only once
-                                val_res.add_file(
-                                    f"{log_dir}/training/{exp_name}/{run_id}/val_results_{'_'.join(tags)}.txt"
-                                )
-                                val_res_added = True
-                                wandb.log_artifact(val_res)
-
-                            f.write(f"{transcript_files[i]}\n")
-                            f.write(f"{pred_text_instance=}\n")
-                            f.write(
-                                f"unnorm_pred_text_instance={batch_pred_text[i]=}\n"
-                            )
-                            f.write(f"{tgt_text_instance=}\n")
-                            f.write(
-                                f"unnorm_tgt_text_instance={batch_tgt_text[i]=}\n\n"
-                            )
-
-                        f.write(f"{batch_val_loss=}\n")
-                        f.write(f"{batch_val_wer=}\n\n")
-
                 if (batch_idx + 1) % 20 == 0:
                     for i, (tgt_text_instance, pred_text_instance) in enumerate(
                         norm_tgt_pred_pairs
@@ -1627,13 +1580,9 @@ def validate(
                         )
 
         if rank == 0:
-            wandb.log({f"val_table_{table_idx}": val_table})
+            wandb.log({f"val_table_{current_step}": val_table})
             end_time = time.time()
-            with open(
-                f"{log_dir}/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt",
-                "a",
-            ) as f:
-                f.write(f"val epoch took {(end_time - start_time) / 60.0} minutes\n")
+
             wandb.log(
                 {
                     "val/time_epoch": (end_time - start_time) / 60.0,
@@ -1683,7 +1632,7 @@ def validate(
                     ckpt_dir=ckpt_dir,
                 )
 
-    return best_val_loss, val_res_added
+    return best_val_loss
 
 
 def evaluate(
@@ -1789,11 +1738,7 @@ def evaluate(
                             )
                             * 100
                         )
-                        with open(
-                            f"{log_dir}/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
-                            "a",
-                        ) as f:
-                            f.write(f"{eval_set} batch {batch_idx} WER: {wer}\n")
+
 
             avg_wer = jiwer.wer(references, hypotheses) * 100
             eval_wers.append(avg_wer)
@@ -1811,11 +1756,7 @@ def evaluate(
     if rank == 0:
         wandb.log({f"eval_table_{table_idx}": eval_table})
         end_time = time.time()
-        with open(
-            f"{log_dir}/training/{exp_name}/{run_id}/epoch_times_{'_'.join(tags)}.txt",
-            "a",
-        ) as f:
-            f.write(f"eval epoch took {(end_time - start_time) / 60.0} minutes\n")
+
         wandb.log(
             {
                 "eval/time_epoch": (end_time - start_time) / 60.0,
@@ -1877,8 +1818,8 @@ def main(
     subset: Optional[str] = None,
     eff_batch_size: int = 256,
     train_batch_size: int = 8,
-    val_batch_size: int = 8,
-    eval_batch_size: int = 32,
+    val_batch_size: Optional[int] = 8,
+    eval_batch_size: Optional[int] = 32,
     train_val_split: float = 0.99,
     num_workers: int = 10,
     pin_memory: bool = True,
@@ -2058,7 +1999,7 @@ def main(
 
     # setting up wandb for logging
     if rank == 0:
-        run_id, tags, train_res, val_res, train_res_added, val_res_added = setup_wandb(
+        run_id, tags = setup_wandb(
             run_id=run_id,
             exp_name=exp_name,
             job_type=job_type,
@@ -2095,8 +2036,6 @@ def main(
             optimizer,
             scaler,
             scheduler,
-            train_res_added,
-            val_res_added,
         ) = train(
             rank=rank,
             current_step=current_step,
@@ -2114,15 +2053,12 @@ def main(
             scheduler=scheduler,
             accumulation_steps=accumulation_steps,
             max_grad_norm=max_grad_norm,
-            train_res=train_res if rank == 0 else None,
-            train_res_added=train_res_added if rank == 0 else None,
             run_val=run_val,
             val_dataloader=val_dataloader,
             model_dims=model_dims,
             model_variant=model_variant,
             best_val_loss=best_val_loss,
-            val_res=val_res if rank == 0 else None,
-            val_res_added=val_res_added if rank == 0 else None,
+            best_eval_wer=best_eval_wer,
             run_eval=run_eval,
             eval_loaders=eval_loaders,
             run_id=run_id if rank == 0 else None,
@@ -2159,7 +2095,7 @@ def main(
 
         if run_val:
             print(f"Validation after epoch at {current_step=} on rank {rank}")
-            best_val_loss, val_res_added = validate(
+            best_val_loss = validate(
                 rank=rank,
                 current_step=current_step,
                 epoch=epoch,
@@ -2174,13 +2110,9 @@ def main(
                 scheduler=scheduler,
                 model_dims=model_dims,
                 model_variant=model_variant,
-                val_res=val_res if rank == 0 else None,
-                val_res_added=val_res_added if rank == 0 else None,
                 tags=tags if rank == 0 else None,
                 exp_name=exp_name if rank == 0 else None,
                 run_id=run_id if rank == 0 else None,
-                table_idx=f"epoch_{current_step}" if rank == 0 else None,
-                log_dir=log_dir,
                 ckpt_dir=ckpt_dir,
             )
 
