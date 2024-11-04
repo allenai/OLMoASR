@@ -1,0 +1,53 @@
+gantry run \
+  --name "debug_vtt" \
+  --description "Filtering experiment transcripts that don’t have at least “,” or “.” or have repeating lines or are not in mixed-case or all" \
+  --allow-dirty \
+  --no-nfs \
+  --preemptible \
+  --workspace ai2/open-whisper \
+  --cluster ai2/neptune-cirrascale \
+  --gpus 8 \
+  --beaker-image huongn/ow_train_gantry \
+  --pip requirements-main.txt \
+  --budget ai2/prior \
+  --weka oe-data-default:/weka \
+  --dataset huongn/mini-job-ow-evalset:/ow_eval \
+  --env-secret WANDB_API_KEY=WANDB_API_KEY \
+  --env WANDB_DIR=/results/huongn/ow_logs \
+  --env TORCH_NCCL_BLOCKING_WAIT=1 \
+  --env NCCL_DEBUG=INFO \
+  --priority normal \
+  -- /bin/bash -c "torchrun --nnodes 1 --nproc_per_node 8 scripts/training/train.py \
+      --model_variant=tiny \
+      --exp_name=debug_vtt \
+      --job_type=debug \
+      --samples_dicts_dir=/weka/huongn/ow_filtering/mixed_no_repeat_min_comma_period_2 \
+      --train_steps=9375 \
+      --epoch_steps=9375 \
+      --ckpt_file_name=None \
+      --ckpt_dir=/weka/huongn/ow_ckpts \
+      --log_dir=/data/huongn/ow_logs \
+      --eval_dir=/ow_eval \
+      --run_id_dir=/weka/huongn/ow_run_ids \
+      --rank=None \
+      --world_size=None \
+      --lr=1.5e-3 \
+      --betas='(0.9, 0.98)' \
+      --eps=1e-6 \
+      --weight_decay=0.1 \
+      --max_grad_norm=1.0 \
+      --eff_batch_size=256 \
+      --train_batch_size=16 \
+      --val_batch_size=16 \
+      --eval_batch_size=16 \
+      --train_val_split=0.99 \
+      --num_workers=8 \
+      --pin_memory=True \
+      --persistent_workers=True \
+      --run_val=False \
+      --run_eval=True \
+      --train_log_freq=50 \
+      --val_freq=10 \
+      --eval_freq=5 \
+      --ckpt_freq=10000"
+  
