@@ -1,0 +1,52 @@
+gantry run \
+  --name "mixed_no_repeat_comma_period_mach_gen_2e3" \
+  --description "Filtering experiment transcripts that don’t have at least “.” or “.” or have repeating lines or are not in mixed-case or all" \
+  --allow-dirty \
+  --no-nfs \
+  --preemptible \
+  --workspace ai2/open-whisper \
+  --cluster ai2/jupiter-cirrascale-2 \
+  --gpus 8 \
+  --beaker-image huongn/ow_train_gantry \
+  --pip requirements-main.txt \
+  --budget ai2/prior \
+  --weka oe-data-default:/weka \
+  --dataset huongn/mini-job-ow-evalset:/ow_eval \
+  --env-secret WANDB_API_KEY=WANDB_API_KEY \
+  --env WANDB_DIR=/results/huongn/ow_logs \
+  --env TORCH_NCCL_BLOCKING_WAIT=1 \
+  --env NCCL_DEBUG=INFO \
+  --priority normal \
+  -- /bin/bash -c "torchrun --nnodes 1 --nproc_per_node 8 scripts/training/train.py \
+      --model_variant=tiny \
+      --exp_name=mixed_no_repeat_comma_period_mach_gen_2e3 \
+      --job_type=filtering \
+      --samples_dicts_dir=/weka/huongn/ow_filtering/mixed_no_repeat_min_comma_period_2 \
+      --train_steps=1048576 \
+      --epoch_steps=205433 \
+      --ckpt_file_name=None \
+      --ckpt_dir=/weka/huongn/ow_ckpts \
+      --log_dir=/results/huongn/ow_logs \
+      --eval_dir=/ow_eval \
+      --run_id_dir=/weka/huongn/ow_run_ids \
+      --rank=None \
+      --world_size=None \
+      --lr=2e-3 \
+      --betas='(0.9, 0.98)' \
+      --eps=1e-6 \
+      --weight_decay=0.1 \
+      --max_grad_norm=1.0 \
+      --eff_batch_size=256 \
+      --train_batch_size=16 \
+      --val_batch_size=16 \
+      --eval_batch_size=16 \
+      --train_val_split=0.99 \
+      --num_workers=8 \
+      --pin_memory=True \
+      --persistent_workers=True \
+      --run_val=True \
+      --run_eval=True \
+      --train_log_freq=50 \
+      --val_freq=10 \
+      --eval_freq=40 \
+      --ckpt_freq=2000" # every step, others above are just times over training
