@@ -5,6 +5,7 @@ from tqdm import tqdm
 import os
 import glob
 from itertools import chain
+from fire import Fire
 
 
 def is_en(file_path: str):
@@ -57,3 +58,6 @@ def main(
         for r in res:
             if r is not True:
                 f.write(r + "\n")
+
+if __name__ == "__main__":
+    Fire(main)
