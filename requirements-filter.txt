@@ -11,3 +11,4 @@ ray
 pandas
 pyarrow
 fasttext-langdetect
+pycld2
