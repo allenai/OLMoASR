@@ -5,8 +5,10 @@ FROM pytorch/pytorch:2.4.0-cuda11.8-cudnn9-runtime
 ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
 
-# # Install ngrok
-RUN apt-get update && apt-get install -y curl sudo openssh-client
+COPY gcp_service_key.json /gcp_service_key.json
+
+# # Install git
+RUN apt-get update && apt-get install -y git curl
 
 # Install gsutil
 # Downloading gcloud package
