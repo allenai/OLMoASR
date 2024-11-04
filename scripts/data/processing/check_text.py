@@ -53,7 +53,7 @@ def check_text(transcript_file: str, n_text_ctx: int, ext: str):
             constant_values=51864,
         )
         return None
-    except ValueError:
+    except Exception as e:
         return (transcript_file, len(text_input), len(text_y))
 
 
