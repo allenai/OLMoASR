@@ -10,3 +10,4 @@ openai-whisper
 ray
 pandas
 pyarrow
+fasttext-langdetect
