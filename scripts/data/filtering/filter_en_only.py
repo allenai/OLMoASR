@@ -1,4 +1,4 @@
-from ftlangdetect import detect
+# from ftlangdetect import detect
 from open_whisper.utils import TranscriptReader
 import multiprocessing
 from tqdm import tqdm
@@ -6,6 +6,7 @@ import os
 import glob
 from itertools import chain
 from fire import Fire
+import pycld2 as cld2
 
 
 def is_en(file_path: str):
@@ -14,8 +15,10 @@ def is_en(file_path: str):
     )
     t_dict, *_ = reader.read()
     text = reader.extract_text(transcript=t_dict)
-    res = detect(text=text, low_memory=False)
-    if res["lang"] == "en":
+    # res = detect(text=text, low_memory=False)
+    *_, details = cld2.detect(text)
+    # if res["lang"] == "en":
+    if details[0][1] == "en":
         return True
     else:
         return file_path
