@@ -5,6 +5,7 @@ from fire import Fire
 import multiprocessing
 from tqdm import tqdm
 from itertools import repeat
+from typing import Optional
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def download_file(
-    file_idx: int,
+    file_name: str,
     local_dir: str,
     bucket_name: str,
     bucket_prefix: str,
@@ -25,7 +26,7 @@ def download_file(
     log_file: str,
 ):
     cmd = (
-        f"gsutil -m cp -L {log_file} -r gs://{bucket_name}/{bucket_prefix}/{file_idx:04}.tar.gz {local_dir}",
+        f"gsutil -m cp -L {log_file} -r gs://{bucket_name}/{bucket_prefix}/{file_name} {local_dir}",
     )
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True)
@@ -49,6 +50,8 @@ def download_files(
     service_account: str,
     key_file: str,
     log_file: str,
+    padding: Optional[int],
+    file_ext: Optional[str],
 ):
     os.makedirs(local_dir, exist_ok=True)
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -65,13 +68,16 @@ def download_files(
         logger.info(result.stderr)
         logger.error(e)
 
+    file_names = [str(idx).zfill(padding) + f".{file_ext}" for idx in range(start_idx, end_idx)]
+    print(f"{file_names[:10]=}")
+    
     with multiprocessing.Pool() as pool:
         res = list(
             tqdm(
                 pool.imap_unordered(
                     parallel_download_file,
                     zip(
-                        range(start_idx, end_idx),
+                        file_names,
                         repeat(local_dir),
                         repeat(bucket_name),
                         repeat(bucket_prefix),
@@ -86,4 +92,4 @@ def download_files(
 
 
 if __name__ == "__main__":
-    Fire(download_files)
+    Fire({"download_file": download_file, "download_files": download_files})
