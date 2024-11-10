@@ -21,8 +21,6 @@ def download_file(
     local_dir: str,
     bucket_name: str,
     bucket_prefix: str,
-    service_account: str,
-    key_file: str,
     log_file: str,
 ):
     cmd = (
@@ -50,6 +48,18 @@ def download_files_set(
     key_file: str,
     log_file: str,
 ):
+    os.makedirs(local_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+    try:
+        cmd = f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}'"
+        result = subprocess.run(cmd, shell=True, capture_output=True)
+        logger.info(result.stdout)
+        logger.info(result.stderr)
+    except Exception as e:
+        logger.info(result.stderr)
+        logger.error(e)
+    
     with open(set_file, "r") as f:
         file_names = [line.strip() for line in f]
     with multiprocessing.Pool() as pool:
@@ -62,8 +72,6 @@ def download_files_set(
                         repeat(local_dir),
                         repeat(bucket_name),
                         repeat(bucket_prefix),
-                        repeat(service_account),
-                        repeat(key_file),
                         repeat(log_file),
                     ),
                 ),
@@ -114,8 +122,6 @@ def download_files_batch(
                         repeat(local_dir),
                         repeat(bucket_name),
                         repeat(bucket_prefix),
-                        repeat(service_account),
-                        repeat(key_file),
                         repeat(log_file),
                     ),
                 ),
