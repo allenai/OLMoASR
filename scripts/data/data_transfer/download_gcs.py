@@ -41,7 +41,38 @@ def parallel_download_file(args):
     return download_file(*args)
 
 
-def download_files(
+def download_files_set(
+    set_file: str,
+    local_dir: str,
+    bucket_name: str,
+    bucket_prefix: str,
+    service_account: str,
+    key_file: str,
+    log_file: str,
+):
+    with open(set_file, "r") as f:
+        file_names = [line.strip() for line in f]
+    with multiprocessing.Pool() as pool:
+        res = list(
+            tqdm(
+                pool.imap_unordered(
+                    parallel_download_file,
+                    zip(
+                        file_names,
+                        repeat(local_dir),
+                        repeat(bucket_name),
+                        repeat(bucket_prefix),
+                        repeat(service_account),
+                        repeat(key_file),
+                        repeat(log_file),
+                    ),
+                ),
+                total=len(file_names),
+            )
+        )
+
+
+def download_files_batch(
     start_dir_idx: int,
     batch_size: int,
     local_dir: str,
@@ -68,9 +99,11 @@ def download_files(
         logger.info(result.stderr)
         logger.error(e)
 
-    file_names = [str(idx).zfill(padding) + f".{file_ext}" for idx in range(start_idx, end_idx)]
+    file_names = [
+        str(idx).zfill(padding) + f".{file_ext}" for idx in range(start_idx, end_idx)
+    ]
     print(f"{file_names[:10]=}")
-    
+
     with multiprocessing.Pool() as pool:
         res = list(
             tqdm(
@@ -92,4 +125,10 @@ def download_files(
 
 
 if __name__ == "__main__":
-    Fire({"download_file": download_file, "download_files": download_files})
+    Fire(
+        {
+            "download_file": download_file,
+            "download_files_batch": download_files_batch,
+            "download_files_set": download_files_set,
+        }
+    )
