@@ -5,6 +5,7 @@ import os
 import shutil
 from fire import Fire
 from typing import Optional
+import numpy as np
 
 def move_dirs(src_dest):
     src, dest = src_dest
@@ -12,13 +13,12 @@ def move_dirs(src_dest):
         os.makedirs(dest, exist_ok=True)
         shutil.move(src, dest)
 
-def main(paths_file: str, dry_run: bool, batches: Optional[int] = None):
+def main(paths_file: str, dry_run: bool, batch_size: Optional[int] = None):
     with open(paths_file, "r") as f:
         src_dest_list = [line.strip().split("\t") for line in f]
     
-    if batches:
+    if batch_size:
         batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
-        batch_size = len(src_dest_list) // batches
         src_dest_list = src_dest_list[batch_size * batch_idx: batch_size * (batch_idx + 1)]
         print(f"{batch_idx=}")
         print(f"{batch_size=}")
