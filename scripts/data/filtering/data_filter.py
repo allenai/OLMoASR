@@ -65,26 +65,8 @@ class FilterFunc:
         return not row["text"].islower()
 
     @staticmethod
-    def not_lower_empty(row: Dict[str, Any]) -> bool:
-        if not (row["text"].islower() or row["text"].strip() == ""):
-            return True
-        else:
-            return False
-
-    @staticmethod
     def not_upper(row: Dict[str, Any]) -> bool:
         return not row["text"].isupper()
-
-    @staticmethod
-    def not_upper_empty(row: Dict[str, Any]) -> bool:
-        if not (row["text"].isupper() or row["text"].strip() == ""):
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def not_lower_upper(row: Dict[str, Any]) -> bool:
-        return not (row["text"].islower() or row["text"].isupper())
 
     @staticmethod
     def only_mixed(row: Dict[str, Any]) -> bool:
@@ -98,32 +80,6 @@ class FilterFunc:
     @staticmethod
     def min_comma_period(row: Dict[str, Any]) -> bool:
         if "," in row["text"] and "." in row["text"]:
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def min_comma_period_exclaim(row: Dict[str, Any]) -> bool:
-        if "," in row["text"] and "." in row["text"] and "!" in row["text"]:
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def min_comma_period_question(row: Dict[str, Any]) -> bool:
-        if "," in row["text"] and "." in row["text"] and "?" in row["text"]:
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def min_comma_period_question_exclaim(row: Dict[str, Any]) -> bool:
-        if (
-            "," in row["text"]
-            and "." in row["text"]
-            and "!" in row["text"]
-            and "?" in row["text"]
-        ):
             return True
         else:
             return False
@@ -270,32 +226,8 @@ class DataFilter:
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
 
-    def not_lower_empty(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.not_lower_empty
-        )
-
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
-
     def not_upper(self):
         removed_count, total_count = self.base_filter(filter_func=FilterFunc.not_upper)
-
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
-
-    def not_upper_empty(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.not_upper_empty
-        )
-
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
-
-    def not_lower_upper(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.not_lower_upper
-        )
 
         with open(self.metadata_path, "a") as f:
             f.write(f"Removed {removed_count} out of {total_count} samples\n")
@@ -309,30 +241,6 @@ class DataFilter:
     def min_comma_period(self):
         removed_count, total_count = self.base_filter(
             filter_func=FilterFunc.min_comma_period
-        )
-
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
-
-    def min_comma_period_exclaim(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.min_comma_period_exclaim
-        )
-
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
-
-    def min_comma_period_question(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.min_comma_period_question
-        )
-
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
-
-    def min_comma_period_question_exclaim(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.min_comma_period_question_exclaim
         )
 
         with open(self.metadata_path, "a") as f:
