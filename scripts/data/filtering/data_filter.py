@@ -141,7 +141,7 @@ class FilterFunc:
 
 
 def gen_smpl_dict(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    segs_dir = os.path.dirname(row["path"]).replace("8M_full", "8M_seg")
+    segs_dir = os.path.dirname(row["path"]).replace("ow_full", "ow_seg")
 
     text_files = sorted(glob.glob(segs_dir + f"/*.{row['path'].split('.')[-1]}"))
 
