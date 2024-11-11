@@ -210,6 +210,7 @@ def chunk_audio_transcript(
         segments_list = []
 
         while a < len(transcript) + 1 and segment_count < SEGMENT_COUNT_THRESHOLD:
+            print(f"{segment_count=}")
             init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
 
             if init_diff < 30000:
