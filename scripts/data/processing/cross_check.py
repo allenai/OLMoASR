@@ -64,7 +64,7 @@ def main(
                         repeat(dry_run),
                     ),
                 ),
-                total=len(glob.glob(os.path.join(full_shard_dirs, "*"))),
+                total=len(full_shard_dirs),
             )
         )
 
