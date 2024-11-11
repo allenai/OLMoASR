@@ -34,6 +34,35 @@ def download_file(
         logger.info(result.stderr)
         logger.error(e)
 
+def download_dir(
+    local_dir: str,
+    bucket_name: str,
+    bucket_prefix: str,
+    service_account: str,
+    key_file: str,
+):
+    os.makedirs(local_dir, exist_ok=True)
+    
+    try:
+        cmd = f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}'"
+        result = subprocess.run(cmd, shell=True, capture_output=True)
+        logger.info(result.stdout)
+        logger.info(result.stderr)
+    except Exception as e:
+        logger.info(result.stderr)
+        logger.error(e)
+    
+    cmd = (
+        f"gcloud storage rsync gs://{bucket_name}/{bucket_prefix} {local_dir} --recursive"
+    )
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True)
+        logger.info(result.stdout)
+        logger.info(result.stderr)
+    except Exception as e:
+        logger.info(result.stderr)
+        logger.error(e)
+
 
 def parallel_download_file(args):
     return download_file(*args)
@@ -136,5 +165,6 @@ if __name__ == "__main__":
             "download_file": download_file,
             "download_files_batch": download_files_batch,
             "download_files_set": download_files_set,
+            "download_dir": download_dir,
         }
     )
