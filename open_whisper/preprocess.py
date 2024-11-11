@@ -183,7 +183,7 @@ def chunk_audio_transcript(
     os.makedirs(failed_dir, exist_ok=True)
 
     try:
-        with open(f"/weka/huongn/processed_{transcript_file.split('/')[-2]}.txt", "a") as f:
+        with open(f"/weka/huongn/processed_{transcript_file.split('/')[-3]}.txt", "a") as f:
             f.write(f"Processing {video_id_dir}\n")
         segment_output_dir = os.path.join(output_dir, transcript_file.split("/")[-2])
         if not in_memory:
@@ -351,7 +351,7 @@ def chunk_audio_transcript(
                 break
         if len(segments_list) == 0:
             return None
-        with open(f"/weka/huongn/processed_{transcript_file.split('/')[-2]}.txt", "a") as f:
+        with open(f"/weka/huongn/processed_{transcript_file.split('/')[-3]}.txt", "a") as f:
             f.write(f"Processed {video_id_dir}\n")
         return segments_list
     except ValueError as e:
