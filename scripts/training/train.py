@@ -171,6 +171,7 @@ def setup(rank: int, world_size: int) -> None:
         rank: The rank of the current process
         world_size: The total number of processes
     """
+    torch.cuda.set_device(dist.get_rank())
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 
@@ -688,7 +689,7 @@ def load_ckpt(
     )
 
 
-def gen_pred(logits, text_y, tokenizer, normalizer):
+def gen_pred(logits, text_y, tokenizer):
     probs = F.softmax(logits, dim=-1)
     pred = torch.argmax(probs, dim=-1)
 
@@ -983,6 +984,9 @@ def train(
                 text_y.view(-1),
                 ignore_index=51864,
             )
+            print(f"{rank=}")
+            print(f"{train_loss=}")
+            print(f"{logits=}")
             train_loss = (
                 train_loss / accumulation_steps
             )  # normalization of loss (gradient accumulation)
@@ -1010,7 +1014,6 @@ def train(
                     logits,
                     text_y,
                     tokenizer,
-                    normalizer,
                 )
             )
             batch_pred_text.extend(microbatch_pred_text)
