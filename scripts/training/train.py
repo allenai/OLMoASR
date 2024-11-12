@@ -995,6 +995,13 @@ def train(
         if rank == 0:
             if torch.isnan(train_loss):
                 text = f"Loss is NaN for {audio_files} at step {current_step}!"
+                print(f"{audio_input=}")
+                print()
+                print(f"{text_input=}")
+                print()
+                print(f"{text_y=}")
+                print()
+                print(f"{padding_mask=}")
                 wandb.alert(title="NaN Loss", text=text)
 
         if ((current_step + 1) % train_log_freq) == 0:
