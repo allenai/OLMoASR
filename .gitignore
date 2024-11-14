@@ -13,10 +13,11 @@ data/eval
 data/untrainable
 data/00000
 data/00000_seg
-data/00000000
+data/02449
 data/bad_data
 data/sanity_check
 data/filtering_viz
+data/test
 data/metadata
 data/440K_metadata
 checkpoints
