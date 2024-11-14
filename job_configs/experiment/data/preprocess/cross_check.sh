@@ -1,0 +1,23 @@
+gantry run \
+  --name "cross_check" \
+  --description "Cross checking between full and seg dirs to make sure full dir only has IDs that are trainable (segmented, in seg dirs)" \
+  --allow-dirty \
+  --no-nfs \
+  --preemptible \
+  --workspace ai2/open-whisper \
+  --cluster ai2/neptune-cirrascale \
+  --cpus 20 \
+  --pip requirements-filter.txt \
+  --budget ai2/oe-data \
+  --replicas 20 \
+  --priority normal \
+  --weka oe-data-default:/weka \
+  -- /bin/bash -c "python scripts/data/processing/cross_check.py \
+    --full_dir_path=/weka/huongn/ow_full \
+    --seg_dir_path=/weka/huongn/ow_seg \
+    --spill_dir=/weka/huongn/ow_spill_4M \
+    --batch_size=200 \
+    --start_shard_idx=8449 \
+    --end_shard_idx=12448 \
+    --dry_run=False
+    " 
