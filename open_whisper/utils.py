@@ -12,9 +12,6 @@ from whisper import utils, load_audio
 from whisper.tokenizer import get_tokenizer
 
 
-CHARS_TO_REMOVE = ["&nbsp;", r"\\h", r"\\h\\h"]
-
-
 def remove_after_endoftext(text: str) -> str:
     """Removes everything after the first instance of "<|endoftext|>" in a string.
 
@@ -137,7 +134,8 @@ def trim_audio(
         adjusted_start,
         "-to",
         adjusted_end,
-        "-c:a", "pcm_s16le",
+        "-c:a",
+        "pcm_s16le",
         "-filter_complex",
         f"aresample={sample_rate},pan=mono|c0=c0",
         "-f",
@@ -183,7 +181,9 @@ class TranscriptReader:
             self.ext = ext
             self.file_path = file_path
 
-    def read_vtt(self, file_path: Optional[str], transcript_string: Optional[str]) -> Union[None, Tuple[Dict, str, str]]:
+    def read_vtt(
+        self, file_path: Optional[str], transcript_string: Optional[str]
+    ) -> Union[None, Tuple[Dict, str, str]]:
         """Read a WebVTT file
 
         Args:
@@ -249,7 +249,9 @@ class TranscriptReader:
             A tuple containing the transcript, start timestamp, and end timestamp or None if the file is empty
         """
         if self.ext == "vtt":
-            return self.read_vtt(file_path=self.file_path, transcript_string=self.transcript_string)
+            return self.read_vtt(
+                file_path=self.file_path, transcript_string=self.transcript_string
+            )
         elif self.ext == "srt":
             return self.read_srt(
                 file_path=self.file_path, transcript_string=self.transcript_string
@@ -343,28 +345,6 @@ def calculate_wer(pair: Tuple[str, str]) -> float:
         return 0.0
     else:
         return jiwer.wer(pair[0], pair[1]) * 100.0
-
-
-def clean_transcript(file_path) -> Union[None, bool]:
-    """Remove unnecessary characters from the transcript file
-
-    Args:
-        file_path: Path to the transcript file
-    """
-    with open(file_path, "r", encoding="utf-8") as file:
-        content = file.read()
-
-    if content.strip() == "":
-        return None
-
-    # Replace &nbsp; with a space or an empty string
-    regex_pattern = "|".join(CHARS_TO_REMOVE)
-    modified_content = re.sub(regex_pattern, "", content)
-
-    with open(file_path, "w", encoding="utf-8") as file:
-        file.write(modified_content)
-
-    return True
 
 
 def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> bool:
