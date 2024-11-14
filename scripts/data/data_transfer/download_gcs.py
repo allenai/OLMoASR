@@ -40,8 +40,10 @@ def download_dir(
     bucket_prefix: str,
     service_account: str,
     key_file: str,
+    log_file: str,
 ):
     os.makedirs(local_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
     
     try:
         cmd = f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}'"
@@ -53,7 +55,7 @@ def download_dir(
         logger.error(e)
     
     cmd = (
-        f"gcloud storage rsync gs://{bucket_name}/{bucket_prefix} {local_dir} --recursive"
+        f"gsutil -m cp -L {log_file} -r gs://{bucket_name}/{bucket_prefix} {local_dir}"
     )
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True)
