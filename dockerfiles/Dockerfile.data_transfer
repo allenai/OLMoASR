@@ -8,7 +8,7 @@ ENV LANG=C.UTF-8
 COPY gcp_service_key.json /gcp_service_key.json
 
 # # Install git
-RUN apt-get update && apt-get install -y git curl
+RUN apt-get update && apt-get install -y git curl build-essential
 
 # Install gsutil
 # Downloading gcloud package
