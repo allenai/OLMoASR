@@ -43,14 +43,14 @@ os.environ["NCCL_DEBUG"] = "INFO"
 os.environ["TORCH_DISTRIBUTED_DETAIL"] = "DEBUG"
 
 # Regular expressions for the two cases
-PATTERN_BRACKETS = r"\[[A-Z][a-zA-Z]*(?: [A-Z][a-zA-Z]*)*\]"  # Words in square brackets
-PATTERN_PARENTHESES = r"\(.*?\)"
-PATTERN_COLON = r"(?:[A-Z][a-zA-Z]*\s)+:"
-SPECIFIC_STRINGS = r"&nbsp;|&gt;|=|\.{3}"  # List of specific strings
+PATTERN_BRACKETS = r"[ ]*\[(?![Mm][Uu][Ss][Ii][Cc]\])([A-Z][a-zA-Z]*(?: [A-Z][a-zA-Z]*)*)\][ ]*"
+PATTERN_PARENTHESES = r"[ ]*\(.*?\)[ ]*"
+PATTERN_COLON = r"[ ]*(?:[A-Z][a-zA-Z]*[ ])+:[ ]*"
+SPECIFIC_STRINGS = r"[ ]*(?:&nbsp;|&gt;|=|\.{3})+[ ]*"
 PRIMARY_PATTERN = (
     f"{PATTERN_BRACKETS}|{PATTERN_PARENTHESES}|{PATTERN_COLON}|{SPECIFIC_STRINGS}"
 )
-
+BRACKETS_PATTERN_CAPTURE = r"\[([a-z]+(?: [a-z]+)*)\]"
 
 class AudioTextDataset(Dataset):
     """Dataset for audio and transcript segments
@@ -140,6 +140,7 @@ class AudioTextDataset(Dataset):
             raw_transcript_text = reader.extract_text(transcript=transcript)
 
             transcript_text = re.sub(PRIMARY_PATTERN, " ", raw_transcript_text)
+            transcript_text = re.sub(BRACKETS_PATTERN_CAPTURE, r"\1", transcript_text)
 
             text_tokens = tokenizer.encode(transcript_text)
 
