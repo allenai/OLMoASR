@@ -11,6 +11,7 @@ from tqdm import tqdm
 import multiprocessing
 from itertools import chain
 from collections import defaultdict
+import re
 
 import torch
 import torch.nn.functional as F
@@ -40,6 +41,15 @@ os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
 os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
 os.environ["NCCL_DEBUG"] = "INFO"
 os.environ["TORCH_DISTRIBUTED_DETAIL"] = "DEBUG"
+
+# Regular expressions for the two cases
+PATTERN_BRACKETS = r"\[[A-Z][a-zA-Z]*(?: [A-Z][a-zA-Z]*)*\]"  # Words in square brackets
+PATTERN_PARENTHESES = r"\(.*?\)"
+PATTERN_COLON = r"(?:[A-Z][a-zA-Z]*\s)+:"
+SPECIFIC_STRINGS = r"&nbsp;|&gt;|=|\.{3}"  # List of specific strings
+PRIMARY_PATTERN = (
+    f"{PATTERN_BRACKETS}|{PATTERN_PARENTHESES}|{PATTERN_COLON}|{SPECIFIC_STRINGS}"
+)
 
 
 class AudioTextDataset(Dataset):
@@ -71,7 +81,7 @@ class AudioTextDataset(Dataset):
         audio_file = sample_dict["audio"]
         transcript_file = sample_dict["transcript"]
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
-        text_input, text_y, padding_mask = self.preprocess_text(
+        raw_transcript_text, text_input, text_y, padding_mask = self.preprocess_text(
             transcript_file, tokenizer
         )
 
@@ -80,6 +90,7 @@ class AudioTextDataset(Dataset):
             transcript_file,
             padded_audio_arr,
             audio_input,
+            raw_transcript_text,
             text_input,
             text_y,
             padding_mask,
@@ -125,7 +136,9 @@ class AudioTextDataset(Dataset):
         if not transcript:
             text_tokens = [tokenizer.no_speech]
         else:
-            transcript_text = reader.extract_text(transcript=transcript)
+            raw_transcript_text = reader.extract_text(transcript=transcript)
+
+            transcript_text = re.sub(PRIMARY_PATTERN, " ", raw_transcript_text)
 
             text_tokens = tokenizer.encode(transcript_text)
 
@@ -156,7 +169,7 @@ class AudioTextDataset(Dataset):
         text_input = torch.tensor(text_input, dtype=torch.long)
         text_y = torch.tensor(text_y, dtype=torch.long)
 
-        return text_input, text_y, padding_mask
+        return raw_transcript_text, text_input, text_y, padding_mask
 
 
 def init_tokenizer(worker_id: int):
@@ -827,6 +840,7 @@ def log_tbl(
     batch_audio_files,
     batch_audio_arr,
     batch_text_files,
+    batch_raw_tgt_text,
     batch_pred_text,
     batch_tgt_text,
     batch_unnorm_pred_text,
@@ -866,6 +880,7 @@ def log_tbl(
             batch_pred_text[i],
             tgt_text_instance,
             batch_tgt_text[i],
+            batch_raw_tgt_text[i],
             subs,
             dels,
             ins,
@@ -944,6 +959,7 @@ def train(
     batch_tgt_text = []
     batch_unnorm_pred_text = []
     batch_audio_files = []
+    batch_raw_tgt_text = []
     batch_text_files = []
     batch_audio_arr = []
     # logging_steps = (train_batch_size * accumulation_steps) // WANDB_EXAMPLES
@@ -966,6 +982,7 @@ def train(
                 transcript_files,
                 padded_audio_arr,
                 audio_input,
+                raw_transcript_text,
                 text_input,
                 text_y,
                 padding_mask,
@@ -1019,6 +1036,7 @@ def train(
             batch_unnorm_pred_text.extend(microbatch_unnorm_pred_text)
             batch_tgt_text.extend(microbatch_tgt_text)
             batch_audio_files.extend(audio_files)
+            batch_raw_tgt_text.extend(raw_transcript_text)
             batch_text_files.extend(transcript_files)
             batch_audio_arr.extend(padded_audio_arr)
 
@@ -1205,7 +1223,7 @@ def train(
 
                 if (current_step % train_log_freq) == 0:
                     print(
-                        f"{len(batch_audio_files)=}, {len(batch_audio_arr)=}, {len(batch_text_files)=}, {len(batch_pred_text)=}, {len(batch_tgt_text)=}, {len(batch_unnorm_pred_text)=}, {len(norm_tgt_pred_pairs)=}"
+                        f"{len(batch_audio_files)=}, {len(batch_audio_arr)=}, {len(batch_text_files)=}, {len(batch_pred_text)=}, {len(batch_tgt_text)=}, {len(batch_unnorm_pred_text)=}, {len(norm_tgt_pred_pairs)=}, {len(batch_raw_tgt_text)=}"
                     )
                     log_tbl(
                         current_step=current_step,
@@ -1214,6 +1232,7 @@ def train(
                         batch_audio_files=batch_audio_files,
                         batch_audio_arr=batch_audio_arr,
                         batch_text_files=batch_text_files,
+                        batch_raw_tgt_text=batch_raw_tgt_text,
                         batch_pred_text=batch_pred_text,
                         batch_tgt_text=batch_tgt_text,
                         batch_unnorm_pred_text=batch_unnorm_pred_text,
@@ -1223,9 +1242,7 @@ def train(
 
             # validation
             if run_val:
-                if (
-                    current_step % val_freq
-                ) == 0 and current_step > 0:
+                if (current_step % val_freq) == 0 and current_step > 0:
                     best_val_loss = validate(
                         rank=rank,
                         current_step=current_step,
@@ -1247,16 +1264,12 @@ def train(
                         ckpt_dir=ckpt_dir,
                     )
 
-                if (
-                    current_step % val_freq
-                ) == 0 and current_step > 0:
+                if (current_step % val_freq) == 0 and current_step > 0:
                     print(
                         f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}"
                     )
                 dist.barrier()
-                if (
-                    current_step % val_freq
-                ) == 0 and current_step > 0:
+                if (current_step % val_freq) == 0 and current_step > 0:
                     print(
                         f"Rank {rank} passing barrier w/ best val loss {best_val_loss}"
                     )
@@ -1296,6 +1309,7 @@ def train(
         batch_tgt_text = []
         batch_unnorm_pred_text = []
         batch_audio_files = []
+        batch_raw_tgt_text = []
         batch_text_files = []
         batch_audio_arr = []
 
@@ -1683,7 +1697,7 @@ def evaluate(
 
     non_ddp_model = model.module
     non_ddp_model.eval()
-    
+
     eval_wers = []
 
     for eval_set, eval_dataloader in eval_loaders:
@@ -1727,7 +1741,7 @@ def evaluate(
                             subs = measures["substitutions"]
                             dels = measures["deletions"]
                             ins = measures["insertions"]
-                            
+
                             eval_table.add_data(
                                 run_id,
                                 eval_set,
@@ -1748,7 +1762,6 @@ def evaluate(
                             * 100
                         )
 
-
             avg_wer = jiwer.wer(references, hypotheses) * 100
             eval_wers.append(avg_wer)
 
@@ -1757,7 +1770,9 @@ def evaluate(
                     f"{log_dir}/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
                     "a",
                 ) as f:
-                    f.write(f"{eval_set} average WER: {avg_wer}\n at step {current_step}\n")
+                    f.write(
+                        f"{eval_set} average WER: {avg_wer}\n at step {current_step}\n"
+                    )
                 wandb.log(
                     {f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step}
                 )
@@ -1776,9 +1791,9 @@ def evaluate(
                 "custom_step": current_step,
             }
         )
-        
+
         avg_eval_wer = np.mean(eval_wers)
-        
+
         if avg_eval_wer < best_eval_wer:
             best_eval_wer = avg_eval_wer
             print("Saving best eval model")
@@ -1799,7 +1814,7 @@ def evaluate(
                 file_name="besteval",
                 ckpt_dir=ckpt_dir,
             )
-    
+
     return best_eval_wer
 
 
@@ -1888,7 +1903,7 @@ def main(
     else:
         with open(f"{run_id_dir}/{exp_name}.txt", "r") as f:
             run_id = f.read().strip()
-    
+
     if ckpt_file_name is None:
         ckpt_file_name = ""
 
@@ -1999,17 +2014,17 @@ def main(
         )
 
         scaler = GradScaler()
-        
+
         if run_val:
             best_val_loss = float("inf")
         else:
             best_val_loss = None
-        
+
         if run_eval:
             best_eval_wer = float("inf")
         else:
             best_eval_wer = None
-            
+
         current_step = 0
         epoch = 0
 
@@ -2041,7 +2056,7 @@ def main(
         if not os.path.exists(f"{run_id_dir}/{exp_name}.txt"):
             with open(f"{run_id_dir}/{exp_name}.txt", "w") as f:
                 f.write(run_id)
-        
+
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
 
     while current_step < train_steps:
