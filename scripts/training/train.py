@@ -134,6 +134,7 @@ class AudioTextDataset(Dataset):
         transcript, *_ = reader.read()
 
         if not transcript:
+            raw_transcript_text = ""
             text_tokens = [tokenizer.no_speech]
         else:
             raw_transcript_text = reader.extract_text(transcript=transcript)
