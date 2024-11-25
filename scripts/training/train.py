@@ -1122,23 +1122,17 @@ def train(
             # putting throughput on GPU
             throughput_tensor = torch.tensor(throughput, device=rank)
             time_tensor = torch.tensor(time_per_step, device=rank)
-            # prepare list to gather throughput from all processes
-            if rank == 0:
-                gathered_throughput = [
-                    torch.zeros_like(throughput_tensor).to(rank)
-                    for _ in range(dist.get_world_size())
-                ]
-                gathered_time = [
-                    torch.zeros_like(time_tensor).to(rank)
-                    for _ in range(dist.get_world_size())
-                ]
-            else:
-                gathered_throughput = None
-                gathered_time = None
 
-            dist.gather(throughput_tensor, gather_list=gathered_throughput, dst=0)
-            dist.gather(time_tensor, gather_list=gathered_time, dst=0)
+            # Prepare tensors for all_gather
+            world_size = dist.get_world_size()
+            gathered_throughput = [torch.zeros_like(throughput_tensor) for _ in range(world_size)]
+            gathered_time = [torch.zeros_like(time_tensor) for _ in range(world_size)]
 
+            # All-gather tensors
+            dist.all_gather(gathered_throughput, throughput_tensor)
+            dist.all_gather(gathered_time, time_tensor)
+
+            # Convert tensors to Python scalars and log (only if rank == 0 to reduce duplicate logging)
             if rank == 0:
                 gathered_throughput = [t.item() for t in gathered_throughput]
                 gathered_time = [t.item() for t in gathered_time]
