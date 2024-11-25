@@ -417,6 +417,7 @@ def setup_wandb(
     job_type: str,
     subset: Optional[int],
     model_variant: str,
+    model_dims: ModelDimensions,
     train_steps: int,
     epoch_steps: int,
     warmup_steps: int,
@@ -472,6 +473,16 @@ def setup_wandb(
         "world_size": world_size,
         "num_workers": num_workers,
         "model_variant": model_variant,
+        "n_mels": model_dims.n_mels,
+        "n_audio_ctx": model_dims.n_audio_ctx,
+        "n_audio_state": model_dims.n_audio_state,
+        "n_audio_head": model_dims.n_audio_head,
+        "n_audio_layer": model_dims.n_audio_layer,
+        "n_vocab": model_dims.n_vocab,
+        "n_text_ctx": model_dims.n_text_ctx,
+        "n_text_state": model_dims.n_text_state,
+        "n_text_head": model_dims.n_text_head,
+        "n_text_layer": model_dims.n_text_layer,
         "train_val_split": train_val_split,
         "subset": subset,
     }
@@ -1143,7 +1154,6 @@ def train(
                             "custom_step": current_step,
                         }
                     )
-
                 for i, time_per_step in enumerate(gathered_time):
                     wandb.log(
                         {
@@ -2015,6 +2025,7 @@ def main(
             job_type=job_type,
             subset=subset,
             model_variant=model_variant,
+            model_dims=model_dims,
             train_steps=train_steps,
             epoch_steps=epoch_steps,
             warmup_steps=warmup_steps,
