@@ -21,7 +21,7 @@ from torch.nn.utils import clip_grad_norm_
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 
 import whisper
 from whisper import audio, DecodingOptions
@@ -2002,7 +2002,7 @@ def main(
             optimizer=optimizer,
         )
 
-        scaler = GradScaler()
+        scaler = GradScaler(init_scale=2 ** 14)
         
         if run_val:
             best_val_loss = float("inf")
