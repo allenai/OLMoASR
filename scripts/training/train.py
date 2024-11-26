@@ -971,7 +971,7 @@ def train(
         model.train()
         start_step = time.time()
 
-        with autocast():
+        with autocast(device_type="cuda"):
             (
                 audio_files,
                 transcript_files,
