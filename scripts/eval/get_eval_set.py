@@ -194,6 +194,7 @@ def get_eval_set(
             token=hf_token,
             split="test",
             cache_dir=eval_dir,
+            trust_remote_code=True,
         )
     elif eval_set.startswith("ami"):
         ami_dir = f"{eval_dir}/ami"
