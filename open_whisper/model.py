@@ -304,6 +304,7 @@ class TextDecoder(nn.Module):
         )
 
         self.positional_embedding = nn.Parameter(torch.empty(n_ctx, n_state))
+        nn.init.kaiming_normal_(self.positional_embedding, mode="fan_in", nonlinearity="relu")
 
         self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
             [
