@@ -1,6 +1,7 @@
 from typing import Literal, Optional
 import os
 import numpy as np
+import librosa
 import torch
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 from datasets import load_dataset
@@ -206,10 +207,9 @@ class EvalDataset(Dataset):
             text_y = self.dataset[index]["sentence"]
 
             if sampling_rate != 16000:
-                resampler = torchaudio.transforms.Resample(
-                    orig_freq=sampling_rate, new_freq=16000
+                waveform = librosa.resample(
+                    waveform, orig_sr=sampling_rate, target_sr=16000
                 )
-                waveform = resampler(waveform)
 
             audio_arr = audio.pad_or_trim(waveform)
             audio_arr = audio_arr.astype(np.float32)
