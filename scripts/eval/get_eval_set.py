@@ -195,6 +195,8 @@ def get_eval_set(
             split="test",
             cache_dir=eval_dir,
             trust_remote_code=True,
+            num_proc=15,
+            save_infos=True,
         )
     elif eval_set.startswith("ami"):
         ami_dir = f"{eval_dir}/ami"
