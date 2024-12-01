@@ -11,6 +11,7 @@ from tqdm import tqdm
 import multiprocessing
 from itertools import chain
 from collections import defaultdict
+import functools
 
 import torch
 import torch.nn.functional as F
@@ -25,13 +26,21 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.amp import GradScaler, autocast
 
 import torch.multiprocessing as mp
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import (
+    FullyShardedDataParallel as FSDP,
+    MixedPrecision,
+    BackwardPrefetch,
+    ShardingStrategy,
+    FullStateDictConfig,
+    StateDictType,
+)
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     CPUOffload,
     BackwardPrefetch,
 )
 from torch.distributed.fsdp.wrap import (
-    size_based_auto_wrap_policy,
+    transformer_auto_wrap_policy,
+    _module_wrap_policy,
     enable_wrap,
     wrap,
 )
@@ -43,6 +52,7 @@ from whisper.tokenizer import get_tokenizer
 import whisper.tokenizer
 from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
 import open_whisper as ow
+from whisper.model import ResidualAttentionBlock, AudioEncoder, TextDecoder
 
 from scripts.eval.eval import EvalDataset
 from scripts.training import for_logging
@@ -2000,8 +2010,21 @@ def main(
         )
     else:
         model = ow.model.Whisper(dims=model_dims).to(rank)
-        model = FSDP(model, device_id=rank)
-
+        mixed_precision_fp16 = MixedPrecision(
+            param_dtype=torch.float16,
+            reduce_dtype=torch.float16,
+            buffer_dtype=torch.float16,
+        )
+        auto_wrap_policy = functools.partial(
+            transformer_auto_wrap_policy,
+            transformer_layer_cls={AudioEncoder, TextDecoder},
+        )
+        model = FSDP(
+            model,
+            device_id=rank,
+            auto_wrap_policy=auto_wrap_policy,
+            mixed_precision=mixed_precision_fp16,
+        )
         # optimizer and scheduler instantiation
         optimizer = prepare_optim(
             model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
