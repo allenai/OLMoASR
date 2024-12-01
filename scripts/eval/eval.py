@@ -160,14 +160,19 @@ class EvalDataset(Dataset):
 
             self.dataset = VoxPopuli(root_dir=root_dir)
         elif eval_set == "common_voice":
-            if not os.path.exists(f"{eval_dir}/mozilla-foundation/common_voice_5_1"):
+            if not os.path.exists(f"{eval_dir}/mozilla-foundation___common_voice_5_1"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir, hf_token=hf_token)
 
             self.dataset = load_dataset(
                 path="mozilla-foundation/common_voice_5_1",
                 name="en",
                 token=hf_token,
-                split="test",)
+                split="test",
+                cache_dir=eval_dir,
+                trust_remote_code=True,
+                num_proc=15,
+                save_infos=True,
+            )
         elif eval_set == "ami_ihm":
             root_dir = f"{eval_dir}/ami/ihm"
             if not os.path.exists(root_dir):
