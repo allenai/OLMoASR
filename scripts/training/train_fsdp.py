@@ -938,7 +938,7 @@ def train(
     epoch_steps: int,
     epoch: int,
     scaler: GradScaler,
-    model: DDP,
+    model: FSDP,
     tokenizer: whisper.tokenizer.Tokenizer,
     normalizer: EnglishTextNormalizer,
     optimizer: torch.optim.Optimizer,
@@ -1177,7 +1177,9 @@ def train(
 
             # Prepare tensors for all_gather
             world_size = dist.get_world_size()
-            gathered_throughput = [torch.zeros_like(throughput_tensor) for _ in range(world_size)]
+            gathered_throughput = [
+                torch.zeros_like(throughput_tensor) for _ in range(world_size)
+            ]
             gathered_time = [torch.zeros_like(time_tensor) for _ in range(world_size)]
 
             # All-gather tensors
@@ -1268,9 +1270,7 @@ def train(
 
             # validation
             if run_val:
-                if (
-                    current_step % val_freq
-                ) == 0 and current_step > 0:
+                if (current_step % val_freq) == 0 and current_step > 0:
                     best_val_loss = validate(
                         rank=rank,
                         current_step=current_step,
@@ -1292,16 +1292,12 @@ def train(
                         ckpt_dir=ckpt_dir,
                     )
 
-                if (
-                    current_step % val_freq
-                ) == 0 and current_step > 0:
+                if (current_step % val_freq) == 0 and current_step > 0:
                     print(
                         f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}"
                     )
                 dist.barrier()
-                if (
-                    current_step % val_freq
-                ) == 0 and current_step > 0:
+                if (current_step % val_freq) == 0 and current_step > 0:
                     print(
                         f"Rank {rank} passing barrier w/ best val loss {best_val_loss}"
                     )
@@ -1464,7 +1460,7 @@ def validate(
     best_eval_wer: Optional[float],
     val_dataloader: DataLoader,
     scaler: GradScaler,
-    model: DDP,
+    model: FSDP,
     tokenizer: whisper.tokenizer.Tokenizer,
     normalizer: EnglishTextNormalizer,
     optimizer: torch.optim.Optimizer,
@@ -1726,9 +1722,9 @@ def evaluate(
     eval_table = wandb.Table(columns=for_logging.EVAL_TABLE_COLS)
     start_time = time.time()
 
-    non_ddp_model = model.module
-    non_ddp_model.eval()
-    
+    non_fsdp_model = model.module
+    non_fsdp_model.eval()
+
     eval_wers = []
 
     for eval_set, eval_dataloader in eval_loaders:
@@ -1746,7 +1742,7 @@ def evaluate(
 
                 options = DecodingOptions(language="en", without_timestamps=True)
 
-                results = non_ddp_model.decode(audio_input, options=options)
+                results = non_fsdp_model.decode(audio_input, options=options)
                 pred_text = [result.text for result in results]
                 norm_pred_text = [normalizer(text) for text in pred_text]
                 hypotheses.extend(norm_pred_text)
@@ -1772,7 +1768,7 @@ def evaluate(
                             subs = measures["substitutions"]
                             dels = measures["deletions"]
                             ins = measures["insertions"]
-                            
+
                             eval_table.add_data(
                                 run_id,
                                 eval_set,
@@ -1793,8 +1789,8 @@ def evaluate(
                             * 100
                         )
 
-
-            avg_wer = jiwer.wer(references, hypotheses) * 100
+            local_avg_wer = jiwer.wer(references, hypotheses) * 100
+            avg_wer = dist.all_reduce(local_avg_wer, op=dist.ReduceOp.SUM).item() / dist.get_world_size()
             eval_wers.append(avg_wer)
 
             if rank == 0:
@@ -1802,7 +1798,9 @@ def evaluate(
                     f"{log_dir}/training/{exp_name}/{run_id}/eval_results_{'_'.join(tags)}.txt",
                     "a",
                 ) as f:
-                    f.write(f"{eval_set} average WER: {avg_wer}\n at step {current_step}\n")
+                    f.write(
+                        f"{eval_set} average WER: {avg_wer}\n at step {current_step}\n"
+                    )
                 wandb.log(
                     {f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step}
                 )
@@ -1821,9 +1819,9 @@ def evaluate(
                 "custom_step": current_step,
             }
         )
-        
+
         avg_eval_wer = np.mean(eval_wers)
-        
+
         if avg_eval_wer < best_eval_wer:
             best_eval_wer = avg_eval_wer
             print("Saving best eval model")
@@ -1844,7 +1842,7 @@ def evaluate(
                 file_name="besteval",
                 ckpt_dir=ckpt_dir,
             )
-    
+
     return best_eval_wer
 
 
@@ -1933,7 +1931,7 @@ def main(
     else:
         with open(f"{run_id_dir}/{exp_name}.txt", "r") as f:
             run_id = f.read().strip()
-    
+
     if ckpt_file_name is None:
         ckpt_file_name = ""
 
@@ -2062,12 +2060,12 @@ def main(
             best_val_loss = float("inf")
         else:
             best_val_loss = None
-        
+
         if run_eval:
             best_eval_wer = float("inf")
         else:
             best_eval_wer = None
-            
+
         current_step = 0
         epoch = 0
 
@@ -2100,7 +2098,7 @@ def main(
         if not os.path.exists(f"{run_id_dir}/{exp_name}.txt"):
             with open(f"{run_id_dir}/{exp_name}.txt", "w") as f:
                 f.write(run_id)
-        
+
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
 
     while current_step < train_steps:
