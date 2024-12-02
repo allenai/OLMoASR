@@ -1267,6 +1267,10 @@ def train(
                         norm_tgt_pred_pairs=norm_tgt_pred_pairs,
                     )
                     train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
+            
+            print(f"Rank {rank} reaching barrier")
+            dist.barrier()
+            print(f"Rank {rank} passing barrier")
 
             # validation
             if run_val:
