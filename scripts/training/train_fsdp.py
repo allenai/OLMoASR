@@ -2040,6 +2040,7 @@ def main(
             device_id=rank,
             auto_wrap_policy=auto_wrap_policy,
             mixed_precision=mixed_precision_fp16,
+            backward_prefetch=BackwardPrefetch.BACKWARD_PRE
         )
         # optimizer and scheduler instantiation
         optimizer = prepare_optim(
