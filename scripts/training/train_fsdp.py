@@ -510,7 +510,7 @@ def setup_wandb(
     }
 
     tags = [
-        "ddp-train",
+        "fsdp-train",
         "grad-acc",
         "fp16",
     ]
