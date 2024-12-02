@@ -29,9 +29,8 @@ import torch.multiprocessing as mp
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
     MixedPrecision,
-    BackwardPrefetch,
-    ShardingStrategy,
     FullStateDictConfig,
+    FullOptimStateDictConfig,
     StateDictType,
 )
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
@@ -576,47 +575,42 @@ def save_ckpt(
         file_name: The file name
         ckpt_dir: Directory where all results are logged
     """
-    ddp_checkpoint = {
+    # Prepare the FSDP checkpoint
+    train_state = {
         "current_step": current_step,
         "epoch": epoch,
         "best_val_loss": best_val_loss,
         "best_eval_wer": best_eval_wer,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
         "scaler_state_dict": scaler.state_dict(),
-        # You can also save other items such as scheduler state
-        "scheduler_state_dict": (scheduler.state_dict() if scheduler else None),
-        "dims": model_dims,
-        # Include any other information you deem necessary
-    }
-
-    non_ddp_checkpoint = {
-        "current_step": current_step,
-        "epoch": epoch,
-        "best_eval_wer": best_eval_wer,
-        "model_state_dict": model.module.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "scaler_state_dict": scaler.state_dict(),
-        # You can also save other items such as scheduler state
         "scheduler_state_dict": (scheduler.state_dict() if scheduler else None),
         "dims": model_dims,
     }
 
+    state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    optim_state_dict_cfg = FullOptimStateDictConfig(
+        offload_to_cpu=True, rank0_only=True
+    )
+
+    # Save the full FSDP state dict
+    with FSDP.state_dict_type(
+        model,
+        state_dict_type=StateDictType.FULL_STATE_DICT,
+        state_dict_config=state_dict_cfg,
+        optim_state_dict_config=optim_state_dict_cfg
+    ):
+        model_state = model.state_dict()
+        optim_state = FSDP.full_optim_state_dict(model=model, optim=optimizer)
+        
     os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
 
     if file_name != "latesttrain":
-        if len(glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*.pt")) > 0:
+        if len(glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/*_{file_name}_*.pt")) > 0:
             for p in glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*.pt"):
                 os.remove(p)
-
-    torch.save(
-        ddp_checkpoint,
-        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}_ddp.pt",
-    )
-    torch.save(
-        non_ddp_checkpoint,
-        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
-    )
+    
+    torch.save(model_state, f"{ckpt_dir}/{exp_name}_{run_id}/model_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt")
+    torch.save(optim_state, f"{ckpt_dir}/{exp_name}_{run_id}/optim_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt")
+    torch.save(train_state, f"{ckpt_dir}/{exp_name}_{run_id}/train_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt")
 
 
 def load_ckpt(
@@ -659,45 +653,69 @@ def load_ckpt(
     map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
 
     if file_name is "":
-        all_ckpt_files = glob.glob(
-            f"{ckpt_dir}/{exp_name}_{run_id}/*_{model_variant}_*_fp16_ddp.pt"
+        all_train_state_files = glob.glob(
+            f"{ckpt_dir}/{exp_name}_{run_id}/train_state_*_{model_variant}_*.pt"
         )
-        latest_step = max([int(f.split("/")[-1].split("_")[1]) for f in all_ckpt_files])
-        ckpt_file = glob.glob(
-            f"{ckpt_dir}/{exp_name}_{run_id}/*_{latest_step:08}_{model_variant}_*_fp16_ddp.pt"
+        latest_step = max([int(f.split("/")[-1].split("_")[1]) for f in all_train_state_files])
+        train_state_file = glob.glob(
+            f"{ckpt_dir}/{exp_name}_{run_id}/train_state_*_{latest_step:08}_{model_variant}_*.pt"
         )[0]
-        print(f"{ckpt_file=}")
+        model_state_file = glob.glob(
+            f"{ckpt_dir}/{exp_name}_{run_id}/model_state_*_{latest_step:08}_{model_variant}_*.pt"
+        )[0]
+        optim_state_file = glob.glob(
+            f"{ckpt_dir}/{exp_name}_{run_id}/optim_state_*_{latest_step:08}_{model_variant}_*.pt"
+        )[0]
+        print(f"{train_state_file=}")
+        print(f"{model_state_file=}")
+        print(f"{optim_state_file=}")
         # latest_ckpt_file = max(all_ckpt_files, key=os.path.getctime)
-    elif "/" in file_name:
-        ckpt_file = file_name
-    else:
-        ckpt_file = glob.glob(
-            f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*_{model_variant}_*_fp16_ddp.pt"
-        )[0]
-        print(f"{ckpt_file=}")
-
-    ckpt = torch.load(ckpt_file, map_location=map_location)
-
-    model = ow.model.Whisper(dims=ckpt["dims"]).to(rank)
-    model = DDP(model, device_ids=[rank], output_device=rank)
+    
+    train_state = torch.load(train_state_file, map_location=map_location)
 
     # if end at training step i, then start at step i+1 when resuming
-    current_step = ckpt["current_step"]
+    current_step = train_state["current_step"]
 
-    epoch = ckpt["epoch"]
+    epoch = train_state["epoch"]
 
-    best_val_loss = ckpt["best_val_loss"]
+    best_val_loss = train_state["best_val_loss"]
 
-    best_eval_wer = ckpt["best_eval_wer"]
-
-    model.load_state_dict(ckpt["model_state_dict"])
-
-    optimizer = AdamW(model.parameters())
-    optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+    best_eval_wer = train_state["best_eval_wer"]
 
     scaler = GradScaler()
-    scaler.load_state_dict(ckpt["scaler_state_dict"])
+    scaler.load_state_dict(train_state["scaler_state_dict"])
 
+    model = ow.model.Whisper(dims=train_state["dims"]).to(rank)
+    if rank == 0:
+        model_state = torch.load(model_state_file)
+        model.load_state_dict(model_state)
+
+    mixed_precision_fp16 = MixedPrecision(
+        param_dtype=torch.float16,
+        reduce_dtype=torch.float16,
+        buffer_dtype=torch.float16,
+    )
+    auto_wrap_policy = functools.partial(
+        transformer_auto_wrap_policy,
+        transformer_layer_cls={AudioEncoder, TextDecoder},
+    )
+    model = FSDP(
+        model,
+        device_id=rank,
+        auto_wrap_policy=auto_wrap_policy,
+        mixed_precision=mixed_precision_fp16,
+        sync_module_states=True,
+        backward_prefetch=BackwardPrefetch.BACKWARD_PRE
+    )
+
+    optimizer = AdamW(model.parameters())
+
+    if rank == 0:
+        full_optim_state = torch.load(optim_state_file)
+
+    sharded_optim_state = FSDP.scatter_full_optim_state_dict(full_optim_state, model=model, optim=optimizer)
+    optimizer.load_state_dict(sharded_optim_state)
+    
     scheduler, accumulation_steps, warmup_steps, train_steps = prepare_sched(
         train_steps=train_steps,
         world_size=world_size,
@@ -705,7 +723,7 @@ def load_ckpt(
         eff_batch_size=eff_batch_size,
         optimizer=optimizer,
     )
-    scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+    scheduler.load_state_dict(train_state["scheduler_state_dict"])
 
     return (
         current_step,
@@ -2038,8 +2056,8 @@ def main(
             optimizer=optimizer,
         )
 
-        scaler = GradScaler(init_scale=2 ** 16)
-        
+        scaler = GradScaler(init_scale=2**16)
+
         if run_val:
             best_val_loss = float("inf")
         else:

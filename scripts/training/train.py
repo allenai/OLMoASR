@@ -2002,7 +2002,7 @@ def main(
             optimizer=optimizer,
         )
 
-        scaler = GradScaler(init_scale=2 ** 14)
+        scaler = GradScaler(init_scale=2 ** 16)
         
         if run_val:
             best_val_loss = float("inf")
