@@ -592,6 +592,7 @@ def save_ckpt(
     )
 
     # Save the full FSDP state dict
+    print(f"Saving checkpoint at step {current_step}")
     with FSDP.state_dict_type(
         model,
         state_dict_type=StateDictType.FULL_STATE_DICT,
@@ -1213,26 +1214,27 @@ def train(
                 )
             optimizer.zero_grad()  # Reset gradients only after updating weights
             total_loss = 0.0
-            if rank == 0:
-                if current_step % ckpt_freq == 0:
-                    save_ckpt(
-                        current_step=current_step,
-                        epoch=epoch,
-                        best_val_loss=best_val_loss,
-                        best_eval_wer=best_eval_wer,
-                        model=model,
-                        optimizer=optimizer,
-                        scaler=scaler,
-                        scheduler=scheduler,
-                        model_dims=model_dims,
-                        tags=tags,
-                        model_variant=model_variant,
-                        exp_name=exp_name,
-                        run_id=run_id,
-                        file_name="checkpoint",
-                        ckpt_dir=ckpt_dir,
-                    )
 
+            if current_step % ckpt_freq == 0:
+                save_ckpt(
+                    current_step=current_step,
+                    epoch=epoch,
+                    best_val_loss=best_val_loss,
+                    best_eval_wer=best_eval_wer,
+                    model=model,
+                    optimizer=optimizer,
+                    scaler=scaler,
+                    scheduler=scheduler,
+                    model_dims=model_dims,
+                    tags=tags,
+                    model_variant=model_variant,
+                    exp_name=exp_name,
+                    run_id=run_id,
+                    file_name="checkpoint",
+                    ckpt_dir=ckpt_dir,
+                )
+
+            if rank == 0:
                 train_metrics = defaultdict(float)
                 print(f"current_step: {current_step}")
                 print(f"train_loss: {train_loss_all}")
@@ -1268,10 +1270,6 @@ def train(
                     )
                     train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
             
-            print(f"Rank {rank} reaching barrier")
-            dist.barrier()
-            print(f"Rank {rank} passing barrier")
-
             # validation
             if run_val:
                 if (current_step % val_freq) == 0 and current_step > 0:
