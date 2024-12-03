@@ -600,7 +600,7 @@ def save_ckpt(
         optim_state_dict_config=optim_state_dict_cfg
     ):
         model_state = model.state_dict()
-        optim_state = FSDP.full_optim_state_dict(model=model, optim=optimizer)
+        optim_state = FSDP.optim_state_dict(model=model, optim=optimizer)
         
     os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
 
