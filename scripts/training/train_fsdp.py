@@ -587,9 +587,6 @@ def save_ckpt(
     }
 
     state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    optim_state_dict_cfg = FullOptimStateDictConfig(
-        offload_to_cpu=True, rank0_only=True
-    )
 
     # Save the full FSDP state dict
     print(f"Saving checkpoint at step {current_step}")
@@ -597,11 +594,10 @@ def save_ckpt(
         model,
         state_dict_type=StateDictType.FULL_STATE_DICT,
         state_dict_config=state_dict_cfg,
-        optim_state_dict_config=optim_state_dict_cfg
     ):
         model_state = model.state_dict()
         optim_state = FSDP.optim_state_dict(model=model, optim=optimizer)
-        
+
     os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
 
     if file_name != "latesttrain":
