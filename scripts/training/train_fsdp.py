@@ -658,7 +658,7 @@ def load_ckpt(
         A tuple containing the current step, the best validation loss, the model, the optimizer, the gradient scaler,
         the scheduler, the number of steps over which to accumulate gradients, the number of warmup steps, and the total number of steps
     """
-    map_location = {"cuda:%d" % 0: "cuda:%d" % rank}
+    map_location = "cpu"
 
     if file_name is "":
         all_train_state_files = glob.glob(
@@ -696,9 +696,8 @@ def load_ckpt(
     scaler.load_state_dict(train_state["scaler_state_dict"])
 
     model = ow.model.Whisper(dims=train_state["dims"]).to(rank)
-    if rank == 0:
-        model_state = torch.load(model_state_file)
-        model.load_state_dict(model_state)
+    model_state = torch.load(model_state_file, map_location=map_location)
+    model.load_state_dict(model_state)
 
     mixed_precision_fp16 = MixedPrecision(
         param_dtype=torch.float16,
@@ -715,7 +714,7 @@ def load_ckpt(
         auto_wrap_policy=auto_wrap_policy,
         mixed_precision=mixed_precision_fp16,
         sync_module_states=True,
-        backward_prefetch=BackwardPrefetch.BACKWARD_PRE
+        backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
     )
 
     optimizer = AdamW(model.parameters())
