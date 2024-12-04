@@ -193,7 +193,7 @@ def setup(rank: int, world_size: int) -> None:
         rank: The rank of the current process
         world_size: The total number of processes
     """
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
 def open_dicts_file(samples_dicts_file) -> List[Dict]:
