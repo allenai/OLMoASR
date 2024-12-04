@@ -1276,7 +1276,7 @@ def train(
                         norm_tgt_pred_pairs=norm_tgt_pred_pairs,
                     )
                     train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
-            
+
             # validation
             if run_val:
                 if (current_step % val_freq) == 0 and current_step > 0:
@@ -1295,9 +1295,9 @@ def train(
                         scheduler=scheduler,
                         model_dims=model_dims,
                         model_variant=model_variant,
-                        tags=tags if rank == 0 else None,
-                        exp_name=exp_name if rank == 0 else None,
-                        run_id=run_id if rank == 0 else None,
+                        tags=tags,
+                        exp_name=exp_name,
+                        run_id=run_id,
                         ckpt_dir=ckpt_dir,
                     )
 
@@ -1328,9 +1328,9 @@ def train(
                         normalizer=normalizer,
                         best_val_loss=best_val_loss,
                         best_eval_wer=best_eval_wer,
-                        tags=tags if rank == 0 else None,
-                        exp_name=exp_name if rank == 0 else None,
-                        run_id=run_id if rank == 0 else None,
+                        tags=tags,
+                        exp_name=exp_name,
+                        run_id=run_id,
                         table_idx=None,
                         log_dir=log_dir,
                         ckpt_dir=ckpt_dir,
@@ -1799,7 +1799,10 @@ def evaluate(
                         )
 
             local_avg_wer = jiwer.wer(references, hypotheses) * 100
-            avg_wer = dist.all_reduce(local_avg_wer, op=dist.ReduceOp.SUM).item() / dist.get_world_size()
+            avg_wer = (
+                dist.all_reduce(local_avg_wer, op=dist.ReduceOp.SUM).item()
+                / dist.get_world_size()
+            )
             eval_wers.append(avg_wer)
 
             if rank == 0:
@@ -1941,6 +1944,8 @@ def main(
         with open(f"{run_id_dir}/{exp_name}.txt", "r") as f:
             run_id = f.read().strip()
 
+    tags = []
+
     if ckpt_file_name is None:
         ckpt_file_name = ""
 
@@ -2049,7 +2054,7 @@ def main(
             device_id=rank,
             auto_wrap_policy=auto_wrap_policy,
             mixed_precision=mixed_precision_fp16,
-            backward_prefetch=BackwardPrefetch.BACKWARD_PRE
+            backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
         )
         # optimizer and scheduler instantiation
         optimizer = prepare_optim(
@@ -2110,6 +2115,12 @@ def main(
                 f.write(run_id)
 
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
+    
+    # running evals and saving ckpts on all ranks, so need to broadcast
+    to_broadcast = [run_id]
+    dist.broadcast_object_list(to_broadcast, src=0)
+    to_broadcast = [tags]
+    dist.broadcast_object_list(to_broadcast, src=0)
 
     while current_step < train_steps:
         (
@@ -2146,9 +2157,9 @@ def main(
             best_eval_wer=best_eval_wer,
             run_eval=run_eval,
             eval_loaders=eval_loaders,
-            run_id=run_id if rank == 0 else None,
-            tags=tags if rank == 0 else None,
-            exp_name=exp_name if rank == 0 else None,
+            run_id=run_id,
+            tags=tags,
+            exp_name=exp_name,
             log_dir=log_dir,
             ckpt_dir=ckpt_dir,
             train_log_freq=train_log_freq,
@@ -2195,9 +2206,9 @@ def main(
                 scheduler=scheduler,
                 model_dims=model_dims,
                 model_variant=model_variant,
-                tags=tags if rank == 0 else None,
-                exp_name=exp_name if rank == 0 else None,
-                run_id=run_id if rank == 0 else None,
+                tags=tags,
+                exp_name=exp_name,
+                run_id=run_id,
                 ckpt_dir=ckpt_dir,
             )
 
@@ -2221,9 +2232,9 @@ def main(
                 normalizer=normalizer,
                 best_val_loss=best_val_loss,
                 best_eval_wer=best_eval_wer,
-                tags=tags if rank == 0 else None,
-                exp_name=exp_name if rank == 0 else None,
-                run_id=run_id if rank == 0 else None,
+                tags=tags,
+                exp_name=exp_name,
+                run_id=run_id,
                 table_idx=f"epoch_{epoch}" if rank == 0 else None,
                 log_dir=log_dir,
                 ckpt_dir=ckpt_dir,
