@@ -1832,28 +1832,28 @@ def evaluate(
             }
         )
 
-        avg_eval_wer = np.mean(eval_wers)
+    avg_eval_wer = np.mean(eval_wers)
 
-        if avg_eval_wer < best_eval_wer:
-            best_eval_wer = avg_eval_wer
-            print("Saving best eval model")
-            save_ckpt(
-                current_step=current_step,
-                epoch=epoch,
-                best_val_loss=best_val_loss,
-                best_eval_wer=best_eval_wer,
-                model=model,
-                optimizer=optimizer,
-                scaler=scaler,
-                scheduler=scheduler,
-                model_dims=model_dims,
-                tags=tags,
-                model_variant=model_variant,
-                exp_name=exp_name,
-                run_id=run_id,
-                file_name="besteval",
-                ckpt_dir=ckpt_dir,
-            )
+    if avg_eval_wer < best_eval_wer:
+        best_eval_wer = avg_eval_wer
+        print("Saving best eval model")
+        save_ckpt(
+            current_step=current_step,
+            epoch=epoch,
+            best_val_loss=best_val_loss,
+            best_eval_wer=best_eval_wer,
+            model=model,
+            optimizer=optimizer,
+            scaler=scaler,
+            scheduler=scheduler,
+            model_dims=model_dims,
+            tags=tags,
+            model_variant=model_variant,
+            exp_name=exp_name,
+            run_id=run_id,
+            file_name="besteval",
+            ckpt_dir=ckpt_dir,
+        )
 
     return best_eval_wer
 
@@ -2170,24 +2170,23 @@ def main(
 
         epoch += 1
 
-        if rank == 0:
-            save_ckpt(
-                current_step=current_step,
-                epoch=epoch,
-                best_val_loss=best_val_loss,
-                best_eval_wer=best_eval_wer,
-                model=model,
-                optimizer=optimizer,
-                scaler=scaler,
-                scheduler=scheduler,
-                model_dims=model_dims,
-                tags=tags,
-                model_variant=model_variant,
-                exp_name=exp_name,
-                run_id=run_id,
-                file_name="latesttrain",
-                ckpt_dir=ckpt_dir,
-            )
+        save_ckpt(
+            current_step=current_step,
+            epoch=epoch,
+            best_val_loss=best_val_loss,
+            best_eval_wer=best_eval_wer,
+            model=model,
+            optimizer=optimizer,
+            scaler=scaler,
+            scheduler=scheduler,
+            model_dims=model_dims,
+            tags=tags,
+            model_variant=model_variant,
+            exp_name=exp_name,
+            run_id=run_id,
+            file_name="latesttrain",
+            ckpt_dir=ckpt_dir,
+        )
 
         if run_val:
             print(f"Validation after epoch at {current_step=} on rank {rank}")
