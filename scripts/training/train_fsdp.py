@@ -718,13 +718,12 @@ def load_ckpt(
     )
 
     optimizer = AdamW(model.parameters())
+    optim_state = torch.load(optim_state_file, map_location=map_location)
+    fsdp_optim_state = FSDP.optim_state_dict_to_load(
+        model=model, optim=optimizer, optim_state_dict=optim_state,
+    )
+    optimizer.load_state_dict(fsdp_optim_state)
 
-    if rank == 0:
-        full_optim_state = torch.load(optim_state_file)
-
-    sharded_optim_state = FSDP.scatter_full_optim_state_dict(full_optim_state, model=model, optim=optimizer)
-    optimizer.load_state_dict(sharded_optim_state)
-    
     scheduler, accumulation_steps, warmup_steps, train_steps = prepare_sched(
         train_steps=train_steps,
         world_size=world_size,
