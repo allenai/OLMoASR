@@ -664,7 +664,9 @@ def load_ckpt(
         all_train_state_files = glob.glob(
             f"{ckpt_dir}/{exp_name}_{run_id}/train_state_*_{model_variant}_*.pt"
         )
-        latest_step = max([int(f.split("/")[-1].split("_")[1]) for f in all_train_state_files])
+        latest_step = max(
+            [int(f.split("/")[-1].split("_")[3]) for f in all_train_state_files]
+        )
         train_state_file = glob.glob(
             f"{ckpt_dir}/{exp_name}_{run_id}/train_state_*_{latest_step:08}_{model_variant}_*.pt"
         )[0]
@@ -678,7 +680,7 @@ def load_ckpt(
         print(f"{model_state_file=}")
         print(f"{optim_state_file=}")
         # latest_ckpt_file = max(all_ckpt_files, key=os.path.getctime)
-    
+
     train_state = torch.load(train_state_file, map_location=map_location)
 
     # if end at training step i, then start at step i+1 when resuming
