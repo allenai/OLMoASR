@@ -587,6 +587,7 @@ def save_ckpt(
     }
 
     state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    optim_state_dict_cfg = FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True)
 
     # Save the full FSDP state dict
     print(f"Saving checkpoint at step {current_step}")
@@ -594,6 +595,7 @@ def save_ckpt(
         model,
         state_dict_type=StateDictType.FULL_STATE_DICT,
         state_dict_config=state_dict_cfg,
+        optim_state_dict_config=optim_state_dict_cfg,
     ):
         model_state = model.state_dict()
         optim_state = FSDP.optim_state_dict(model=model, optim=optimizer)
@@ -602,12 +604,21 @@ def save_ckpt(
 
     if file_name != "latesttrain":
         if len(glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/*_{file_name}_*.pt")) > 0:
-            for p in glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*.pt"):
+            for p in glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/*_{file_name}_*.pt"):
                 os.remove(p)
-    
-    torch.save(model_state, f"{ckpt_dir}/{exp_name}_{run_id}/model_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt")
-    torch.save(optim_state, f"{ckpt_dir}/{exp_name}_{run_id}/optim_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt")
-    torch.save(train_state, f"{ckpt_dir}/{exp_name}_{run_id}/train_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt")
+
+    torch.save(
+        model_state,
+        f"{ckpt_dir}/{exp_name}_{run_id}/model_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
+    )
+    torch.save(
+        optim_state,
+        f"{ckpt_dir}/{exp_name}_{run_id}/optim_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
+    )
+    torch.save(
+        train_state,
+        f"{ckpt_dir}/{exp_name}_{run_id}/train_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
+    )
 
 
 def load_ckpt(
