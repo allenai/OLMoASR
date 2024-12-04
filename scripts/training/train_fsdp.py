@@ -1944,6 +1944,10 @@ def main(
         with open(f"{run_id_dir}/{exp_name}.txt", "r") as f:
             run_id = f.read().strip()
 
+        # in the case that previous job crashed before a ckpt could be saved, generate a new run_id
+        if not os.path.exists(f"{ckpt_dir}/{exp_name}_{run_id}"):
+            run_id = None
+
     tags = []
 
     if ckpt_file_name is None:
