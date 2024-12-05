@@ -9,12 +9,27 @@ import jiwer
 from whisper import audio, DecodingOptions
 from whisper.normalizers import EnglishTextNormalizer
 from open_whisper import load_model
-import torchaudio
 from fire import Fire
 from tqdm import tqdm
 from torchaudio.datasets import TEDLIUM
 from scripts.eval.get_eval_set import get_eval_set
 from scripts.eval.gen_inf_ckpt import gen_inf_ckpt
+import wandb
+import multiprocessing
+from tqdm import tqdm
+
+EVAL_SETS = [
+    "librispeech_clean",
+    "librispeech_other",
+    "artie_bias_corpus",
+    "fleurs",
+    "tedlium",
+    "voxpopuli",
+    "common_voice",
+    "ami_ihm",
+    "ami_sdm",
+]
+
 
 class Librispeech:
     def __init__(self, root_dir):
@@ -126,33 +141,32 @@ class EvalDataset(Dataset):
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = Librispeech(
-                root_dir=root_dir)
+            self.dataset = Librispeech(root_dir=root_dir)
         elif eval_set == "librispeech_other":
             root_dir = f"{eval_dir}/librispeech_test_other"
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = Librispeech(
-                root_dir=root_dir)
+            self.dataset = Librispeech(root_dir=root_dir)
         elif eval_set == "artie_bias_corpus":
             root_dir = f"{eval_dir}/artie-bias-corpus"
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = ArtieBiasCorpus(
-                root_dir=root_dir)
+            self.dataset = ArtieBiasCorpus(root_dir=root_dir)
         elif eval_set == "fleurs":
             root_dir = f"{eval_dir}/fleurs"
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-                
+
             self.dataset = Fleurs(root_dir=root_dir)
         elif eval_set == "tedlium":
             if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = TEDLIUM(root=f"{eval_dir}", release="release3", subset="test")
+            self.dataset = TEDLIUM(
+                root=f"{eval_dir}", release="release3", subset="test"
+            )
         elif eval_set == "voxpopuli":
             root_dir = f"{eval_dir}/voxpopuli"
             if not os.path.exists(root_dir):
@@ -184,7 +198,7 @@ class EvalDataset(Dataset):
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = AMI(root_dir=root_dir)        
+            self.dataset = AMI(root_dir=root_dir)
 
         self.eval_set = eval_set
 
@@ -234,6 +248,8 @@ class EvalDataset(Dataset):
 
 
 def main(
+    batch_size: int,
+    num_workers: int,
     ckpt: str,
     eval_set: Literal[
         "librispeech_clean",
