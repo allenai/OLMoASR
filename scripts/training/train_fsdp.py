@@ -1047,9 +1047,6 @@ def train(
                 text_y.view(-1),
                 ignore_index=51864,
             )
-            # print(f"{rank=}")
-            # print(f"{train_loss=}")
-            # print(f"{logits=}")
             train_loss = (
                 train_loss / accumulation_steps
             )  # normalization of loss (gradient accumulation)
@@ -1062,13 +1059,19 @@ def train(
         if rank == 0:
             if torch.isnan(train_loss):
                 text = f"Loss is NaN for {audio_files} at step {current_step}!"
-                # print(f"{audio_input=}")
-                # print()
-                # print(f"{text_input=}")
-                # print()
-                # print(f"{text_y=}")
-                # print()
-                # print(f"{padding_mask=}")
+                print(f"{rank=}")
+                print()
+                print(f"{train_loss=}")
+                print()
+                print(f"{logits=}")
+                print()
+                print(f"{audio_input=}")
+                print()
+                print(f"{text_input=}")
+                print()
+                print(f"{text_y=}")
+                print()
+                print(f"{padding_mask=}")
                 wandb.alert(title="NaN Loss", text=text)
 
         if ((current_step + 1) % train_log_freq) == 0:
