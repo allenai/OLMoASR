@@ -246,7 +246,8 @@ class EvalDataset(Dataset):
         mel_spec = audio.log_mel_spectrogram(audio_arr)
         return mel_spec
 
-def log_to_wandb(norm_tgt_text_instance, norm_pred_text_instance, audio_input_instance, eval_table):
+
+def gen_tbl_row(norm_tgt_text_instance, norm_pred_text_instance, audio_input_instance):
     wer = (
         np.round(
             jiwer.wer(
@@ -264,7 +265,7 @@ def log_to_wandb(norm_tgt_text_instance, norm_pred_text_instance, audio_input_in
     dels = measures["deletions"]
     ins = measures["insertions"]
 
-    eval_table.add_data(
+    return [
         wandb.Audio(audio_input_instance, sample_rate=16000),
         norm_pred_text_instance,
         norm_tgt_text_instance,
@@ -272,7 +273,12 @@ def log_to_wandb(norm_tgt_text_instance, norm_pred_text_instance, audio_input_in
         dels,
         ins,
         wer,
-    )
+    ]
+
+
+def parallel_gen_tbl_row(args):
+    return gen_tbl_row(*args)
+
 
 def main(
     batch_size: int,
@@ -296,7 +302,7 @@ def main(
 ):
     if "inf" not in ckpt:
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
-        
+
     os.makedirs(wandb_log_dir, exist_ok=True)
     os.makedirs(eval_dir, exist_ok=True)
 
@@ -317,12 +323,20 @@ def main(
 
     hypotheses = []
     references = []
-    
+
     if wandb_log:
         run_id = wandb.util.generate_id()
         exp_name = f"{eval_set}_eval"
         config = {"ckpt": ckpt.split("/")[-2]}
-        wandb_table_cols = ["audio", "prediction", "target", "subs", "dels", "ins", "wer"]
+        wandb_table_cols = [
+            "audio",
+            "prediction",
+            "target",
+            "subs",
+            "dels",
+            "ins",
+            "wer",
+        ]
         wandb.init(
             id=run_id,
             resume="allow",
@@ -331,7 +345,7 @@ def main(
             job_type="evals",
             name=exp_name,
             dir=wandb_log_dir,
-            config=config
+            config=config,
         )
         eval_table = wandb.Table(columns=wandb_table_cols)
 
@@ -362,14 +376,24 @@ def main(
             ]
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
-            
+
             if wandb_log:
                 if (batch_idx + 1) // int(np.ceil(len(dataloader) / 10)) == 1:
                     with multiprocessing.Pool() as pool:
-                        tqdm(pool.imap_unordered(log_to_wandb, zip(norm_tgt_text, norm_pred_text, audio_input, eval_table)), total=len(norm_tgt_text))
-                    
-                    eval_table = wandb.Table(columns=wandb_table_cols)
-                
+                        eval_table_data = list(
+                            tqdm(
+                                pool.imap_unordered(
+                                    parallel_gen_tbl_row,
+                                    zip(norm_tgt_text, norm_pred_text, audio_input),
+                                ),
+                                total=len(norm_tgt_text),
+                            )
+                        )
+
+                    eval_table = wandb.Table(
+                        columns=wandb_table_cols, data=eval_table_data
+                    )
+
                     # for i in range(0, len(norm_pred_text), 8):
                     #     wer = (
                     #         np.round(
@@ -403,8 +427,10 @@ def main(
         avg_subs = avg_measures["substitutions"]
         avg_ins = avg_measures["insertions"]
         avg_dels = avg_measures["deletions"]
-        
-        print(f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}")
+
+        print(
+            f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+        )
 
 
 if __name__ == "__main__":
