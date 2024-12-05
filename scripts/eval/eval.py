@@ -270,7 +270,13 @@ def main(
                 
     device = torch.device("cuda")
     dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=False, drop_last=False)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=num_workers,
+    )
 
     model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
     model.eval()
