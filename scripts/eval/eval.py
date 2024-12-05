@@ -322,6 +322,7 @@ def main(
         run_id = wandb.util.generate_id()
         exp_name = f"{eval_set}_eval"
         config = {"ckpt": ckpt.split("/")[-2]}
+        wandb_table_cols = ["audio", "prediction", "target", "subs", "dels", "ins", "wer"]
         wandb.init(
             id=run_id,
             resume="allow",
@@ -332,7 +333,7 @@ def main(
             dir=wandb_log_dir,
             config=config
         )
-        eval_table = wandb.Table(columns=["audio", "prediction", "target", "subs", "dels", "ins", "wer"])
+        eval_table = wandb.Table(columns=wandb_table_cols)
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
@@ -366,6 +367,8 @@ def main(
                 if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
                     with multiprocessing.Pool() as pool:
                         tqdm(pool.imap_unordered(log_to_wandb, zip(norm_tgt_text, norm_pred_text, audio_input, eval_table)), total=len(norm_tgt_text))
+                    
+                    eval_table = wandb.Table(columns=wandb_table_cols)
                 
                     # for i in range(0, len(norm_pred_text), 8):
                     #     wer = (
