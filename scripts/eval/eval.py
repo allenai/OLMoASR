@@ -1,3 +1,5 @@
+import multiprocessing
+multiprocessing.set_start_method('spawn')
 from typing import Literal, Optional
 import os
 import numpy as np
@@ -15,8 +17,6 @@ from torchaudio.datasets import TEDLIUM
 from scripts.eval.get_eval_set import get_eval_set
 from scripts.eval.gen_inf_ckpt import gen_inf_ckpt
 import wandb
-import multiprocessing
-multiprocessing.set_start_method('spawn')
 from tqdm import tqdm
 
 EVAL_SETS = [
