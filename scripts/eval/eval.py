@@ -1,5 +1,4 @@
 import multiprocessing
-multiprocessing.set_start_method('spawn')
 from typing import Literal, Optional
 import os
 import numpy as np
@@ -436,4 +435,5 @@ def main(
 
 
 if __name__ == "__main__":
+    multiprocessing.set_start_method('spawn')
     Fire(main)
