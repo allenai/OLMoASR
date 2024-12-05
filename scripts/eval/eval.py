@@ -364,7 +364,7 @@ def main(
             hypotheses.extend(norm_pred_text)
             
             if wandb_log:
-                if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
+                if (batch_idx + 1) // int(np.ceil(len(dataloader) / 10)) == 1:
                     with multiprocessing.Pool() as pool:
                         tqdm(pool.imap_unordered(log_to_wandb, zip(norm_tgt_text, norm_pred_text, audio_input, eval_table)), total=len(norm_tgt_text))
                     
