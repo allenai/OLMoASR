@@ -246,6 +246,33 @@ class EvalDataset(Dataset):
         mel_spec = audio.log_mel_spectrogram(audio_arr)
         return mel_spec
 
+def log_to_wandb(norm_tgt_text_instance, norm_pred_text_instance, audio_input_instance, eval_table):
+    wer = (
+        np.round(
+            jiwer.wer(
+                reference=norm_tgt_text_instance,
+                hypothesis=norm_pred_text_instance,
+            ),
+            2,
+        )
+        * 100
+    )
+    measures = jiwer.compute_measures(
+        truth=norm_tgt_text_instance, hypothesis=norm_pred_text_instance
+    )
+    subs = measures["substitutions"]
+    dels = measures["deletions"]
+    ins = measures["insertions"]
+
+    eval_table.add_data(
+        wandb.Audio(audio_input_instance, sample_rate=16000),
+        norm_pred_text_instance,
+        norm_tgt_text_instance,
+        subs,
+        dels,
+        ins,
+        wer,
+    )
 
 def main(
     batch_size: int,
@@ -262,12 +289,14 @@ def main(
         "ami_ihm",
         "ami_sdm",
     ],
+    wandb_log: bool = False,
+    wandb_log_dir: str = "wandb",
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
 ):
     if "inf" not in ckpt:
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
-                
+
     device = torch.device("cuda")
     dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
     dataloader = DataLoader(
@@ -285,11 +314,27 @@ def main(
 
     hypotheses = []
     references = []
+    
+    if wandb_log:
+        run_id = wandb.util.generate_id()
+        exp_name = f"{eval_set}_eval"
+        config = {"ckpt": ckpt.split("/")[-2]}
+        wandb.init(
+            id=run_id,
+            resume="allow",
+            project="open_whisper",
+            entity="dogml",
+            job_type="evals",
+            name=exp_name,
+            dir=wandb_log_dir,
+            config=config
+        )
+        eval_table = wandb.Table(columns=["audio", "prediction", "target", "subs", "dels", "ins", "wer"])
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             *_, audio_input, text_y = batch
-    
+
             norm_tgt_text = [normalizer(text) for text in text_y]
             audio_input = audio_input.to(device)
 
@@ -313,8 +358,40 @@ def main(
             ]
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
+            
+            if wandb_log:
+                if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
+                    with multiprocessing.Pool() as pool:
+                        tqdm(pool.imap_unordered(log_to_wandb, zip(norm_tgt_text, norm_pred_text, audio_input, eval_table)), total=len(norm_tgt_text))
+                
+                    # for i in range(0, len(norm_pred_text), 8):
+                    #     wer = (
+                    #         np.round(
+                    #             jiwer.wer(
+                    #                 reference=norm_tgt_text[i],
+                    #                 hypothesis=norm_pred_text[i],
+                    #             ),
+                    #             2,
+                    #         )
+                    #         * 100
+                    #     )
+                    #     measures = jiwer.compute_measures(
+                    #         truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                    #     )
+                    #     subs = measures["substitutions"]
+                    #     dels = measures["deletions"]
+                    #     ins = measures["insertions"]
 
-        # avg_wer = total_wer / len(dataloader)
+                    #     eval_table.add_data(
+                    #         wandb.Audio(audio_input[i], sample_rate=16000),
+                    #         norm_pred_text[i],
+                    #         norm_tgt_text[i],
+                    #         subs,
+                    #         dels,
+                    #         ins,
+                    #         wer,
+                    #     )
+
         avg_wer = jiwer.wer(references, hypotheses) * 100
         avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
         avg_subs = avg_measures["substitutions"]
