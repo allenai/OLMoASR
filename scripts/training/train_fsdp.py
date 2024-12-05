@@ -530,6 +530,7 @@ def setup_wandb(
         tags=(tags),
         name=exp_name,
         dir=f"{log_dir}",
+        settings=wandb.Settings(init_timeout=300, _service_wait=300)
     )
 
     wandb.define_metric("custom_step")
