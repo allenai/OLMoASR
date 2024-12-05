@@ -316,7 +316,12 @@ def main(
 
         # avg_wer = total_wer / len(dataloader)
         avg_wer = jiwer.wer(references, hypotheses) * 100
-        print(f"Average WER: {avg_wer}")
+        avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
+        avg_subs = avg_measures["substitutions"]
+        avg_ins = avg_measures["insertions"]
+        avg_dels = avg_measures["deletions"]
+        
+        print(f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}")
 
 
 if __name__ == "__main__":
