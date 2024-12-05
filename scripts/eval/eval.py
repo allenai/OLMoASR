@@ -346,6 +346,7 @@ def main(
             name=exp_name,
             dir=wandb_log_dir,
             config=config,
+            tags=["eval", eval_set],
         )
         eval_table = wandb.Table(columns=wandb_table_cols)
 
