@@ -601,25 +601,27 @@ def save_ckpt(
         model_state = model.state_dict()
         optim_state = FSDP.optim_state_dict(model=model, optim=optimizer)
 
-    os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
+    if dist.get_rank() == 0:
+        os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
 
-    if file_name != "latesttrain":
+    if file_name != "latesttrain" and dist.get_rank() == 0:
         if len(glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/*_{file_name}_*.pt")) > 0:
             for p in glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/*_{file_name}_*.pt"):
                 os.remove(p)
 
-    torch.save(
-        model_state,
-        f"{ckpt_dir}/{exp_name}_{run_id}/model_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
-    )
-    torch.save(
-        optim_state,
-        f"{ckpt_dir}/{exp_name}_{run_id}/optim_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
-    )
-    torch.save(
-        train_state,
-        f"{ckpt_dir}/{exp_name}_{run_id}/train_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
-    )
+    if dist.get_rank() == 0:
+        torch.save(
+            model_state,
+            f"{ckpt_dir}/{exp_name}_{run_id}/model_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
+        )
+        torch.save(
+            optim_state,
+            f"{ckpt_dir}/{exp_name}_{run_id}/optim_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
+        )
+        torch.save(
+            train_state,
+            f"{ckpt_dir}/{exp_name}_{run_id}/train_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
+        )
 
 
 def load_ckpt(
