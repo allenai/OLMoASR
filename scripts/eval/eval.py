@@ -296,6 +296,9 @@ def main(
 ):
     if "inf" not in ckpt:
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
+        
+    os.makedirs(wandb_log_dir, exist_ok=True)
+    os.makedirs(eval_dir, exist_ok=True)
 
     device = torch.device("cuda")
     dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
