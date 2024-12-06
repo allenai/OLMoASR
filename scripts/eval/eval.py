@@ -398,6 +398,8 @@ def main(
                                 total=len(norm_tgt_text),
                             )
                         )
+                        
+                    print(eval_table_data[:5])
 
                     eval_table = wandb.Table(
                         columns=wandb_table_cols, data=eval_table_data
