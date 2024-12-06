@@ -15,7 +15,7 @@ import logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(funcName)s - line %(lineno)d - %(message)s",
-    handlers=[logging.FileHandler("/results/huongn/ow_logs/main.log")],
+    handlers=[logging.FileHandler("/weka/huongn/main.log")],
 )
 
 logger = logging.getLogger(__name__)
