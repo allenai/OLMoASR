@@ -351,7 +351,6 @@ def main(
             config=config,
             tags=["eval", eval_set],
         )
-        eval_table = wandb.Table(columns=wandb_table_cols)
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
@@ -382,49 +381,52 @@ def main(
             hypotheses.extend(norm_pred_text)
 
             if wandb_log:
-                if (batch_idx + 1) // int(np.ceil(len(dataloader) / 10)) == 1:
-                    with multiprocessing.Pool() as pool:
-                        eval_table_data = list(
-                            tqdm(
-                                pool.imap_unordered(
-                                    parallel_gen_tbl_row,
-                                    zip(norm_tgt_text, norm_pred_text, audio_input.cpu()),
-                                ),
-                                total=len(norm_tgt_text),
-                            )
+                # if (batch_idx + 1) // int(np.ceil(len(dataloader) / 10)) == 1:
+                # with multiprocessing.Pool() as pool:
+                #     eval_table_data = list(
+                #         tqdm(
+                #             pool.imap_unordered(
+                #                 parallel_gen_tbl_row,
+                #                 zip(norm_tgt_text, norm_pred_text, audio_input.cpu()),
+                #             ),
+                #             total=len(norm_tgt_text),
+                #         )
+                #     )
+
+                # eval_table = wandb.Table(
+                #     columns=wandb_table_cols, data=eval_table_data
+                # )
+
+                eval_table = wandb.Table(columns=wandb_table_cols)
+
+                for i in range(0, len(norm_pred_text), 8):
+                    print(audio_input.cpu()[i])
+                    wer = (
+                        np.round(
+                            jiwer.wer(
+                                reference=norm_tgt_text[i],
+                                hypothesis=norm_pred_text[i],
+                            ),
+                            2,
                         )
-
-                    eval_table = wandb.Table(
-                        columns=wandb_table_cols, data=eval_table_data
+                        * 100
                     )
+                    measures = jiwer.compute_measures(
+                        truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                    )
+                    subs = measures["substitutions"]
+                    dels = measures["deletions"]
+                    ins = measures["insertions"]
 
-                    # for i in range(0, len(norm_pred_text), 8):
-                    #     wer = (
-                    #         np.round(
-                    #             jiwer.wer(
-                    #                 reference=norm_tgt_text[i],
-                    #                 hypothesis=norm_pred_text[i],
-                    #             ),
-                    #             2,
-                    #         )
-                    #         * 100
-                    #     )
-                    #     measures = jiwer.compute_measures(
-                    #         truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
-                    #     )
-                    #     subs = measures["substitutions"]
-                    #     dels = measures["deletions"]
-                    #     ins = measures["insertions"]
-
-                    #     eval_table.add_data(
-                    #         wandb.Audio(audio_input[i], sample_rate=16000),
-                    #         norm_pred_text[i],
-                    #         norm_tgt_text[i],
-                    #         subs,
-                    #         dels,
-                    #         ins,
-                    #         wer,
-                    #     )
+                    eval_table.add_data(
+                        wandb.Audio(audio_input.cpu()[i], sample_rate=16000),
+                        norm_pred_text[i],
+                        norm_tgt_text[i],
+                        subs,
+                        dels,
+                        ins,
+                        wer,
+                    )
 
         avg_wer = jiwer.wer(references, hypotheses) * 100
         avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
@@ -438,5 +440,5 @@ def main(
 
 
 if __name__ == "__main__":
-    multiprocessing.set_start_method('spawn')
+    multiprocessing.set_start_method("spawn")
     Fire(main)
