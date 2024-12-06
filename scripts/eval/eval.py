@@ -265,6 +265,9 @@ def gen_tbl_row(norm_tgt_text_instance, norm_pred_text_instance, audio_input_ins
     dels = measures["deletions"]
     ins = measures["insertions"]
 
+    print(audio_input_instance)
+    print(audio_input_instance.numpy())
+
     return [
         wandb.Audio(audio_input_instance, sample_rate=16000),
         norm_pred_text_instance,
