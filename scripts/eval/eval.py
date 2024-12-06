@@ -385,7 +385,7 @@ def main(
                             tqdm(
                                 pool.imap_unordered(
                                     parallel_gen_tbl_row,
-                                    zip(norm_tgt_text, norm_pred_text, audio_input),
+                                    zip(norm_tgt_text, norm_pred_text, audio_input.cpu()),
                                 ),
                                 total=len(norm_tgt_text),
                             )
