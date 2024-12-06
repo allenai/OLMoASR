@@ -1014,6 +1014,7 @@ def train(
     total_loss = 0.0
     model.train()
     optimizer.zero_grad()
+    verbose = False
 
     if rank == 0:
         train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
@@ -1040,7 +1041,7 @@ def train(
             text_y = text_y.to(rank)
             padding_mask = padding_mask.to(rank)
 
-            logits = model(audio_input, text_input, padding_mask)
+            logits = model(audio_input, text_input, padding_mask, verbose)
 
             train_loss = F.cross_entropy(
                 logits.view(-1, logits.shape[-1]),
@@ -1059,6 +1060,7 @@ def train(
         if rank == 0:
             if torch.isnan(train_loss):
                 text = f"Loss is NaN for {audio_files} at step {current_step}!"
+                verbose = True
                 print(f"{rank=}")
                 print()
                 print(f"{train_loss=}")
