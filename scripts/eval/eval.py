@@ -300,7 +300,7 @@ def main(
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
 ):
-    if "inf" not in ckpt:
+    if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
 
     os.makedirs(wandb_log_dir, exist_ok=True)
@@ -385,7 +385,15 @@ def main(
                             tqdm(
                                 pool.imap_unordered(
                                     parallel_gen_tbl_row,
-                                    zip(norm_tgt_text, norm_pred_text, audio_arr.numpy() if torch.is_tensor(audio_arr) else audio_arr),
+                                    zip(
+                                        norm_tgt_text,
+                                        norm_pred_text,
+                                        (
+                                            audio_arr.numpy()
+                                            if torch.is_tensor(audio_arr)
+                                            else audio_arr
+                                        ),
+                                    ),
                                 ),
                                 total=len(norm_tgt_text),
                             )
@@ -394,7 +402,7 @@ def main(
                     eval_table = wandb.Table(
                         columns=wandb_table_cols, data=eval_table_data
                     )
-                    
+
                     wandb.log({f"eval_table_{batch_idx + 1}": eval_table})
 
                 # eval_table = wandb.Table(columns=wandb_table_cols)
