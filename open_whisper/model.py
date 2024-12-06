@@ -10,6 +10,15 @@ from whisper.decoding import decode as decode_function
 from whisper.decoding import detect_language as detect_language_function
 from whisper.transcribe import transcribe as transcribe_function
 
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(funcName)s - line %(lineno)d - %(message)s",
+    handlers=[logging.FileHandler("/results/main.log")],
+)
+
+logger = logging.getLogger(__name__)
 
 class LayerNorm(nn.LayerNorm):
     """
@@ -331,11 +340,16 @@ class TextDecoder(nn.Module):
             the encoded audio features to be attended on
         """
         offset = next(iter(kv_cache.values())).shape[1] if kv_cache else 0
+        logger.info("Decoder forward pass")
+        logger.info(f"{x=}")
+        logger.info(f"{self.token_embedding(x)=}")
+        logger.info(f"{self.positional_embedding[offset : offset + x.shape[-1]]=}")
         x = (
             self.token_embedding(x)
             + self.positional_embedding[offset : offset + x.shape[-1]]
         )
         x = x.to(xa.dtype)
+        logger.info(f"{x=}")
 
         n_ctx = x.shape[1]
         if padding_mask is not None:
@@ -350,14 +364,20 @@ class TextDecoder(nn.Module):
             self.mask = (
                 torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1).to(device=x.device)
             )
-
+        
+        logger.info("Starting decoder blocks")
+        block_count = 0
         for block in self.blocks:
+            logger.info(f"Block {block_count}")
             x = block(x, xa, mask=self.mask, kv_cache=kv_cache)
-
+            logger.info(f"{x=}")
+            block_count += 1
         x = self.ln(x)
+        logger.info(f"{x=}")
         logits = (
             x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
         ).float()
+        logger.info(f"{logits=}")
 
         return logits
 
