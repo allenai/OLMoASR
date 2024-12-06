@@ -235,7 +235,7 @@ class EvalDataset(Dataset):
             audio_input = audio.log_mel_spectrogram(audio_arr)
         else:
             audio_fp = self.audio_files[index]
-            audio_input = self.preprocess_audio(audio_fp)
+            audio_arr, audio_input = self.preprocess_audio(audio_fp)
             text_y = self.transcript_texts[index]
 
         return audio_fp, audio_arr, audio_input, text_y
@@ -244,7 +244,7 @@ class EvalDataset(Dataset):
         audio_arr = audio.load_audio(audio_file, sr=16000)
         audio_arr = audio.pad_or_trim(audio_arr)
         mel_spec = audio.log_mel_spectrogram(audio_arr)
-        return mel_spec
+        return audio_arr, mel_spec
 
 
 def gen_tbl_row(norm_tgt_text_instance, norm_pred_text_instance, audio_input_instance):
@@ -264,9 +264,6 @@ def gen_tbl_row(norm_tgt_text_instance, norm_pred_text_instance, audio_input_ins
     subs = measures["substitutions"]
     dels = measures["deletions"]
     ins = measures["insertions"]
-
-    print(audio_input_instance)
-    print(audio_input_instance.numpy())
 
     return [
         wandb.Audio(audio_input_instance, sample_rate=16000),
@@ -355,6 +352,7 @@ def main(
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             _, audio_arr, audio_input, text_y = batch
+            print(audio_arr[0])
 
             norm_tgt_text = [normalizer(text) for text in text_y]
             audio_input = audio_input.to(device)
