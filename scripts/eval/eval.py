@@ -385,7 +385,7 @@ def main(
                             tqdm(
                                 pool.imap_unordered(
                                     parallel_gen_tbl_row,
-                                    zip(norm_tgt_text, norm_pred_text, audio_arr),
+                                    zip(norm_tgt_text, norm_pred_text, audio_arr.numpy() if torch.is_tensor(audio_arr) else audio_arr),
                                 ),
                                 total=len(norm_tgt_text),
                             )
