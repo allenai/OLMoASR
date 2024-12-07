@@ -151,9 +151,13 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.n_head = n_head
         self.query = Linear(n_state, n_state)  # W_q
+        nn.init.kaiming_normal_(self.query.weight, mode="fan_in", nonlinearity="relu")
         self.key = Linear(n_state, n_state, bias=False)  # W_k
+        nn.init.kaiming_normal_(self.key.weight, mode="fan_in", nonlinearity="relu")
         self.value = Linear(n_state, n_state)  # W_v
+        nn.init.kaiming_normal_(self.value.weight, mode="fan_in", nonlinearity="relu")
         self.out = Linear(n_state, n_state)  # W_o
+        nn.init.kaiming_normal_(self.out.weight, mode="fan_in", nonlinearity="relu")
 
     def forward(
         self,
