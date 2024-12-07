@@ -19,6 +19,7 @@ from torch.utils.data import Dataset, DataLoader, random_split
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
+from torch.autograd import detect_anomaly
 
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
@@ -1025,93 +1026,94 @@ def train(
         model.train()
         start_step = time.time()
 
-        with autocast(device_type="cuda"):
-            (
-                audio_files,
-                transcript_files,
-                padded_audio_arr,
-                audio_input,
-                text_input,
-                text_y,
-                padding_mask,
-            ) = batch
-
-            audio_input = audio_input.to(rank)
-            text_input = text_input.to(rank)
-            text_y = text_y.to(rank)
-            padding_mask = padding_mask.to(rank)
-
-            logits = model(audio_input, text_input, padding_mask, verbose)
-
-            train_loss = F.cross_entropy(
-                logits.view(-1, logits.shape[-1]),
-                text_y.view(-1),
-                ignore_index=51864,
-            )
-            train_loss = (
-                train_loss / accumulation_steps
-            )  # normalization of loss (gradient accumulation)
-
-        scaler.scale(train_loss).backward()  # accumulate gradients
-        train_loss.detach_()
-        total_loss += train_loss
-
-        # alerting if loss is nan
-        if rank == 0:
-            if torch.isnan(train_loss):
-                text = f"Loss is NaN for {audio_files} at step {current_step}!"
-                verbose = True
-                print(f"{rank=}")
-                print()
-                print(f"{train_loss=}")
-                print()
-                print(f"{logits=}")
-                print()
-                print(f"{audio_input=}")
-                print()
-                print(f"{text_input=}")
-                print()
-                print(f"{text_y=}")
-                print()
-                print(f"{padding_mask=}")
-                wandb.alert(title="NaN Loss", text=text)
-
-        if ((current_step + 1) % train_log_freq) == 0:
-            microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text = (
-                gen_pred(
-                    logits,
+        with detect_anomaly():
+            with autocast(device_type="cuda"):
+                (
+                    audio_files,
+                    transcript_files,
+                    padded_audio_arr,
+                    audio_input,
+                    text_input,
                     text_y,
-                    tokenizer,
-                )
-            )
-            batch_pred_text.extend(microbatch_pred_text)
-            batch_unnorm_pred_text.extend(microbatch_unnorm_pred_text)
-            batch_tgt_text.extend(microbatch_tgt_text)
-            batch_audio_files.extend(audio_files)
-            batch_text_files.extend(transcript_files)
-            batch_audio_arr.extend(padded_audio_arr)
+                    padding_mask,
+                ) = batch
 
-        # after accumulation_steps, update weights
-        if ((batch_idx + 1) % accumulation_steps) == 0:
-            train_loss_tensor = total_loss.clone()
-            dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
-            train_loss_all = train_loss_tensor.item() / dist.get_world_size()
+                audio_input = audio_input.to(rank)
+                text_input = text_input.to(rank)
+                text_y = text_y.to(rank)
+                padding_mask = padding_mask.to(rank)
+
+                logits = model(audio_input, text_input, padding_mask, verbose)
+
+                train_loss = F.cross_entropy(
+                    logits.view(-1, logits.shape[-1]),
+                    text_y.view(-1),
+                    ignore_index=51864,
+                )
+                train_loss = (
+                    train_loss / accumulation_steps
+                )  # normalization of loss (gradient accumulation)
+
+            scaler.scale(train_loss).backward()  # accumulate gradients
+            train_loss.detach_()
+            total_loss += train_loss
+
+            # alerting if loss is nan
+            if rank == 0:
+                if torch.isnan(train_loss):
+                    text = f"Loss is NaN for {audio_files} at step {current_step}!"
+                    verbose = True
+                    print(f"{rank=}")
+                    print()
+                    print(f"{train_loss=}")
+                    print()
+                    print(f"{logits=}")
+                    print()
+                    print(f"{audio_input=}")
+                    print()
+                    print(f"{text_input=}")
+                    print()
+                    print(f"{text_y=}")
+                    print()
+                    print(f"{padding_mask=}")
+                    wandb.alert(title="NaN Loss", text=text)
 
             if ((current_step + 1) % train_log_freq) == 0:
-                (
-                    norm_tgt_pred_pairs,
-                    train_wer_all,
-                    train_subs_all,
-                    train_dels_all,
-                    train_ins_all,
-                ) = calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank)
+                microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text = (
+                    gen_pred(
+                        logits,
+                        text_y,
+                        tokenizer,
+                    )
+                )
+                batch_pred_text.extend(microbatch_pred_text)
+                batch_unnorm_pred_text.extend(microbatch_unnorm_pred_text)
+                batch_tgt_text.extend(microbatch_tgt_text)
+                batch_audio_files.extend(audio_files)
+                batch_text_files.extend(transcript_files)
+                batch_audio_arr.extend(padded_audio_arr)
 
-            # Gradient clipping, if necessary, should be done before optimizer.step()
-            scaler.unscale_(optimizer)
-            clip_grad_norm_(model.parameters(), max_grad_norm)
-            scaler.step(optimizer)  # Only update weights after accumulation_steps
-            scaler.update()
-            scheduler.step()  # Adjust learning rate based on accumulated steps
+            # after accumulation_steps, update weights
+            if ((batch_idx + 1) % accumulation_steps) == 0:
+                train_loss_tensor = total_loss.clone()
+                dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
+                train_loss_all = train_loss_tensor.item() / dist.get_world_size()
+
+                if ((current_step + 1) % train_log_freq) == 0:
+                    (
+                        norm_tgt_pred_pairs,
+                        train_wer_all,
+                        train_subs_all,
+                        train_dels_all,
+                        train_ins_all,
+                    ) = calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank)
+
+                # Gradient clipping, if necessary, should be done before optimizer.step()
+                scaler.unscale_(optimizer)
+                clip_grad_norm_(model.parameters(), max_grad_norm)
+                scaler.step(optimizer)  # Only update weights after accumulation_steps
+                scaler.update()
+                scheduler.step()  # Adjust learning rate based on accumulated steps
 
             current_step += 1
 
