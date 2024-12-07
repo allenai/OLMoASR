@@ -975,6 +975,7 @@ def train(
     val_freq: int,
     eval_freq: int,
     ckpt_freq: int,
+    verbose: bool,
 ) -> Tuple[
     int,
     float,
@@ -1015,7 +1016,7 @@ def train(
     total_loss = 0.0
     model.train()
     optimizer.zero_grad()
-    verbose = False
+    verbose = verbose
 
     if rank == 0:
         train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
@@ -1911,6 +1912,7 @@ def main(
     val_freq: Optional[int] = 10000,
     eval_freq: Optional[int] = 20000,
     ckpt_freq: int = 2500,
+    verbose: bool = False,
 ) -> None:
     """Main function for training
 
@@ -2184,6 +2186,7 @@ def main(
             val_freq=val_freq,
             eval_freq=eval_freq,
             ckpt_freq=ckpt_freq,
+            verbose=verbose,
         )
 
         epoch += 1
