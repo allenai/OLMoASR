@@ -1,4 +1,3 @@
-import multiprocessing
 from typing import Literal, Optional
 import os
 import numpy as np
@@ -13,8 +12,8 @@ from open_whisper import load_model
 from fire import Fire
 from tqdm import tqdm
 from torchaudio.datasets import TEDLIUM
-from scripts.eval.get_eval_set import get_eval_set
-from scripts.eval.gen_inf_ckpt import gen_inf_ckpt
+from get_eval_set import get_eval_set
+from gen_inf_ckpt import gen_inf_ckpt
 import wandb
 from tqdm import tqdm
 
@@ -247,39 +246,6 @@ class EvalDataset(Dataset):
         return audio_arr, mel_spec
 
 
-def gen_tbl_row(norm_tgt_text_instance, norm_pred_text_instance, audio_input_instance):
-    wer = (
-        np.round(
-            jiwer.wer(
-                reference=norm_tgt_text_instance,
-                hypothesis=norm_pred_text_instance,
-            ),
-            2,
-        )
-        * 100
-    )
-    measures = jiwer.compute_measures(
-        truth=norm_tgt_text_instance, hypothesis=norm_pred_text_instance
-    )
-    subs = measures["substitutions"]
-    dels = measures["deletions"]
-    ins = measures["insertions"]
-
-    return [
-        wandb.Audio(audio_input_instance, sample_rate=16000),
-        norm_pred_text_instance,
-        norm_tgt_text_instance,
-        subs,
-        dels,
-        ins,
-        wer,
-    ]
-
-
-def parallel_gen_tbl_row(args):
-    return gen_tbl_row(*args)
-
-
 def main(
     batch_size: int,
     num_workers: int,
@@ -348,6 +314,7 @@ def main(
             config=config,
             tags=["eval", eval_set],
         )
+        eval_table = wandb.Table(columns=wandb_table_cols)
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
@@ -380,63 +347,38 @@ def main(
 
             if wandb_log:
                 if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
-                    with multiprocessing.Pool() as pool:
-                        eval_table_data = list(
-                            tqdm(
-                                pool.imap_unordered(
-                                    parallel_gen_tbl_row,
-                                    zip(
-                                        norm_tgt_text,
-                                        norm_pred_text,
-                                        (
-                                            audio_arr.numpy()
-                                            if torch.is_tensor(audio_arr)
-                                            else audio_arr
-                                        ),
-                                    ),
+                    for i in tqdm(
+                        range(0, len(norm_pred_text), 8), total=len(norm_pred_text) // 8
+                    ):
+                        wer = (
+                            np.round(
+                                jiwer.wer(
+                                    reference=norm_tgt_text[i],
+                                    hypothesis=norm_pred_text[i],
                                 ),
-                                total=len(norm_tgt_text),
+                                2,
                             )
+                            * 100
                         )
-                        
-                    print(eval_table_data[:5])
+                        measures = jiwer.compute_measures(
+                            truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                        )
+                        subs = measures["substitutions"]
+                        dels = measures["deletions"]
+                        ins = measures["insertions"]
 
-                    eval_table = wandb.Table(
-                        columns=wandb_table_cols, data=eval_table_data
-                    )
+                        eval_table.add_data(
+                            wandb.Audio(audio_arr.numpy()[i], sample_rate=16000),
+                            norm_pred_text[i],
+                            norm_tgt_text[i],
+                            subs,
+                            dels,
+                            ins,
+                            wer,
+                        )
 
                     wandb.log({f"eval_table_{batch_idx + 1}": eval_table})
-
-                # eval_table = wandb.Table(columns=wandb_table_cols)
-
-                # for i in range(0, len(norm_pred_text), 8):
-                #     print(audio_input.cpu()[i])
-                #     wer = (
-                #         np.round(
-                #             jiwer.wer(
-                #                 reference=norm_tgt_text[i],
-                #                 hypothesis=norm_pred_text[i],
-                #             ),
-                #             2,
-                #         )
-                #         * 100
-                #     )
-                #     measures = jiwer.compute_measures(
-                #         truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
-                #     )
-                #     subs = measures["substitutions"]
-                #     dels = measures["deletions"]
-                #     ins = measures["insertions"]
-
-                #     eval_table.add_data(
-                #         wandb.Audio(audio_input.cpu()[i], sample_rate=16000),
-                #         norm_pred_text[i],
-                #         norm_tgt_text[i],
-                #         subs,
-                #         dels,
-                #         ins,
-                #         wer,
-                #     )
+                    eval_table = wandb.Table(columns=wandb_table_cols)
 
         avg_wer = jiwer.wer(references, hypotheses) * 100
         avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
@@ -450,5 +392,4 @@ def main(
 
 
 if __name__ == "__main__":
-    multiprocessing.set_start_method("spawn")
     Fire(main)
