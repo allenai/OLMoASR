@@ -293,7 +293,10 @@ def main(
     if wandb_log:
         run_id = wandb.util.generate_id()
         exp_name = f"{eval_set}_eval"
-        config = {"ckpt": ckpt.split("/")[-2]}
+        ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
+        model_sizes = ["tiny", "small", "base", "medium", "large"]
+        model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
+        config = {"ckpt": ckpt.split("/")[-1], "model": ow_or_w, "model_size": model_size}
         wandb_table_cols = [
             "audio",
             "prediction",
@@ -312,7 +315,7 @@ def main(
             name=exp_name,
             dir=wandb_log_dir,
             config=config,
-            tags=["eval", eval_set],
+            tags=["eval", eval_set, ow_or_w, model_size],
         )
         eval_table = wandb.Table(columns=wandb_table_cols)
 
@@ -385,6 +388,12 @@ def main(
         avg_subs = avg_measures["substitutions"]
         avg_ins = avg_measures["insertions"]
         avg_dels = avg_measures["deletions"]
+        
+        if wandb_log:
+            wandb.run.summary["avg_wer"] = avg_wer
+            wandb.run.summary["avg_subs"] = avg_subs
+            wandb.run.summary["avg_ins"] = avg_ins
+            wandb.run.summary["avg_dels"] = avg_dels
 
         print(
             f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
