@@ -319,6 +319,7 @@ def main(
             tags=["eval", eval_set, ow_or_w, model_size],
         )
         eval_table = wandb.Table(columns=wandb_table_cols)
+        table_iter = 0
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
@@ -351,6 +352,7 @@ def main(
 
             if wandb_log:
                 if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
+                    table_iter += 1
                     for i in tqdm(
                         range(0, len(norm_pred_text), 8), total=len(norm_pred_text) // 8
                     ):
@@ -382,7 +384,7 @@ def main(
                             wer,
                         )
 
-                    wandb.log({f"eval_table_{batch_idx + 1}": eval_table})
+                    wandb.log({f"eval_table_{table_iter}": eval_table})
                     eval_table = wandb.Table(columns=wandb_table_cols)
 
         avg_wer = jiwer.wer(references, hypotheses) * 100
