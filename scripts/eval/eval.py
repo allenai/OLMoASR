@@ -13,7 +13,7 @@ from fire import Fire
 from tqdm import tqdm
 from torchaudio.datasets import TEDLIUM
 from scripts.eval.get_eval_set import get_eval_set
-from scripts.eval.get_inf_ckpt import gen_inf_ckpt
+from scripts.eval.gen_inf_ckpt import gen_inf_ckpt
 import wandb
 from tqdm import tqdm
 
