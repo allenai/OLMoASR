@@ -298,6 +298,7 @@ def main(
         model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
         config = {"ckpt": ckpt.split("/")[-1], "model": ow_or_w, "model_size": model_size}
         wandb_table_cols = [
+            "eval_set",
             "audio",
             "prediction",
             "target",
@@ -371,6 +372,7 @@ def main(
                         ins = measures["insertions"]
 
                         eval_table.add_data(
+                            eval_set,
                             wandb.Audio(audio_arr.numpy()[i], sample_rate=16000),
                             norm_pred_text[i],
                             norm_tgt_text[i],
