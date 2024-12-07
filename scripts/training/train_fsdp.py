@@ -1115,6 +1115,266 @@ def train(
                 scaler.update()
                 scheduler.step()  # Adjust learning rate based on accumulated steps
 
+                current_step += 1
+
+                if current_step >= epoch_steps + (epoch_steps * epoch):
+                    # logging
+                    if rank == 0:
+                        train_metrics = defaultdict(float)
+                        print("Logging results at an epoch")
+                        print(f"current_step: {current_step}")
+                        print(f"train_loss: {train_loss_all}")
+
+                        train_metrics["train/train_loss"] = train_loss_all
+                        train_metrics["custom_step"] = current_step
+
+                        if (current_step % train_log_freq) == 0:
+                            train_metrics["train/train_wer"] = train_wer_all
+                            train_metrics["train/train_subs"] = train_subs_all
+                            train_metrics["train/train_dels"] = train_dels_all
+                            train_metrics["train/train_ins"] = train_ins_all
+
+                            print(f"train_wer: {train_wer_all}")
+
+                        wandb.log(train_metrics)
+
+                    return (
+                        current_step,
+                        epoch,
+                        best_val_loss,
+                        best_eval_wer,
+                        model,
+                        optimizer,
+                        scaler,
+                        scheduler,
+                    )
+
+                if current_step >= train_steps:
+                    # logging
+                    if rank == 0:
+                        train_metrics = defaultdict(float)
+                        print("Logging final training results")
+                        print(f"current_step: {current_step}")
+                        print(f"train_loss: {train_loss_all}")
+
+                        train_metrics["train/train_loss"] = train_loss_all
+                        train_metrics["custom_step"] = current_step
+
+                        if (current_step % train_log_freq) == 0:
+                            train_metrics["train/train_wer"] = train_wer_all
+                            train_metrics["train/train_subs"] = train_subs_all
+                            train_metrics["train/train_dels"] = train_dels_all
+                            train_metrics["train/train_ins"] = train_ins_all
+
+                            print(f"train_wer: {train_wer_all}")
+
+                        wandb.log(train_metrics)
+
+                    return (
+                        current_step,
+                        epoch,
+                        best_val_loss,
+                        best_eval_wer,
+                        model,
+                        optimizer,
+                        scaler,
+                        scheduler,
+                    )
+
+                # logging throughput
+                end_step = time.time()
+                time_per_step = (end_step - start_step) / 60
+                throughput = (
+                    ((train_batch_size * accumulation_steps) / (end_step - start_step))
+                    * 30
+                    / 60
+                )
+
+                # putting throughput on GPU
+                throughput_tensor = torch.tensor(throughput, device=rank)
+                time_tensor = torch.tensor(time_per_step, device=rank)
+
+                # Prepare tensors for all_gather
+                world_size = dist.get_world_size()
+                gathered_throughput = [
+                    torch.zeros_like(throughput_tensor) for _ in range(world_size)
+                ]
+                gathered_time = [torch.zeros_like(time_tensor) for _ in range(world_size)]
+
+                # All-gather tensors
+                dist.all_gather(gathered_throughput, throughput_tensor)
+                dist.all_gather(gathered_time, time_tensor)
+
+                # Convert tensors to Python scalars and log (only if rank == 0 to reduce duplicate logging)
+                if rank == 0:
+                    gathered_throughput = [t.item() for t in gathered_throughput]
+                    gathered_time = [t.item() for t in gathered_time]
+                    for i, throughput in enumerate(gathered_throughput):
+                        wandb.log(
+                            {
+                                f"train/audio_min_per_GPU_second_gpu={i}": throughput,
+                                "custom_step": current_step,
+                            }
+                        )
+                    for i, time_per_step in enumerate(gathered_time):
+                        wandb.log(
+                            {
+                                f"train/time_per_step_gpu={i}": time_per_step,
+                                "custom_step": current_step,
+                            }
+                        )
+
+                current_lr = optimizer.param_groups[0]["lr"]
+                # logging learning rate
+                if rank == 0:
+                    wandb.log(
+                        {"train/learning_rate": current_lr, "custom_step": current_step}
+                    )
+                optimizer.zero_grad()  # Reset gradients only after updating weights
+                total_loss = 0.0
+
+                if current_step % ckpt_freq == 0:
+                    save_ckpt(
+                        current_step=current_step,
+                        epoch=epoch,
+                        best_val_loss=best_val_loss,
+                        best_eval_wer=best_eval_wer,
+                        model=model,
+                        optimizer=optimizer,
+                        scaler=scaler,
+                        scheduler=scheduler,
+                        model_dims=model_dims,
+                        tags=tags,
+                        model_variant=model_variant,
+                        exp_name=exp_name,
+                        run_id=run_id,
+                        file_name="checkpoint",
+                        ckpt_dir=ckpt_dir,
+                    )
+
+                if rank == 0:
+                    train_metrics = defaultdict(float)
+                    print(f"current_step: {current_step}")
+                    print(f"train_loss: {train_loss_all}")
+
+                    train_metrics["train/train_loss"] = train_loss_all
+                    train_metrics["custom_step"] = current_step
+
+                    if (current_step % train_log_freq) == 0:
+                        train_metrics["train/train_wer"] = train_wer_all
+                        train_metrics["train/train_subs"] = train_subs_all
+                        train_metrics["train/train_dels"] = train_dels_all
+                        train_metrics["train/train_ins"] = train_ins_all
+
+                        print(f"train_wer: {train_wer_all}")
+
+                    wandb.log(train_metrics)
+
+                    if (current_step % train_log_freq) == 0:
+                        print(
+                            f"{len(batch_audio_files)=}, {len(batch_audio_arr)=}, {len(batch_text_files)=}, {len(batch_pred_text)=}, {len(batch_tgt_text)=}, {len(batch_unnorm_pred_text)=}, {len(norm_tgt_pred_pairs)=}"
+                        )
+                        log_tbl(
+                            current_step=current_step,
+                            train_table=train_table,
+                            run_id=run_id,
+                            batch_audio_files=batch_audio_files,
+                            batch_audio_arr=batch_audio_arr,
+                            batch_text_files=batch_text_files,
+                            batch_pred_text=batch_pred_text,
+                            batch_tgt_text=batch_tgt_text,
+                            batch_unnorm_pred_text=batch_unnorm_pred_text,
+                            norm_tgt_pred_pairs=norm_tgt_pred_pairs,
+                        )
+                        train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
+
+                # validation
+                if run_val:
+                    if (current_step % val_freq) == 0 and current_step > 0:
+                        best_val_loss = validate(
+                            rank=rank,
+                            current_step=current_step,
+                            epoch=epoch,
+                            best_val_loss=best_val_loss,
+                            best_eval_wer=best_eval_wer,
+                            val_dataloader=val_dataloader,
+                            scaler=scaler,
+                            model=model,
+                            tokenizer=tokenizer,
+                            normalizer=normalizer,
+                            optimizer=optimizer,
+                            scheduler=scheduler,
+                            model_dims=model_dims,
+                            model_variant=model_variant,
+                            tags=tags,
+                            exp_name=exp_name,
+                            run_id=run_id,
+                            ckpt_dir=ckpt_dir,
+                        )
+
+                    if (current_step % val_freq) == 0 and current_step > 0:
+                        print(
+                            f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}"
+                        )
+                    dist.barrier()
+                    if (current_step % val_freq) == 0 and current_step > 0:
+                        print(
+                            f"Rank {rank} passing barrier w/ best val loss {best_val_loss}"
+                        )
+
+                # evaluation
+                if run_eval:
+                    if (current_step % eval_freq) == 0 and current_step > 0:
+                        best_eval_wer = evaluate(
+                            rank=rank,
+                            current_step=current_step,
+                            epoch=epoch,
+                            model=model,
+                            optimizer=optimizer,
+                            scaler=scaler,
+                            scheduler=scheduler,
+                            model_dims=model_dims,
+                            model_variant=model_variant,
+                            eval_loaders=eval_loaders,
+                            normalizer=normalizer,
+                            best_val_loss=best_val_loss,
+                            best_eval_wer=best_eval_wer,
+                            tags=tags,
+                            exp_name=exp_name,
+                            run_id=run_id,
+                            table_idx=None,
+                            log_dir=log_dir,
+                            ckpt_dir=ckpt_dir,
+                        )
+
+                    if (current_step % eval_freq) == 0 and current_step > 0:
+                        print(f"Rank {rank} reaching barrier")
+                    dist.barrier()
+                    if (current_step % eval_freq) == 0 and current_step > 0:
+                        print(f"Rank {rank} passing barrier")
+
+            batch_pred_text = []
+            batch_tgt_text = []
+            batch_unnorm_pred_text = []
+            batch_audio_files = []
+            batch_text_files = []
+            batch_audio_arr = []
+
+    # If your dataset size is not a multiple of (batch_size * accumulation_steps)
+    # Make sure to account for the last set of batches smaller than accumulation_steps
+
+    with detect_anomaly():
+        if total_loss > 0.0:
+            train_loss_tensor = total_loss.clone()
+            dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
+            train_loss_all = train_loss_tensor.item() / dist.get_world_size()
+
+            scaler.unscale_(optimizer)
+            clip_grad_norm_(model.parameters(), max_grad_norm)
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+
             current_step += 1
 
             if current_step >= epoch_steps + (epoch_steps * epoch):
@@ -1133,7 +1393,6 @@ def train(
                         train_metrics["train/train_subs"] = train_subs_all
                         train_metrics["train/train_dels"] = train_dels_all
                         train_metrics["train/train_ins"] = train_ins_all
-
                         print(f"train_wer: {train_wer_all}")
 
                     wandb.log(train_metrics)
@@ -1152,23 +1411,16 @@ def train(
             if current_step >= train_steps:
                 # logging
                 if rank == 0:
-                    train_metrics = defaultdict(float)
                     print("Logging final training results")
                     print(f"current_step: {current_step}")
                     print(f"train_loss: {train_loss_all}")
 
-                    train_metrics["train/train_loss"] = train_loss_all
-                    train_metrics["custom_step"] = current_step
-
-                    if (current_step % train_log_freq) == 0:
-                        train_metrics["train/train_wer"] = train_wer_all
-                        train_metrics["train/train_subs"] = train_subs_all
-                        train_metrics["train/train_dels"] = train_dels_all
-                        train_metrics["train/train_ins"] = train_ins_all
-
-                        print(f"train_wer: {train_wer_all}")
-
-                    wandb.log(train_metrics)
+                    wandb.log(
+                        {
+                            "train/train_loss": train_loss_all,
+                            "custom_step": current_step,
+                        }
+                    )
 
                 return (
                     current_step,
@@ -1181,236 +1433,13 @@ def train(
                     scheduler,
                 )
 
-            # logging throughput
-            end_step = time.time()
-            time_per_step = (end_step - start_step) / 60
-            throughput = (
-                ((train_batch_size * accumulation_steps) / (end_step - start_step))
-                * 30
-                / 60
-            )
-
-            # putting throughput on GPU
-            throughput_tensor = torch.tensor(throughput, device=rank)
-            time_tensor = torch.tensor(time_per_step, device=rank)
-
-            # Prepare tensors for all_gather
-            world_size = dist.get_world_size()
-            gathered_throughput = [
-                torch.zeros_like(throughput_tensor) for _ in range(world_size)
-            ]
-            gathered_time = [torch.zeros_like(time_tensor) for _ in range(world_size)]
-
-            # All-gather tensors
-            dist.all_gather(gathered_throughput, throughput_tensor)
-            dist.all_gather(gathered_time, time_tensor)
-
-            # Convert tensors to Python scalars and log (only if rank == 0 to reduce duplicate logging)
-            if rank == 0:
-                gathered_throughput = [t.item() for t in gathered_throughput]
-                gathered_time = [t.item() for t in gathered_time]
-                for i, throughput in enumerate(gathered_throughput):
-                    wandb.log(
-                        {
-                            f"train/audio_min_per_GPU_second_gpu={i}": throughput,
-                            "custom_step": current_step,
-                        }
-                    )
-                for i, time_per_step in enumerate(gathered_time):
-                    wandb.log(
-                        {
-                            f"train/time_per_step_gpu={i}": time_per_step,
-                            "custom_step": current_step,
-                        }
-                    )
-
             current_lr = optimizer.param_groups[0]["lr"]
-            # logging learning rate
             if rank == 0:
-                wandb.log(
-                    {"train/learning_rate": current_lr, "custom_step": current_step}
-                )
-            optimizer.zero_grad()  # Reset gradients only after updating weights
+                wandb.log({"train/learning_rate": current_lr, "custom_step": current_step})
+            optimizer.zero_grad()
             total_loss = 0.0
 
-            if current_step % ckpt_freq == 0:
-                save_ckpt(
-                    current_step=current_step,
-                    epoch=epoch,
-                    best_val_loss=best_val_loss,
-                    best_eval_wer=best_eval_wer,
-                    model=model,
-                    optimizer=optimizer,
-                    scaler=scaler,
-                    scheduler=scheduler,
-                    model_dims=model_dims,
-                    tags=tags,
-                    model_variant=model_variant,
-                    exp_name=exp_name,
-                    run_id=run_id,
-                    file_name="checkpoint",
-                    ckpt_dir=ckpt_dir,
-                )
-
             if rank == 0:
-                train_metrics = defaultdict(float)
-                print(f"current_step: {current_step}")
-                print(f"train_loss: {train_loss_all}")
-
-                train_metrics["train/train_loss"] = train_loss_all
-                train_metrics["custom_step"] = current_step
-
-                if (current_step % train_log_freq) == 0:
-                    train_metrics["train/train_wer"] = train_wer_all
-                    train_metrics["train/train_subs"] = train_subs_all
-                    train_metrics["train/train_dels"] = train_dels_all
-                    train_metrics["train/train_ins"] = train_ins_all
-
-                    print(f"train_wer: {train_wer_all}")
-
-                wandb.log(train_metrics)
-
-                if (current_step % train_log_freq) == 0:
-                    print(
-                        f"{len(batch_audio_files)=}, {len(batch_audio_arr)=}, {len(batch_text_files)=}, {len(batch_pred_text)=}, {len(batch_tgt_text)=}, {len(batch_unnorm_pred_text)=}, {len(norm_tgt_pred_pairs)=}"
-                    )
-                    log_tbl(
-                        current_step=current_step,
-                        train_table=train_table,
-                        run_id=run_id,
-                        batch_audio_files=batch_audio_files,
-                        batch_audio_arr=batch_audio_arr,
-                        batch_text_files=batch_text_files,
-                        batch_pred_text=batch_pred_text,
-                        batch_tgt_text=batch_tgt_text,
-                        batch_unnorm_pred_text=batch_unnorm_pred_text,
-                        norm_tgt_pred_pairs=norm_tgt_pred_pairs,
-                    )
-                    train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
-
-            # validation
-            if run_val:
-                if (current_step % val_freq) == 0 and current_step > 0:
-                    best_val_loss = validate(
-                        rank=rank,
-                        current_step=current_step,
-                        epoch=epoch,
-                        best_val_loss=best_val_loss,
-                        best_eval_wer=best_eval_wer,
-                        val_dataloader=val_dataloader,
-                        scaler=scaler,
-                        model=model,
-                        tokenizer=tokenizer,
-                        normalizer=normalizer,
-                        optimizer=optimizer,
-                        scheduler=scheduler,
-                        model_dims=model_dims,
-                        model_variant=model_variant,
-                        tags=tags,
-                        exp_name=exp_name,
-                        run_id=run_id,
-                        ckpt_dir=ckpt_dir,
-                    )
-
-                if (current_step % val_freq) == 0 and current_step > 0:
-                    print(
-                        f"Rank {rank} reaching barrier w/ best val loss {best_val_loss}"
-                    )
-                dist.barrier()
-                if (current_step % val_freq) == 0 and current_step > 0:
-                    print(
-                        f"Rank {rank} passing barrier w/ best val loss {best_val_loss}"
-                    )
-
-            # evaluation
-            if run_eval:
-                if (current_step % eval_freq) == 0 and current_step > 0:
-                    best_eval_wer = evaluate(
-                        rank=rank,
-                        current_step=current_step,
-                        epoch=epoch,
-                        model=model,
-                        optimizer=optimizer,
-                        scaler=scaler,
-                        scheduler=scheduler,
-                        model_dims=model_dims,
-                        model_variant=model_variant,
-                        eval_loaders=eval_loaders,
-                        normalizer=normalizer,
-                        best_val_loss=best_val_loss,
-                        best_eval_wer=best_eval_wer,
-                        tags=tags,
-                        exp_name=exp_name,
-                        run_id=run_id,
-                        table_idx=None,
-                        log_dir=log_dir,
-                        ckpt_dir=ckpt_dir,
-                    )
-
-                if (current_step % eval_freq) == 0 and current_step > 0:
-                    print(f"Rank {rank} reaching barrier")
-                dist.barrier()
-                if (current_step % eval_freq) == 0 and current_step > 0:
-                    print(f"Rank {rank} passing barrier")
-
-        batch_pred_text = []
-        batch_tgt_text = []
-        batch_unnorm_pred_text = []
-        batch_audio_files = []
-        batch_text_files = []
-        batch_audio_arr = []
-
-    # If your dataset size is not a multiple of (batch_size * accumulation_steps)
-    # Make sure to account for the last set of batches smaller than accumulation_steps
-
-    if total_loss > 0.0:
-        train_loss_tensor = total_loss.clone()
-        dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
-        train_loss_all = train_loss_tensor.item() / dist.get_world_size()
-
-        scaler.unscale_(optimizer)
-        clip_grad_norm_(model.parameters(), max_grad_norm)
-        scaler.step(optimizer)
-        scaler.update()
-        scheduler.step()
-
-        current_step += 1
-
-        if current_step >= epoch_steps + (epoch_steps * epoch):
-            # logging
-            if rank == 0:
-                train_metrics = defaultdict(float)
-                print("Logging results at an epoch")
-                print(f"current_step: {current_step}")
-                print(f"train_loss: {train_loss_all}")
-
-                train_metrics["train/train_loss"] = train_loss_all
-                train_metrics["custom_step"] = current_step
-
-                if (current_step % train_log_freq) == 0:
-                    train_metrics["train/train_wer"] = train_wer_all
-                    train_metrics["train/train_subs"] = train_subs_all
-                    train_metrics["train/train_dels"] = train_dels_all
-                    train_metrics["train/train_ins"] = train_ins_all
-                    print(f"train_wer: {train_wer_all}")
-
-                wandb.log(train_metrics)
-
-            return (
-                current_step,
-                epoch,
-                best_val_loss,
-                best_eval_wer,
-                model,
-                optimizer,
-                scaler,
-                scheduler,
-            )
-
-        if current_step >= train_steps:
-            # logging
-            if rank == 0:
-                print("Logging final training results")
                 print(f"current_step: {current_step}")
                 print(f"train_loss: {train_loss_all}")
 
@@ -1421,55 +1450,27 @@ def train(
                     }
                 )
 
-            return (
-                current_step,
-                epoch,
-                best_val_loss,
-                best_eval_wer,
-                model,
-                optimizer,
-                scaler,
-                scheduler,
-            )
-
-        current_lr = optimizer.param_groups[0]["lr"]
         if rank == 0:
-            wandb.log({"train/learning_rate": current_lr, "custom_step": current_step})
-        optimizer.zero_grad()
-        total_loss = 0.0
-
-        if rank == 0:
-            print(f"current_step: {current_step}")
-            print(f"train_loss: {train_loss_all}")
+            end_time = time.time()
+            os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
 
             wandb.log(
                 {
-                    "train/train_loss": train_loss_all,
+                    "train/time_epoch": (end_time - start_time) / 60,
                     "custom_step": current_step,
                 }
             )
 
-    if rank == 0:
-        end_time = time.time()
-        os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
-
-        wandb.log(
-            {
-                "train/time_epoch": (end_time - start_time) / 60,
-                "custom_step": current_step,
-            }
+        return (
+            current_step,
+            epoch,
+            best_val_loss,
+            best_eval_wer,
+            model,
+            optimizer,
+            scaler,
+            scheduler,
         )
-
-    return (
-        current_step,
-        epoch,
-        best_val_loss,
-        best_eval_wer,
-        model,
-        optimizer,
-        scaler,
-        scheduler,
-    )
 
 
 def validate(
