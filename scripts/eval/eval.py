@@ -295,7 +295,7 @@ def main(
         exp_name = f"{eval_set}_eval"
         ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
         model_sizes = ["tiny", "small", "base", "medium", "large"]
-        model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
+        model_size = [model_size if model_size in ckpt else "tiny" for model_size in model_sizes][0]
         config = {"ckpt": ckpt.split("/")[-1], "model": ow_or_w, "model_size": model_size}
         wandb_table_cols = [
             "eval_set",
