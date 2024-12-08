@@ -195,16 +195,24 @@ class MultiHeadAttention(nn.Module):
     ):
         n_batch, n_ctx, n_state = q.shape
         scale = (n_state // self.n_head) ** -0.25
+        if verbose:
+            logger.info(f"{scale=}")
         q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3) * scale
         k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1) * scale
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
         if verbose:
             logger.info("Scaling QKV")
             logger.info(f"{q.shape=}")
+            logger.info(f"{torch.max(q, dim=-1).values=}")
+            logger.info(f"{torch.min(q, dim=-1).values=}")
             logger.info(f"{q=}")
             logger.info(f"{k.shape=}")
+            logger.info(f"{torch.max(k, dim=-1).values=}")
+            logger.info(f"{torch.min(k, dim=-1).values=}")
             logger.info(f"{k=}")
             logger.info(f"{v.shape=}")
+            logger.info(f"{torch.max(v, dim=-1).values=}")
+            logger.info(f"{torch.min(v, dim=-1).values=}")
             logger.info(f"{v=}")
 
         qk = q @ k
@@ -212,6 +220,8 @@ class MultiHeadAttention(nn.Module):
             if mask is not None:
                 logger.info("Before adding mask")
             logger.info(f"{qk.shape=}")
+            logger.info(f"{torch.max(qk, dim=-1).values=}")
+            logger.info(f"{torch.min(qk, dim=-1).values=}")
             logger.info(f"{qk=}")
         if mask is not None:
             if len(mask.shape) == 2:
@@ -227,13 +237,24 @@ class MultiHeadAttention(nn.Module):
             if mask is not None:
                 logger.info("After adding mask")
             logger.info(f"{qk.shape=}")
+            logger.info(f"{torch.max(qk, dim=-1).values=}")
+            logger.info(f"{torch.min(qk, dim=-1).values=}")
             logger.info(f"{qk=}")
             
         qk = qk.float()
+        if verbose:
+            logger.info("Converting QK to torch.float32")
+            logger.info(f"{qk.shape=}")
+            logger.info(f"{torch.max(qk, dim=-1).values=}")
+            logger.info(f"{torch.min(qk, dim=-1).values=}")
+            logger.info(f"{qk=}")
 
         w = F.softmax(qk, dim=-1).to(q.dtype)
         if verbose:
             logger.info("Softmax")
+            logger.info(f"{torch.max(w, dim=-1).values=}")
+            logger.info(f"{torch.min(w, dim=-1).values=}")
+            logger.info(f"{w.shape=}")
             logger.info(f"{w=}")
         return (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2), qk.detach()
 
