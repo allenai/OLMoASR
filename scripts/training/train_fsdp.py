@@ -1369,6 +1369,7 @@ def train(
         except (RuntimeError, ValueError) as e:
             print(f"torch.autograd.detect_anomaly() triggered: {e}")
             print("Saving ckpt and exiting")
+            torch.save(logits, f"{ckpt_dir}/logits_{run_id}.pt")
             save_ckpt(
                 current_step=current_step,
                 epoch=epoch,
@@ -1502,6 +1503,7 @@ def train(
     except (RuntimeError, ValueError) as e:
         print(f"torch.autograd.detect_anomaly() triggered: {e}")
         print("Saving ckpt and exiting")
+        torch.save(logits, f"{ckpt_dir}/logits_{run_id}.pt")
         save_ckpt(
             current_step=current_step,
             epoch=epoch,
