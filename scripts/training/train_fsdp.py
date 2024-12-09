@@ -3,7 +3,7 @@ import glob
 import json
 import numpy as np
 import wandb
-from typing import List, Tuple, Union, Optional, Dict
+from typing import List, Tuple, Union, Optional, Dict, Literal
 import time
 import jiwer
 from fire import Fire
@@ -1912,6 +1912,7 @@ def main(
     ckpt_freq: int = 2500,
     verbose: bool = False,
     detect_anomaly: bool = False,
+    precision: Literal["fp16", "fp32", "pure_fp16"] = "fp16",
 ) -> None:
     """Main function for training
 
@@ -2057,11 +2058,26 @@ def main(
         )
     else:
         model = ow.model.Whisper(dims=model_dims).to(rank)
-        mixed_precision_fp16 = MixedPrecision(
-            param_dtype=torch.float16,
-            reduce_dtype=torch.float32,
-            buffer_dtype=torch.float16,
-        )
+        
+        if precision == "fp16":
+            mixed_precision_fp16 = MixedPrecision(
+                param_dtype=torch.float16,
+                reduce_dtype=torch.float32,
+                buffer_dtype=torch.float16,
+            )
+        elif precision == "fp32":
+            mixed_precision_fp16 = MixedPrecision(
+                param_dtype=torch.float32,
+                reduce_dtype=torch.float32,
+                buffer_dtype=torch.float32,
+            )
+        elif precision == "pure_fp16":
+            mixed_precision_fp16 = MixedPrecision(
+                param_dtype=torch.float16,
+                reduce_dtype=torch.float16,
+                buffer_dtype=torch.float16,
+            )
+            
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
             transformer_layer_cls={ResidualAttentionBlock},
