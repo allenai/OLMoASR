@@ -166,6 +166,7 @@ class MultiHeadAttention(nn.Module):
         mask: Optional[Tensor] = None,
         kv_cache: Optional[dict] = None,
         verbose: bool = False,
+        block_count: int = 0,
     ):
         q = self.query(x)  # W_q * x
         # not sure when which branch is taken
@@ -185,18 +186,20 @@ class MultiHeadAttention(nn.Module):
             logger.info(f"{k=}")
             logger.info(f"{v=}")
             logger.info("Attention computation")
-        wv, qk = self.qkv_attention(q, k, v, mask, verbose=verbose)
+        wv, qk = self.qkv_attention(q, k, v, mask, verbose=verbose, block_count=block_count)
         if verbose:
             logger.info(f"{wv=}")
         return self.out(wv), qk
 
     def qkv_attention(
-        self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None, verbose: bool = False
+        self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None, verbose: bool = False, block_count: int = 0
     ):
         n_batch, n_ctx, n_state = q.shape
         scale = (n_state // self.n_head) ** -0.25
         if verbose:
             logger.info(f"{scale=}")
+        torch.save(q, f"/weka/huongn/qkvattn_unscaled_q_{block_count}.pt")
+        torch.save(k, f"/weka/huongn/qkvattn_unscaled_k_{block_count}.pt")
         q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3) * scale
         k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1) * scale
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
@@ -242,6 +245,9 @@ class MultiHeadAttention(nn.Module):
             logger.info(f"{qk=}")
             
         qk = qk.float()
+        torch.save(q, f"/weka/huongn/qkvattn_q_{block_count}.pt")
+        torch.save(k, f"/weka/huongn/qkvattn_k_{block_count}.pt")
+        torch.save(qk, f"/weka/huongn/qkvattn_qk_{block_count}.pt")
         if verbose:
             logger.info("Converting QK to torch.float32")
             logger.info(f"{qk.shape=}")
@@ -250,6 +256,7 @@ class MultiHeadAttention(nn.Module):
             logger.info(f"{qk=}")
 
         w = F.softmax(qk, dim=-1).to(q.dtype)
+        torch.save(w, f"/weka/huongn/qkvattn_w_{block_count}.pt")
         if verbose:
             logger.info("Softmax")
             logger.info(f"{torch.max(w, dim=-1).values=}")
@@ -294,8 +301,9 @@ class ResidualAttentionBlock(nn.Module):
         mask: Optional[Tensor] = None,
         kv_cache: Optional[dict] = None,
         verbose: bool = False,
+        block_count: int = 0,
     ):
-        x = x + self.attn(self.attn_ln(x), mask=mask, kv_cache=kv_cache)[0]
+        x = x + self.attn(self.attn_ln(x), mask=mask, kv_cache=kv_cache, block_count=block_count)[0]
         if self.cross_attn:
             x = x + self.cross_attn(self.cross_attn_ln(x), xa, kv_cache=kv_cache, verbose=verbose)[0]
         x = x + self.mlp(self.mlp_ln(x))
@@ -457,7 +465,8 @@ class TextDecoder(nn.Module):
         for block in self.blocks:
             if verbose:
                 logger.info(f"Block {block_count}")
-            x = block(x, xa, mask=self.mask, kv_cache=kv_cache, verbose=verbose)
+                torch.save(x, f"/weka/huongn/text_decoder_x_{block_count}.pt")
+            x = block(x, xa, mask=self.mask, kv_cache=kv_cache, verbose=verbose, block_count=block_count)
             if verbose:
                 logger.info(f"{x.shape=}")
                 logger.info(f"{x=}")
