@@ -64,11 +64,6 @@ os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
 os.environ["NCCL_DEBUG"] = "INFO"
 os.environ["TORCH_DISTRIBUTED_DETAIL"] = "DEBUG"
 
-import logging
-# Configure logger for script1
-logger = logging.getLogger("train_fsdp_logger")
-logger.setLevel(logging.INFO)
-
 class AudioTextDataset(Dataset):
     """Dataset for audio and transcript segments
 
@@ -2191,15 +2186,6 @@ def main(
     to_broadcast = [tags]
     dist.broadcast_object_list(to_broadcast, src=0)
     tags = to_broadcast[0]
-
-    # Create a file handler for script1
-    file_handler = logging.FileHandler(f"train_fsdp_{run_id}.log")
-    file_handler.setLevel(logging.INFO)
-    # Create a formatter and set it for the handler
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    file_handler.setFormatter(formatter)
-    # Add the handler to the logger
-    logger.addHandler(file_handler)
 
     while current_step < train_steps:
         (
