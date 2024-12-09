@@ -1528,33 +1528,32 @@ def validate(
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(val_dataloader):
-            with autocast():
-                model.eval()
-                (
-                    audio_files,
-                    transcript_files,
-                    padded_audio_arr,
-                    audio_input,
-                    text_input,
-                    text_y,
-                    padding_mask,
-                ) = batch
+            model.eval()
+            (
+                audio_files,
+                transcript_files,
+                padded_audio_arr,
+                audio_input,
+                text_input,
+                text_y,
+                padding_mask,
+            ) = batch
 
-                audio_input = audio_input.to(rank)
-                text_input = text_input.to(rank)
-                text_y = text_y.to(rank)
-                padding_mask = padding_mask.to(rank)
+            audio_input = audio_input.to(rank)
+            text_input = text_input.to(rank)
+            text_y = text_y.to(rank)
+            padding_mask = padding_mask.to(rank)
 
-                logits = non_ddp_model(audio_input, text_input, padding_mask)
+            logits = non_ddp_model(audio_input, text_input, padding_mask)
 
-                batch_val_loss = F.cross_entropy(
-                    logits.view(-1, logits.shape[-1]),
-                    text_y.view(-1),
-                    ignore_index=51864,
-                )
+            batch_val_loss = F.cross_entropy(
+                logits.view(-1, logits.shape[-1]),
+                text_y.view(-1),
+                ignore_index=51864,
+            )
 
-                val_loss += batch_val_loss
-                val_steps += 1
+            val_loss += batch_val_loss
+            val_steps += 1
 
             probs = F.softmax(logits, dim=-1)
             pred = torch.argmax(probs, dim=-1)
