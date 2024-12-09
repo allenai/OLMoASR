@@ -2110,12 +2110,12 @@ def main(
         model = ow.model.Whisper(dims=model_dims).to(rank)
         mixed_precision_fp16 = MixedPrecision(
             param_dtype=torch.float16,
-            reduce_dtype=torch.float16,
+            reduce_dtype=torch.float32,
             buffer_dtype=torch.float16,
         )
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
-            transformer_layer_cls={AudioEncoder, TextDecoder},
+            transformer_layer_cls={ResidualAttentionBlock},
         )
         model = FSDP(
             model,
