@@ -40,9 +40,6 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
 )
 from torch.distributed.fsdp.wrap import (
     transformer_auto_wrap_policy,
-    _module_wrap_policy,
-    enable_wrap,
-    wrap,
 )
 
 import whisper
@@ -1028,32 +1025,32 @@ def train(
         start_step = time.time()
 
         with set_detect_anomaly(mode=detect_anomaly):
-            # with autocast(device_type="cuda"):
-            (
-                audio_files,
-                transcript_files,
-                padded_audio_arr,
-                audio_input,
-                text_input,
-                text_y,
-                padding_mask,
-            ) = batch
+            with autocast(device_type="cuda", dtype=torch.float16):
+                (
+                    audio_files,
+                    transcript_files,
+                    padded_audio_arr,
+                    audio_input,
+                    text_input,
+                    text_y,
+                    padding_mask,
+                ) = batch
 
-            audio_input = audio_input.to(rank)
-            text_input = text_input.to(rank)
-            text_y = text_y.to(rank)
-            padding_mask = padding_mask.to(rank)
+                audio_input = audio_input.to(rank)
+                text_input = text_input.to(rank)
+                text_y = text_y.to(rank)
+                padding_mask = padding_mask.to(rank)
 
-            logits = model(audio_input, text_input, padding_mask, verbose)
+                logits = model(audio_input, text_input, padding_mask, verbose)
 
-            train_loss = F.cross_entropy(
-                logits.view(-1, logits.shape[-1]),
-                text_y.view(-1),
-                ignore_index=51864,
-            )
-            train_loss = (
-                train_loss / accumulation_steps
-            )  # normalization of loss (gradient accumulation)
+                train_loss = F.cross_entropy(
+                    logits.view(-1, logits.shape[-1]),
+                    text_y.view(-1),
+                    ignore_index=51864,
+                )
+                train_loss = (
+                    train_loss / accumulation_steps
+                )  # normalization of loss (gradient accumulation)
 
             scaler.scale(train_loss).backward()  # accumulate gradients
             for name, param in model.named_parameters():
