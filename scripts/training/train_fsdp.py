@@ -1110,7 +1110,9 @@ def train(
 
                 # Gradient clipping, if necessary, should be done before optimizer.step()
                 scaler.unscale_(optimizer)
-                clip_grad_norm_(model.parameters(), max_grad_norm)
+                # using FSDP clip_grad_norm_ instead of torch.nn.utils.clip_grad_norm_ b/c shard strategy is FULL_SHARD
+                FSDP.clip_grad_norm_(model.parameters(), max_grad_norm)
+                # clip_grad_norm_(model.parameters(), max_grad_norm)
                 scaler.step(optimizer)  # Only update weights after accumulation_steps
                 scaler.update()
                 scheduler.step()  # Adjust learning rate based on accumulated steps
