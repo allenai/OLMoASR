@@ -1042,7 +1042,8 @@ def train(
     optimizer.zero_grad()
     
     with FSDP.summon_full_params(model):
-        param_names = [name for name, param in model.parameters()]
+        param_names = [name for name, _ in model.named_parameters()]
+        print(len(param_names))
         print(param_names)
 
     if rank == 0:
@@ -1094,6 +1095,7 @@ def train(
                     print(
                         f"Rank{rank}, grad stats for {param_names[i]}: min={grad_min}, max={grad_max}, norm={grad_norm}"
                     )
+            print(f"{len(model.named_parameters())=}")
             train_loss.detach_()
             total_loss += train_loss
 
