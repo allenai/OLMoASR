@@ -945,6 +945,8 @@ def log_tbl(
 
 
 def forward_hook(module, input, output):
+    if len(output) > 0:
+        output = output[0]
     if torch.isnan(output).any():
         print(f"NaN detected in forward output of {module}")
         torch.save(input, f"{DEBUG_HOOK_DIR}/{module}_forward_input_with_nan.pt")
