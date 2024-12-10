@@ -292,8 +292,8 @@ def main(
 
     if wandb_log:
         run_id = wandb.util.generate_id()
-        exp_name = f"{eval_set}_eval"
         ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
+        exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
         model_sizes = ["tiny", "small", "base", "medium", "large"]
         model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
         config = {"ckpt": ckpt.split("/")[-1], "model": ow_or_w, "model_size": model_size}
