@@ -33,6 +33,7 @@ from torch.distributed.fsdp import (
     FullStateDictConfig,
     FullOptimStateDictConfig,
     StateDictType,
+    sharded_grad_scaler,
 )
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     CPUOffload,
@@ -2099,7 +2100,12 @@ def main(
             optimizer=optimizer,
         )
 
-        scaler = GradScaler(init_scale=2**16)
+        # https://github.com/pytorch/pytorch/issues/76607
+        # if using FSDP mixed precision w/ fp16, need to use sharded grad scaler
+        if precision == "fp16" or precision == "pure_fp16":
+            scaler = sharded_grad_scaler.ShardedGradScaler()
+        else:
+            scaler = GradScaler(init_scale=2**16)
 
         if run_val:
             best_val_loss = float("inf")
