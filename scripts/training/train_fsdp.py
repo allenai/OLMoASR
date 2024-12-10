@@ -1095,7 +1095,7 @@ def train(
                     print(
                         f"Rank{rank}, grad stats for {param_names[i]}: min={grad_min}, max={grad_max}, norm={grad_norm}"
                     )
-            print(f"{len(model.named_parameters())=}")
+            print(f"len of model.named_parameters(): {i}")
             train_loss.detach_()
             total_loss += train_loss
 
