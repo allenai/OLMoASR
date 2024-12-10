@@ -979,6 +979,7 @@ def train(
     ckpt_freq: int,
     verbose: bool,
     detect_anomaly: bool,
+    precision: torch.dtype,
 ) -> Tuple[
     int,
     float,
@@ -1031,7 +1032,7 @@ def train(
         start_step = time.time()
 
         with set_detect_anomaly(mode=detect_anomaly):
-            with autocast(device_type="cuda", dtype=torch.float16):
+            with autocast(device_type="cuda", dtype=precision):
                 (
                     audio_files,
                     transcript_files,
@@ -2094,24 +2095,28 @@ def main(
                 reduce_dtype=torch.float32,
                 buffer_dtype=torch.float16,
             )
+            autocast_precision = torch.float16
         elif precision == "fp32":
             precision_policy = MixedPrecision(
                 param_dtype=torch.float32,
                 reduce_dtype=torch.float32,
                 buffer_dtype=torch.float32,
             )
+            autocast_precision = torch.float32
         elif precision == "pure_fp16":
             precision_policy = MixedPrecision(
                 param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
             )
+            autocast_precision = torch.float16
         elif precision == "bfloat16":
             precision_policy = MixedPrecision(
                 param_dtype=torch.bfloat16,
                 reduce_dtype=torch.bfloat16,
                 buffer_dtype=torch.bfloat16,
             )
+            autocast_precision = torch.bfloat16
 
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
@@ -2244,6 +2249,7 @@ def main(
             ckpt_freq=ckpt_freq,
             verbose=verbose,
             detect_anomaly=detect_anomaly,
+            precision=autocast_precision,
         )
 
         epoch += 1
