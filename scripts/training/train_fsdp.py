@@ -2079,6 +2079,36 @@ def main(
         )
         eval_loaders.append((eval_set, eval_dataloader))
 
+    # model precision
+    if precision == "fp16":
+        precision_policy = MixedPrecision(
+            param_dtype=torch.float16,
+            reduce_dtype=torch.float32,
+            buffer_dtype=torch.float16,
+        )
+        autocast_precision = torch.float16
+    elif precision == "fp32":
+        precision_policy = MixedPrecision(
+            param_dtype=torch.float32,
+            reduce_dtype=torch.float32,
+            buffer_dtype=torch.float32,
+        )
+        autocast_precision = torch.float32
+    elif precision == "pure_fp16":
+        precision_policy = MixedPrecision(
+            param_dtype=torch.float16,
+            reduce_dtype=torch.float16,
+            buffer_dtype=torch.float16,
+        )
+        autocast_precision = torch.float16
+    elif precision == "bfloat16":
+        precision_policy = MixedPrecision(
+            param_dtype=torch.bfloat16,
+            reduce_dtype=torch.bfloat16,
+            buffer_dtype=torch.bfloat16,
+        )
+        autocast_precision = torch.bfloat16
+
     # model instantiation
     if run_id is not None or "/" in ckpt_file_name:
         (
@@ -2107,35 +2137,6 @@ def main(
         )
     else:
         model = ow.model.Whisper(dims=model_dims).to(rank)
-
-        if precision == "fp16":
-            precision_policy = MixedPrecision(
-                param_dtype=torch.float16,
-                reduce_dtype=torch.float32,
-                buffer_dtype=torch.float16,
-            )
-            autocast_precision = torch.float16
-        elif precision == "fp32":
-            precision_policy = MixedPrecision(
-                param_dtype=torch.float32,
-                reduce_dtype=torch.float32,
-                buffer_dtype=torch.float32,
-            )
-            autocast_precision = torch.float32
-        elif precision == "pure_fp16":
-            precision_policy = MixedPrecision(
-                param_dtype=torch.float16,
-                reduce_dtype=torch.float16,
-                buffer_dtype=torch.float16,
-            )
-            autocast_precision = torch.float16
-        elif precision == "bfloat16":
-            precision_policy = MixedPrecision(
-                param_dtype=torch.bfloat16,
-                reduce_dtype=torch.bfloat16,
-                buffer_dtype=torch.bfloat16,
-            )
-            autocast_precision = torch.bfloat16
 
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
