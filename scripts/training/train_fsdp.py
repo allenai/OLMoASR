@@ -62,6 +62,7 @@ os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
 os.environ["NCCL_DEBUG"] = "INFO"
 os.environ["TORCH_DISTRIBUTED_DETAIL"] = "DEBUG"
 
+
 class AudioTextDataset(Dataset):
     """Dataset for audio and transcript segments
 
@@ -528,7 +529,7 @@ def setup_wandb(
         tags=(tags),
         name=exp_name,
         dir=f"{log_dir}",
-        settings=wandb.Settings(init_timeout=300, _service_wait=300)
+        settings=wandb.Settings(init_timeout=300, _service_wait=300),
     )
 
     wandb.define_metric("custom_step")
@@ -546,7 +547,7 @@ def save_ckpt(
     best_eval_wer: Optional[float],
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-    scaler: GradScaler,
+    scaler: Optional[GradScaler],
     scheduler: LambdaLR,
     model_dims: ModelDimensions,
     tags: List,
@@ -581,13 +582,15 @@ def save_ckpt(
         "epoch": epoch,
         "best_val_loss": best_val_loss,
         "best_eval_wer": best_eval_wer,
-        "scaler_state_dict": scaler.state_dict(),
+        "scaler_state_dict": scaler.state_dict() if scaler else None,
         "scheduler_state_dict": (scheduler.state_dict() if scheduler else None),
         "dims": model_dims,
     }
 
     state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    optim_state_dict_cfg = FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    optim_state_dict_cfg = FullOptimStateDictConfig(
+        offload_to_cpu=True, rank0_only=True
+    )
 
     # Save the full FSDP state dict
     print(f"Saving checkpoint at step {current_step}")
@@ -722,7 +725,9 @@ def load_ckpt(
     optimizer = AdamW(model.parameters())
     optim_state = torch.load(optim_state_file, map_location=map_location)
     fsdp_optim_state = FSDP.optim_state_dict_to_load(
-        model=model, optim=optimizer, optim_state_dict=optim_state,
+        model=model,
+        optim=optimizer,
+        optim_state_dict=optim_state,
     )
     optimizer.load_state_dict(fsdp_optim_state)
 
@@ -947,7 +952,7 @@ def train(
     train_steps: int,
     epoch_steps: int,
     epoch: int,
-    scaler: GradScaler,
+    scaler: Optional[GradScaler],
     model: FSDP,
     tokenizer: whisper.tokenizer.Tokenizer,
     normalizer: EnglishTextNormalizer,
@@ -979,7 +984,7 @@ def train(
     float,
     torch.nn.Module,
     torch.optim.Optimizer,
-    GradScaler,
+    Optional[GradScaler],
     LambdaLR,
     Optional[bool],
     Optional[bool],
@@ -1053,14 +1058,19 @@ def train(
                     train_loss / accumulation_steps
                 )  # normalization of loss (gradient accumulation)
 
-            scaler.scale(train_loss).backward()  # accumulate gradients
+            if scaler is not None:
+                scaler.scale(train_loss).backward()  # accumulate gradients
+            else:
+                train_loss.backward()
             for name, param in model.named_parameters():
                 if param.grad is not None:
                     print(f"{rank=}")
                     grad_min = param.grad.min().item()
                     grad_max = param.grad.max().item()
                     grad_norm = param.grad.norm().item()
-                    print(f"Grad stats for {name}: min={grad_min}, max={grad_max}, norm={grad_norm}")
+                    print(
+                        f"Grad stats for {name}: min={grad_min}, max={grad_max}, norm={grad_norm}"
+                    )
             train_loss.detach_()
             total_loss += train_loss
 
@@ -1081,12 +1091,14 @@ def train(
                     raise ValueError(text)
 
             if ((current_step + 1) % train_log_freq) == 0:
-                microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text = (
-                    gen_pred(
-                        logits,
-                        text_y,
-                        tokenizer,
-                    )
+                (
+                    microbatch_pred_text,
+                    microbatch_unnorm_pred_text,
+                    microbatch_tgt_text,
+                ) = gen_pred(
+                    logits,
+                    text_y,
+                    tokenizer,
                 )
                 batch_pred_text.extend(microbatch_pred_text)
                 batch_unnorm_pred_text.extend(microbatch_unnorm_pred_text)
@@ -1111,12 +1123,18 @@ def train(
                     ) = calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank)
 
                 # Gradient clipping, if necessary, should be done before optimizer.step()
-                scaler.unscale_(optimizer)
+                if scaler is not None:
+                    scaler.unscale_(optimizer)
                 # using FSDP clip_grad_norm_ instead of torch.nn.utils.clip_grad_norm_ b/c shard strategy is FULL_SHARD
                 FSDP.clip_grad_norm_(model.parameters(), max_grad_norm)
                 # clip_grad_norm_(model.parameters(), max_grad_norm)
-                scaler.step(optimizer)  # Only update weights after accumulation_steps
-                scaler.update()
+                if scaler is not None:
+                    scaler.step(
+                        optimizer
+                    )  # Only update weights after accumulation_steps
+                    scaler.update()
+                else:
+                    optimizer.step()
                 scheduler.step()  # Adjust learning rate based on accumulated steps
 
                 current_step += 1
@@ -1203,7 +1221,9 @@ def train(
                 gathered_throughput = [
                     torch.zeros_like(throughput_tensor) for _ in range(world_size)
                 ]
-                gathered_time = [torch.zeros_like(time_tensor) for _ in range(world_size)]
+                gathered_time = [
+                    torch.zeros_like(time_tensor) for _ in range(world_size)
+                ]
 
                 # All-gather tensors
                 dist.all_gather(gathered_throughput, throughput_tensor)
@@ -1364,18 +1384,22 @@ def train(
             batch_text_files = []
             batch_audio_arr = []
 
-# If your dataset size is not a multiple of (batch_size * accumulation_steps)
-# Make sure to account for the last set of batches smaller than accumulation_steps
+    # If your dataset size is not a multiple of (batch_size * accumulation_steps)
+    # Make sure to account for the last set of batches smaller than accumulation_steps
     with set_detect_anomaly(detect_anomaly):
         if total_loss > 0.0:
             train_loss_tensor = total_loss.clone()
             dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
 
-            scaler.unscale_(optimizer)
+            if scaler is not None:
+                scaler.unscale_(optimizer)
             clip_grad_norm_(model.parameters(), max_grad_norm)
-            scaler.step(optimizer)
-            scaler.update()
+            if scaler is not None:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
             scheduler.step()
 
             current_step += 1
@@ -1438,7 +1462,9 @@ def train(
 
             current_lr = optimizer.param_groups[0]["lr"]
             if rank == 0:
-                wandb.log({"train/learning_rate": current_lr, "custom_step": current_step})
+                wandb.log(
+                    {"train/learning_rate": current_lr, "custom_step": current_step}
+                )
             optimizer.zero_grad()
             total_loss = 0.0
 
@@ -1475,6 +1501,7 @@ def train(
             scheduler,
         )
 
+
 def validate(
     rank: int,
     current_step: int,
@@ -1482,7 +1509,7 @@ def validate(
     best_val_loss: Optional[float],
     best_eval_wer: Optional[float],
     val_dataloader: DataLoader,
-    scaler: GradScaler,
+    scaler: Optional[GradScaler],
     model: FSDP,
     tokenizer: whisper.tokenizer.Tokenizer,
     normalizer: EnglishTextNormalizer,
@@ -1713,7 +1740,7 @@ def evaluate(
     epoch: int,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-    scaler: GradScaler,
+    scaler: Optional[GradScaler],
     scheduler: LambdaLR,
     model_dims: ModelDimensions,
     model_variant: str,
@@ -1914,7 +1941,7 @@ def main(
     ckpt_freq: int = 2500,
     verbose: bool = False,
     detect_anomaly: bool = False,
-    precision: Literal["fp16", "fp32", "pure_fp16"] = "fp16",
+    precision: Literal["fp16", "fp32", "pure_fp16", "bfloat16"] = "fp16",
 ) -> None:
     """Main function for training
 
@@ -2060,7 +2087,7 @@ def main(
         )
     else:
         model = ow.model.Whisper(dims=model_dims).to(rank)
-        
+
         if precision == "fp16":
             precision_policy = MixedPrecision(
                 param_dtype=torch.float16,
@@ -2079,7 +2106,13 @@ def main(
                 reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
             )
-            
+        elif precision == "bfloat16":
+            precision_policy = MixedPrecision(
+                param_dtype=torch.bfloat16,
+                reduce_dtype=torch.bfloat16,
+                buffer_dtype=torch.bfloat16,
+            )
+
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
             transformer_layer_cls={ResidualAttentionBlock},
@@ -2109,7 +2142,8 @@ def main(
         if precision == "fp16" or precision == "pure_fp16":
             scaler = sharded_grad_scaler.ShardedGradScaler()
         else:
-            scaler = GradScaler(init_scale=2**16)
+            # scaler = GradScaler(init_scale=2**16)
+            scaler = None
 
         if run_val:
             best_val_loss = float("inf")
@@ -2155,7 +2189,7 @@ def main(
                 f.write(run_id)
 
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
-    
+
     # running evals and saving ckpts on all ranks, so need to broadcast
     to_broadcast = [run_id]
     dist.broadcast_object_list(to_broadcast, src=0)
