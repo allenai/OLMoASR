@@ -1082,15 +1082,16 @@ def train(
                 scaler.scale(train_loss).backward()  # accumulate gradients
             else:
                 train_loss.backward()
-            for name, param in model.named_parameters():
-                if param.grad is not None:
-                    print(f"{rank=}")
-                    grad_min = param.grad.min().item()
-                    grad_max = param.grad.max().item()
-                    grad_norm = param.grad.norm().item()
-                    print(
-                        f"Grad stats for {name}: min={grad_min}, max={grad_max}, norm={grad_norm}"
-                    )
+            with FSDP.summon_full_params(model):
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        print(f"{rank=}")
+                        grad_min = param.grad.min().item()
+                        grad_max = param.grad.max().item()
+                        grad_norm = param.grad.norm().item()
+                        print(
+                            f"Grad stats for {name}: min={grad_min}, max={grad_max}, norm={grad_norm}"
+                        )
             train_loss.detach_()
             total_loss += train_loss
 
