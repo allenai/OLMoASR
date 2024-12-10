@@ -944,6 +944,22 @@ def log_tbl(
     wandb.log({f"train_table_{current_step}": train_table})
 
 
+def forward_hook(module, input, output):
+    if torch.isnan(output).any():
+        print(f"NaN detected in forward output of {module}")
+        torch.save(input, f"{DEBUG_HOOK_DIR}/{module}_forward_input_with_nan.pt")
+        torch.save(output, f"{DEBUG_HOOK_DIR}/{module}_forward_output_with_nan.pt")
+
+
+def backward_hook(module, grad_input, grad_output):
+    if any(torch.isnan(grad).any() for grad in grad_input):
+        print(f"NaN detected in backward input of {module}")
+        torch.save(
+            grad_output, f"{DEBUG_HOOK_DIR}/{module}_backward_output_with_nan.pt"
+        )
+        torch.save(grad_input, f"{DEBUG_HOOK_DIR}/{module}_backward_input_with_nan.pt")
+
+
 def train(
     rank: int,
     current_step: int,
@@ -2150,31 +2166,6 @@ def main(
             backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
         )
 
-        if add_module_hooks:
-            DEBUG_HOOK_DIR = os.path.dirname(ckpt_dir) + f"/debug_hooks/{exp_name}_{run_id}"
-            os.makedirs(DEBUG_HOOK_DIR, exist_ok=True)
-            print(f"{DEBUG_HOOK_DIR=}")
-            def forward_hook(module, input, output):
-                if len(output) > 0:
-                    output = output[0]
-                if torch.isnan(output).any():
-                    print(f"NaN detected in forward output of {module}")
-                    torch.save(input, f"{DEBUG_HOOK_DIR}/{module}_forward_input_with_nan.pt")
-                    torch.save(output, f"{DEBUG_HOOK_DIR}/{module}_forward_output_with_nan.pt")
-
-
-            def backward_hook(module, grad_input, grad_output):
-                if len(output) > 0:
-                    output = output[0]
-                if any(torch.isnan(grad).any() for grad in grad_input):
-                    print(f"NaN detected in backward input of {module}")
-                    torch.save(grad_output, f"{DEBUG_HOOK_DIR}/{module}_backward_output_with_nan.pt")
-                    torch.save(grad_input, f"{DEBUG_HOOK_DIR}/{module}_backward_input_with_nan.pt")
-
-            for name, module in model.named_modules():
-                module.register_forward_hook(hook=forward_hook)
-                module.register_full_backward_hook(hook=backward_hook)
-
         # optimizer and scheduler instantiation
         optimizer = prepare_optim(
             model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
@@ -2208,6 +2199,18 @@ def main(
 
         current_step = 0
         epoch = 0
+
+    # setting up hooks for debugging
+    if add_module_hooks:
+        DEBUG_HOOK_DIR = (
+            os.path.dirname(ckpt_dir) + f"/debug_hooks/{exp_name}_{run_id}"
+        )
+        os.makedirs(DEBUG_HOOK_DIR, exist_ok=True)
+        print(f"{DEBUG_HOOK_DIR=}")
+
+        for name, module in model.named_modules():
+            module.register_forward_hook(hook=forward_hook)
+            module.register_full_backward_hook(hook=backward_hook)
 
     # setting up wandb for logging
     if rank == 0:
