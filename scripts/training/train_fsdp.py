@@ -56,6 +56,7 @@ from scripts.eval.eval import EvalDataset
 from scripts.training import for_logging
 
 WANDB_EXAMPLES = 8
+DEBUG_HOOK_DIR = ""
 os.environ["WANDB__SERVICE_WAIT"] = "300"
 os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
 os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
@@ -2153,6 +2154,8 @@ def main(
             os.makedirs(DEBUG_HOOK_DIR, exist_ok=True)
             print(f"{DEBUG_HOOK_DIR=}")
             def forward_hook(module, input, output):
+                if len(output) > 0:
+                    output = output[0]
                 if torch.isnan(output).any():
                     print(f"NaN detected in forward output of {module}")
                     torch.save(input, f"{DEBUG_HOOK_DIR}/{module}_forward_input_with_nan.pt")
@@ -2160,6 +2163,8 @@ def main(
 
 
             def backward_hook(module, grad_input, grad_output):
+                if len(output) > 0:
+                    output = output[0]
                 if any(torch.isnan(grad).any() for grad in grad_input):
                     print(f"NaN detected in backward input of {module}")
                     torch.save(grad_output, f"{DEBUG_HOOK_DIR}/{module}_backward_output_with_nan.pt")
