@@ -1088,6 +1088,23 @@ def train(
                     print(f"{text_input=}")
                     print(f"{text_y=}")
                     print(f"{padding_mask=}")
+                    save_ckpt(
+                        current_step,
+                        epoch,
+                        best_val_loss,
+                        best_eval_wer,
+                        model,
+                        optimizer,
+                        scaler,
+                        scheduler,
+                        model_dims,
+                        tags,
+                        model_variant,
+                        exp_name,
+                        run_id,
+                        "latesttrain",
+                        ckpt_dir,
+                    )
                     wandb.alert(title="NaN Loss", text=text)
                     raise ValueError(text)
 
