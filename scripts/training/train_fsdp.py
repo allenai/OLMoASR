@@ -1040,7 +1040,10 @@ def train(
     total_loss = 0.0
     model.train()
     optimizer.zero_grad()
-    verbose = verbose
+    
+    with FSDP.summon_full_params(model):
+        param_names = [name for name, param in model.parameters()]
+        print(param_names)
 
     if rank == 0:
         train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
@@ -1083,13 +1086,13 @@ def train(
                 scaler.scale(train_loss).backward()  # accumulate gradients
             else:
                 train_loss.backward()
-            with FSDP.summon_full_params(model):
-                for name, param in model.named_parameters():
+            for i, (_, param) in enumerate(model.named_parameters()):
+                if param.grad is not None:
                     grad_min = param.grad.min().item()
                     grad_max = param.grad.max().item()
                     grad_norm = param.grad.norm().item()
                     print(
-                        f"Rank{rank}, grad stats for {name}: min={grad_min}, max={grad_max}, norm={grad_norm}"
+                        f"Rank{rank}, grad stats for {param_names[i]}: min={grad_min}, max={grad_max}, norm={grad_norm}"
                     )
             train_loss.detach_()
             total_loss += train_loss
