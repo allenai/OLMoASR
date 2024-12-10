@@ -1072,11 +1072,13 @@ def train(
                     print(f"{rank=}")
                     print(f"{train_loss=}")
                     print(f"{logits=}")
+                    print(f"{torch.max(logits)=}")
                     print(f"{audio_input=}")
                     print(f"{text_input=}")
                     print(f"{text_y=}")
                     print(f"{padding_mask=}")
                     wandb.alert(title="NaN Loss", text=text)
+                    raise ValueError(text)
 
             if ((current_step + 1) % train_log_freq) == 0:
                 microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text = (
