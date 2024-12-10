@@ -945,6 +945,7 @@ def log_tbl(
 
 
 def forward_hook(module, input, output):
+    print(output)
     if len(output) > 0:
         output = output[0]
     if torch.isnan(output).any():
@@ -954,6 +955,7 @@ def forward_hook(module, input, output):
 
 
 def backward_hook(module, grad_input, grad_output):
+    print(grad_input)
     if any(torch.isnan(grad).any() for grad in grad_input):
         print(f"NaN detected in backward input of {module}")
         torch.save(
@@ -2212,6 +2214,7 @@ def main(
         print(f"{DEBUG_HOOK_DIR=}")
 
         for name, module in model.named_modules():
+            print(f"Adding hooks for {name}")
             module.register_forward_hook(hook=forward_hook)
             module.register_full_backward_hook(hook=backward_hook)
 
