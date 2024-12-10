@@ -1959,6 +1959,7 @@ def main(
     ckpt_freq: int = 2500,
     verbose: bool = False,
     detect_anomaly: bool = False,
+    add_module_hooks: bool = False,
     precision: Literal["fp16", "fp32", "pure_fp16", "bfloat16"] = "fp16",
 ) -> None:
     """Main function for training
@@ -2146,6 +2147,28 @@ def main(
             mixed_precision=precision_policy,
             backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
         )
+
+        if add_module_hooks:
+            DEBUG_HOOK_DIR = os.path.dirname(ckpt_dir) + f"/debug_hooks/{exp_name}_{run_id}"
+            os.makedirs(DEBUG_HOOK_DIR, exist_ok=True)
+            print(f"{DEBUG_HOOK_DIR=}")
+            def forward_hook(module, input, output):
+                if torch.isnan(output).any():
+                    print(f"NaN detected in forward output of {module}")
+                    torch.save(input, f"{DEBUG_HOOK_DIR}/{module}_forward_input_with_nan.pt")
+                    torch.save(output, f"{DEBUG_HOOK_DIR}/{module}_forward_output_with_nan.pt")
+
+
+            def backward_hook(module, grad_input, grad_output):
+                if any(torch.isnan(grad).any() for grad in grad_input):
+                    print(f"NaN detected in backward input of {module}")
+                    torch.save(grad_output, f"{DEBUG_HOOK_DIR}/{module}_backward_output_with_nan.pt")
+                    torch.save(grad_input, f"{DEBUG_HOOK_DIR}/{module}_backward_input_with_nan.pt")
+
+            for name, module in model.named_modules():
+                module.register_forward_hook(hook=forward_hook)
+                module.register_full_backward_hook(hook=backward_hook)
+
         # optimizer and scheduler instantiation
         optimizer = prepare_optim(
             model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
