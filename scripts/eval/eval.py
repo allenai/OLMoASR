@@ -296,7 +296,11 @@ def main(
         exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
         model_sizes = ["tiny", "small", "base", "medium", "large"]
         model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
-        config = {"ckpt": ckpt.split("/")[-1], "model": ow_or_w, "model_size": model_size}
+        config = {
+            "ckpt": ckpt.split("/")[-1],
+            "model": ow_or_w,
+            "model_size": model_size,
+        }
         wandb_table_cols = [
             "eval_set",
             "audio",
@@ -347,6 +351,15 @@ def main(
                 if norm_tgt_text[i] != ""
                 and norm_tgt_text[i] != "ignore time segment in scoring"
             ]
+            if wandb_log:
+                if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
+                    audio_arr = [
+                        audio_arr[i]
+                        for i in range(len(results))
+                        if norm_tgt_text[i] != ""
+                        and norm_tgt_text[i] != "ignore time segment in scoring"
+                    ]
+
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
 
@@ -392,7 +405,7 @@ def main(
         avg_subs = avg_measures["substitutions"]
         avg_ins = avg_measures["insertions"]
         avg_dels = avg_measures["deletions"]
-        
+
         if wandb_log:
             wandb.run.summary["avg_wer"] = avg_wer
             wandb.run.summary["avg_subs"] = avg_subs
