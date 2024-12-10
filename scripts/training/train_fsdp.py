@@ -2057,19 +2057,19 @@ def main(
         model = ow.model.Whisper(dims=model_dims).to(rank)
         
         if precision == "fp16":
-            mixed_precision_fp16 = MixedPrecision(
+            precision_policy = MixedPrecision(
                 param_dtype=torch.float16,
                 reduce_dtype=torch.float32,
                 buffer_dtype=torch.float16,
             )
         elif precision == "fp32":
-            mixed_precision_fp16 = MixedPrecision(
+            precision_policy = MixedPrecision(
                 param_dtype=torch.float32,
                 reduce_dtype=torch.float32,
                 buffer_dtype=torch.float32,
             )
         elif precision == "pure_fp16":
-            mixed_precision_fp16 = MixedPrecision(
+            precision_policy = MixedPrecision(
                 param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
@@ -2083,7 +2083,7 @@ def main(
             model,
             device_id=rank,
             auto_wrap_policy=auto_wrap_policy,
-            mixed_precision=mixed_precision_fp16,
+            mixed_precision=precision_policy,
             backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
         )
         # optimizer and scheduler instantiation
