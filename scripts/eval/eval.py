@@ -348,7 +348,7 @@ def main(
             if wandb_log:
                 if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
                     audio_arr = [
-                        audio_arr[i]
+                        audio_arr.numpy()[i]
                         for i in range(len(results))
                         if norm_tgt_text[i] != ""
                         and norm_tgt_text[i] != "ignore time segment in scoring"
@@ -388,7 +388,7 @@ def main(
 
                         eval_table.add_data(
                             eval_set,
-                            wandb.Audio(audio_arr.numpy()[i], sample_rate=16000),
+                            wandb.Audio(audio_arr[i], sample_rate=16000),
                             norm_pred_text[i],
                             norm_tgt_text[i],
                             subs,
