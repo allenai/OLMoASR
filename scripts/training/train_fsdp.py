@@ -1170,7 +1170,7 @@ def train(
                     scaler.unscale_(optimizer)
                 # using FSDP clip_grad_norm_ instead of torch.nn.utils.clip_grad_norm_ b/c shard strategy is FULL_SHARD
                 # model.clip_grad_norm_(max_norm=max_grad_norm)
-                # clip_grad_norm_(model.parameters(), max_grad_norm)
+                clip_grad_norm_(model.parameters(), max_grad_norm)
                 if scaler is not None:
                     scaler.step(
                         optimizer
