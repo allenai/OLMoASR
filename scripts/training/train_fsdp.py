@@ -1000,6 +1000,7 @@ def train(
     verbose: bool,
     detect_anomaly: bool,
     precision: torch.dtype,
+    use_orig_params: bool,
 ) -> Tuple[
     int,
     float,
@@ -1082,16 +1083,17 @@ def train(
                 scaler.scale(train_loss).backward()  # accumulate gradients
             else:
                 train_loss.backward()
-            with FSDP.summon_full_params(module=model, with_grads=True):
-                for i, (name, param) in enumerate(model.named_parameters()):
-                    if param.grad is not None:
-                        grad_min = param.grad.min().item()
-                        grad_max = param.grad.max().item()
-                        grad_norm = param.grad.norm().item()
-                        print(
-                            f"Rank{rank}, grad stats for {name}: min={grad_min}, max={grad_max}, norm={grad_norm}"
-                        )
-                print(f"len of model.named_parameters(): {len(list(model.named_parameters()))}")
+            if use_orig_params:
+                with FSDP.summon_full_params(module=model, with_grads=True):
+                    for i, (name, param) in enumerate(model.named_parameters()):
+                        if param.grad is not None:
+                            grad_min = param.grad.min().item()
+                            grad_max = param.grad.max().item()
+                            grad_norm = param.grad.norm().item()
+                            print(
+                                f"Rank{rank}, grad stats for {name}: min={grad_min}, max={grad_max}, norm={grad_norm}"
+                            )
+                    print(f"len of model.named_parameters(): {len(list(model.named_parameters()))}")
             train_loss.detach_()
             total_loss += train_loss
 
@@ -1981,6 +1983,7 @@ def main(
     detect_anomaly: bool = False,
     add_module_hooks: bool = False,
     precision: Literal["fp16", "fp32", "pure_fp16", "bfloat16"] = "fp16",
+    use_orig_params: bool = False,
 ) -> None:
     """Main function for training
 
@@ -2167,6 +2170,7 @@ def main(
             auto_wrap_policy=auto_wrap_policy,
             mixed_precision=precision_policy,
             backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
+            use_orig_params=use_orig_params,
         )
 
         # optimizer and scheduler instantiation
