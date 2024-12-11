@@ -2203,19 +2203,6 @@ def main(
         current_step = 0
         epoch = 0
 
-    # setting up hooks for debugging
-    if add_module_hooks:
-        DEBUG_HOOK_DIR = (
-            os.path.dirname(ckpt_dir) + f"/debug_hooks/{exp_name}_{run_id}"
-        )
-        os.makedirs(DEBUG_HOOK_DIR, exist_ok=True)
-        print(f"{DEBUG_HOOK_DIR=}")
-
-        for name, module in model.named_modules():
-            print(f"Adding hooks for {name}")
-            module.register_forward_hook(hook=forward_hook)
-            module.register_full_backward_hook(hook=backward_hook)
-
     # setting up wandb for logging
     if rank == 0:
         run_id, tags = setup_wandb(
@@ -2255,6 +2242,19 @@ def main(
     to_broadcast = [tags]
     dist.broadcast_object_list(to_broadcast, src=0)
     tags = to_broadcast[0]
+
+    # setting up hooks for debugging
+    if add_module_hooks:
+        DEBUG_HOOK_DIR = (
+            os.path.dirname(ckpt_dir) + f"/debug_hooks/{exp_name}_{run_id}"
+        )
+        os.makedirs(DEBUG_HOOK_DIR, exist_ok=True)
+        print(f"{DEBUG_HOOK_DIR=}")
+
+        for name, module in model.named_modules():
+            print(f"Adding hooks for {name}")
+            module.register_forward_hook(hook=forward_hook)
+            module.register_full_backward_hook(hook=backward_hook)
 
     while current_step < train_steps:
         (
