@@ -2307,6 +2307,7 @@ def main(
             verbose=verbose,
             detect_anomaly=detect_anomaly,
             precision=autocast_precision,
+            use_orig_params=use_orig_params,
         )
 
         epoch += 1
