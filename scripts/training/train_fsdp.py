@@ -638,6 +638,9 @@ def load_ckpt(
     file_name: Optional[str],
     ckpt_dir: str,
     model_variant: str,
+    precision: Literal["fp16", "fp32", "pure_fp16", "bfloat16"],
+    precision_policy: MixedPrecision,
+    use_orig_params: bool,
 ) -> Tuple[
     int,
     float,
@@ -698,29 +701,29 @@ def load_ckpt(
 
     best_eval_wer = train_state["best_eval_wer"]
 
-    scaler = GradScaler()
-    scaler.load_state_dict(train_state["scaler_state_dict"])
+    if precision == "fp16" or precision == "pure_fp16":
+        scaler = sharded_grad_scaler.ShardedGradScaler()
+        scaler.load_state_dict(train_state["scaler_state_dict"])
+    else:
+        # scaler = GradScaler(init_scale=2**16)
+        scaler = None
 
     model = ow.model.Whisper(dims=train_state["dims"]).to(rank)
     model_state = torch.load(model_state_file, map_location=map_location)
     model.load_state_dict(model_state)
 
-    mixed_precision_fp16 = MixedPrecision(
-        param_dtype=torch.float16,
-        reduce_dtype=torch.float16,
-        buffer_dtype=torch.float16,
-    )
     auto_wrap_policy = functools.partial(
         transformer_auto_wrap_policy,
-        transformer_layer_cls={AudioEncoder, TextDecoder},
+        transformer_layer_cls={ResidualAttentionBlock},
     )
     model = FSDP(
         model,
         device_id=rank,
         auto_wrap_policy=auto_wrap_policy,
-        mixed_precision=mixed_precision_fp16,
+        mixed_precision=precision_policy,
         sync_module_states=True,
         backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
+        use_orig_params=use_orig_params,
     )
 
     optimizer = AdamW(model.parameters())
@@ -2156,6 +2159,9 @@ def main(
             file_name=ckpt_file_name,
             ckpt_dir=ckpt_dir,
             model_variant=model_variant,
+            precision=precision,
+            precision_policy=precision_policy,
+            use_orig_params=use_orig_params,
         )
     else:
         model = ow.model.Whisper(dims=model_dims).to(rank)
