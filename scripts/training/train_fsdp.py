@@ -1178,10 +1178,6 @@ def train(
                     scaler.update()
                 else:
                     optimizer.step()
-                print(f"{rank=}")
-                print(f"{scaler=}")
-                print(f"{len(train_dataloader)=}")
-                print([optimizer.state_dict()["state"][module]["step"] for module in optimizer.state_dict()["state"]])
                 scheduler.step()  # Adjust learning rate based on accumulated steps
 
                 current_step += 1
@@ -2167,9 +2163,6 @@ def main(
             precision_policy=precision_policy,
             use_orig_params=use_orig_params,
         )
-        print(f"{rank=}")
-        print(f"{len(train_dataloader)=}")
-        print([optimizer.state_dict()["state"][module]["step"] for module in optimizer.state_dict()["state"]])
     else:
         model = ow.model.Whisper(dims=model_dims).to(rank)
 
