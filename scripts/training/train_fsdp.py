@@ -2246,9 +2246,8 @@ def main(
             log_dir=log_dir,
         )
 
-        if not os.path.exists(f"{run_id_dir}/{exp_name}.txt"):
-            with open(f"{run_id_dir}/{exp_name}.txt", "w") as f:
-                f.write(run_id)
+        with open(f"{run_id_dir}/{exp_name}.txt", "w") as f:
+            f.write(run_id)
 
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
 
