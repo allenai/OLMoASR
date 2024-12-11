@@ -367,7 +367,7 @@ def main(
                 if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
                     table_iter += 1
                     for i in tqdm(
-                        range(0, len(norm_pred_text), 8), total=len(norm_pred_text) // 8
+                        range(0, len(norm_pred_text)), total=len(norm_pred_text)
                     ):
                         wer = (
                             np.round(
