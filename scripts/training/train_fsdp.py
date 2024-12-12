@@ -2254,7 +2254,7 @@ def main(
 
     # running evals and saving ckpts on all ranks, so need to broadcast
     to_broadcast = [run_id]
-    dist.broadcast_object_list(to_broadcast, src=0, device=torch.device(f"cuda:{rank}"))
+    dist.broadcast_object_list(to_broadcast, src=0, device=torch.cuda.current_device())
     run_id = to_broadcast[0]
     to_broadcast = [tags]
     dist.broadcast_object_list(to_broadcast, src=0, device=torch.device(f"cuda:{rank}"))
