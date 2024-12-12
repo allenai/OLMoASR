@@ -2219,7 +2219,7 @@ def main(
         epoch = 0
 
     # setting up wandb for logging
-    if global_rank == 0:
+    if rank == 0:
         run_id, tags = setup_wandb(
             run_id=run_id,
             exp_name=exp_name,
@@ -2249,14 +2249,12 @@ def main(
             f.write(run_id)
 
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
-
-    # running evals and saving ckpts on all ranks, so need to broadcast
-    to_broadcast = [run_id]
-    dist.broadcast_object_list(to_broadcast, src=0, device=torch.device("cuda"))
-    run_id = to_broadcast[0]
-    to_broadcast = [tags]
-    dist.broadcast_object_list(to_broadcast, src=0, device=torch.device("cuda"))
-    tags = to_broadcast[0]
+    
+    # for other ranks, need to access file for run_id
+    dist.barrier() # wait for rank 0 to write run_id to file and then read it
+    if rank != 0:
+        with open(f"{run_id_dir}/{exp_name}.txt", "r") as f:
+            run_id = f.read().strip()
 
     # setting up hooks for debugging
     if add_module_hooks:
