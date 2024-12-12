@@ -1957,8 +1957,6 @@ def main(
     log_dir: str = "logs",
     eval_dir: str = "data/eval",
     run_id_dir: str = "run_ids",
-    rank: Optional[int] = None,
-    world_size: Optional[int] = None,
     lr: float = 1.5e-3,
     betas: tuple = (0.9, 0.98),
     eps: float = 1e-6,
@@ -2045,20 +2043,16 @@ def main(
 
     model_dims = VARIANT_TO_DIMS[model_variant]
 
-    global_rank = None
-    global_world_size = None
-    
-    if rank is None and world_size is None:
-        rank = int(os.getenv("LOCAL_RANK", "0"))
-        world_size = int(os.getenv("LOCAL_WORLD_SIZE", "1"))
-        global_rank = int(os.getenv("RANK", "0"))
-        global_world_size = int(os.getenv("WORLD_SIZE", "1"))
+    local_rank = int(os.getenv("LOCAL_RANK", "0"))
+    local_world_size = int(os.getenv("LOCAL_WORLD_SIZE", "1"))
+    rank = int(os.getenv("RANK", "0"))
+    world_size = int(os.getenv("WORLD_SIZE", "1"))
 
     # setup the process groups
-    setup(rank, world_size)
+    setup(local_rank)
 
     print(
-        f"{rank=}, {world_size=}, {global_rank=}, {global_world_size=}, {dist.get_rank()=}, {dist.get_world_size()=}, {int(os.getenv('GROUP_RANK'))}"
+        f"{local_rank=}, {local_world_size=}, {rank=}, {world_size=}, {dist.get_rank()=}, {dist.get_world_size()=}, {int(os.getenv('GROUP_RANK'))}"
     )
 
     # setup the tokenizer and normalizer
