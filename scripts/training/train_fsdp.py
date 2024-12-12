@@ -186,7 +186,7 @@ def init_tokenizer(worker_id: int):
     tokenizer = get_tokenizer(multilingual=False)
 
 
-def setup(rank: int, world_size: int) -> None:
+def setup(rank: int) -> None:
     """Initializes the distributed process group
 
     Args:
@@ -194,7 +194,7 @@ def setup(rank: int, world_size: int) -> None:
         world_size: The total number of processes
     """
     torch.cuda.set_device(rank)
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    dist.init_process_group("nccl")
 
 
 def open_dicts_file(samples_dicts_file) -> List[Dict]:
