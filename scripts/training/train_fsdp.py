@@ -2051,12 +2051,12 @@ def main(
         rank = int(os.getenv("LOCAL_RANK", "0"))
         world_size = int(os.getenv("LOCAL_WORLD_SIZE", "1"))
 
+    # setup the process groups
+    setup(rank, world_size)
+
     print(
         f"{rank=}, {world_size=}, {dist.get_rank()=}, {dist.get_world_size()=}, {int(os.getenv('RANK'))=}, {int(os.getenv('WORLD_SIZE'))=}, {int(os.getenv('GROUP_RANK'))}"
     )
-
-    # setup the process groups
-    setup(rank, world_size)
 
     # setup the tokenizer and normalizer
     tokenizer = get_tokenizer(multilingual=False)
