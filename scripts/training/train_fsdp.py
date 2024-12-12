@@ -2047,15 +2047,20 @@ def main(
 
     model_dims = VARIANT_TO_DIMS[model_variant]
 
+    global_rank = None
+    global_world_size = None
+    
     if rank is None and world_size is None:
         rank = int(os.getenv("LOCAL_RANK", "0"))
         world_size = int(os.getenv("LOCAL_WORLD_SIZE", "1"))
+        global_rank = int(os.getenv("RANK", "0"))
+        global_world_size = int(os.getenv("WORLD_SIZE", "1"))
 
     # setup the process groups
     setup(rank, world_size)
 
     print(
-        f"{rank=}, {world_size=}, {dist.get_rank()=}, {dist.get_world_size()=}, {int(os.getenv('RANK'))=}, {int(os.getenv('WORLD_SIZE'))=}, {int(os.getenv('GROUP_RANK'))}"
+        f"{rank=}, {world_size=}, {global_rank=}, {global_world_size=}, {dist.get_rank()=}, {dist.get_world_size()=}, {int(os.getenv('GROUP_RANK'))}"
     )
 
     # setup the tokenizer and normalizer
@@ -2222,7 +2227,7 @@ def main(
         epoch = 0
 
     # setting up wandb for logging
-    if rank == 0:
+    if global_rank == 0:
         run_id, tags = setup_wandb(
             run_id=run_id,
             exp_name=exp_name,
@@ -2254,10 +2259,10 @@ def main(
 
     # running evals and saving ckpts on all ranks, so need to broadcast
     to_broadcast = [run_id]
-    dist.broadcast_object_list(to_broadcast, src=0, device=torch.cuda.current_device())
+    dist.broadcast_object_list(to_broadcast, src=0, device=torch.device("cuda"))
     run_id = to_broadcast[0]
     to_broadcast = [tags]
-    dist.broadcast_object_list(to_broadcast, src=0, device=torch.device(f"cuda:{rank}"))
+    dist.broadcast_object_list(to_broadcast, src=0, device=torch.device("cuda"))
     tags = to_broadcast[0]
 
     # setting up hooks for debugging
