@@ -456,6 +456,7 @@ def setup_wandb(
     val_batch_size: int,
     train_val_split: float,
     log_dir: str,
+    wandb_tags: List[str],
 ) -> Tuple[Optional[str], List[str], wandb.Artifact, wandb.Artifact, bool, bool]:
     """Sets up the Weights and Biases logging
 
@@ -510,12 +511,6 @@ def setup_wandb(
         "subset": subset,
     }
 
-    tags = [
-        "fsdp-train",
-        "grad-acc",
-        "fp16",
-    ]
-
     if run_id is None:
         run_id = wandb.util.generate_id()
 
@@ -527,7 +522,7 @@ def setup_wandb(
         config=config,
         save_code=True,
         job_type=job_type,
-        tags=(tags),
+        tags=(wandb_tags),
         name=exp_name,
         dir=f"{log_dir}",
         settings=wandb.Settings(init_timeout=300, _service_wait=300),
@@ -537,9 +532,8 @@ def setup_wandb(
     wandb.define_metric("train/*", step_metric="custom_step")
     wandb.define_metric("val/*", step_metric="custom_step")
     wandb.define_metric("eval/*", step_metric="custom_step")
-
-    return run_id, tags
-
+    
+    return run_id
 
 def save_ckpt(
     current_step: int,
@@ -2040,7 +2034,11 @@ def main(
         if not os.path.exists(f"{ckpt_dir}/{exp_name}_{run_id}"):
             run_id = None
 
-    tags = []
+    tags = [
+        "fsdp-train",
+        "grad-acc",
+        "fp16",
+    ]
 
     if ckpt_file_name is None:
         ckpt_file_name = ""
@@ -2250,6 +2248,7 @@ def main(
             val_batch_size=val_batch_size,
             train_val_split=train_val_split,
             log_dir=log_dir,
+            wandb_tags=tags,
         )
 
         with open(f"{run_id_dir}/{exp_name}.txt", "w") as f:
