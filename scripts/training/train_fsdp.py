@@ -963,7 +963,9 @@ def backward_hook(module, grad_input, grad_output):
             torch.save(
                 grad_output, f"{DEBUG_HOOK_DIR}/{module}_backward_output_with_nan.pt"
             )
-            torch.save(grad_input, f"{DEBUG_HOOK_DIR}/{module}_backward_input_with_nan.pt")
+            torch.save(
+                grad_input, f"{DEBUG_HOOK_DIR}/{module}_backward_input_with_nan.pt"
+            )
 
 
 def train(
@@ -1096,7 +1098,9 @@ def train(
                             print(
                                 f"Rank{rank}, grad stats for {name}: min={grad_min}, max={grad_max}, norm={grad_norm}"
                             )
-                    print(f"len of model.named_parameters(): {len(list(model.named_parameters()))}")
+                    print(
+                        f"len of model.named_parameters(): {len(list(model.named_parameters()))}"
+                    )
             train_loss.detach_()
             total_loss += train_loss
 
@@ -2044,8 +2048,12 @@ def main(
     model_dims = VARIANT_TO_DIMS[model_variant]
 
     if rank is None and world_size is None:
-        rank = int(os.getenv("RANK", "0"))
-        world_size = int(os.getenv("WORLD_SIZE", "1"))
+        rank = int(os.getenv("LOCAL_RANK", "0"))
+        world_size = int(os.getenv("LOCAL_WORLD_SIZE", "1"))
+
+    print(
+        f"{rank=}, {world_size=}, {dist.get_rank()=}, {dist.get_world_size()=}, {int(os.getenv('RANK'))=}, {int(os.getenv('WORLD_SIZE'))=}, {int(os.getenv('GROUP_RANK'))}"
+    )
 
     # setup the process groups
     setup(rank, world_size)
@@ -2254,9 +2262,7 @@ def main(
 
     # setting up hooks for debugging
     if add_module_hooks:
-        DEBUG_HOOK_DIR = (
-            os.path.dirname(ckpt_dir) + f"/debug_hooks/{exp_name}_{run_id}"
-        )
+        DEBUG_HOOK_DIR = os.path.dirname(ckpt_dir) + f"/debug_hooks/{exp_name}_{run_id}"
         os.makedirs(DEBUG_HOOK_DIR, exist_ok=True)
         print(f"{DEBUG_HOOK_DIR=}")
 
