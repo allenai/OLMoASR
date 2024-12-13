@@ -211,8 +211,6 @@ def open_dicts_file(samples_dicts_file) -> List[Dict]:
 
 def prepare_dataloader(
     dataset: Dataset,
-    rank: int,
-    world_size: int,
     batch_size: int,
     pin_memory: bool,
     shuffle: bool,
@@ -238,8 +236,6 @@ def prepare_dataloader(
     """
     sampler = DistributedSampler(
         dataset,
-        num_replicas=world_size,
-        rank=rank,
         shuffle=shuffle,
         seed=42,
         drop_last=False,
@@ -261,8 +257,6 @@ def prepare_dataloader(
 
 
 def prepare_data(
-    rank: int,
-    world_size: int,
     samples_dicts: List[Dict],
     train_val_split: int,
     train_batch_size: int,
@@ -313,8 +307,6 @@ def prepare_data(
     if train_val_split == 1.0:
         train_dataloader, train_sampler = prepare_dataloader(
             dataset=audio_text_dataset,
-            rank=rank,
-            world_size=world_size,
             batch_size=train_batch_size,
             pin_memory=pin_memory,
             shuffle=shuffle,
@@ -335,8 +327,6 @@ def prepare_data(
         # prepare the dataloaders
         train_dataloader, train_sampler = prepare_dataloader(
             dataset=train_dataset,
-            rank=rank,
-            world_size=world_size,
             batch_size=train_batch_size,
             pin_memory=pin_memory,
             shuffle=shuffle,
@@ -346,8 +336,6 @@ def prepare_data(
 
         val_dataloader, val_sampler = prepare_dataloader(
             dataset=val_dataset,
-            rank=rank,
-            world_size=world_size,
             batch_size=val_batch_size,
             pin_memory=pin_memory,
             shuffle=False,
@@ -2078,8 +2066,6 @@ def main(
 
     # prepare dataset
     train_dataloader, train_sampler, val_dataloader, val_sampler = prepare_data(
-        rank=rank,
-        world_size=world_size,
         samples_dicts=samples_dicts,
         train_val_split=train_val_split,
         train_batch_size=train_batch_size,
