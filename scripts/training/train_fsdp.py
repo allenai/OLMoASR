@@ -524,6 +524,7 @@ def setup_wandb(
     return run_id
 
 def save_ckpt(
+    rank: int,
     current_step: int,
     epoch: int,
     best_val_loss: Optional[float],
@@ -586,15 +587,15 @@ def save_ckpt(
         model_state = model.state_dict()
         optim_state = FSDP.optim_state_dict(model=model, optim=optimizer)
 
-    if dist.get_rank() == 0:
+    if rank == 0:
         os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
 
-    if file_name != "latesttrain" and dist.get_rank() == 0:
+    if file_name != "latesttrain" and rank == 0:
         if len(glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/*_{file_name}_*.pt")) > 0:
             for p in glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/*_{file_name}_*.pt"):
                 os.remove(p)
 
-    if dist.get_rank() == 0:
+    if rank == 0:
         torch.save(
             model_state,
             f"{ckpt_dir}/{exp_name}_{run_id}/model_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
@@ -1288,6 +1289,7 @@ def train(
 
                 if current_step % ckpt_freq == 0:
                     save_ckpt(
+                        rank=rank,
                         current_step=current_step,
                         epoch=epoch,
                         best_val_loss=best_val_loss,
@@ -1743,6 +1745,7 @@ def validate(
                 best_val_loss = ave_val_loss
                 print("Saving best model")
                 save_ckpt(
+                    rank=rank,
                     current_step=current_step,
                     epoch=epoch,
                     best_val_loss=best_val_loss,
@@ -1907,6 +1910,7 @@ def evaluate(
         best_eval_wer = avg_eval_wer
         print("Saving best eval model")
         save_ckpt(
+            rank=rank,
             current_step=current_step,
             epoch=epoch,
             best_val_loss=best_val_loss,
@@ -2306,6 +2310,7 @@ def main(
         epoch += 1
 
         save_ckpt(
+            rank=rank,
             current_step=current_step,
             epoch=epoch,
             best_val_loss=best_val_loss,
