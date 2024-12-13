@@ -2159,7 +2159,7 @@ def main(
             use_orig_params=use_orig_params,
         )
     else:
-        model = ow.model.Whisper(dims=model_dims).to(rank)
+        model = ow.model.Whisper(dims=model_dims).to(local_rank)
 
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
