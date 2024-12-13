@@ -1101,6 +1101,7 @@ def train(
                     print(f"{text_y=}")
                     print(f"{padding_mask=}")
                     save_ckpt(
+                        rank,
                         current_step,
                         epoch,
                         best_val_loss,
