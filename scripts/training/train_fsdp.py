@@ -2146,7 +2146,7 @@ def main(
         ) = load_ckpt(
             exp_name=exp_name,
             run_id=run_id,
-            rank=rank,
+            rank=local_rank,
             world_size=world_size,
             train_steps=train_steps,
             train_batch_size=train_batch_size,
