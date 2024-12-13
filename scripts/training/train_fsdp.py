@@ -2167,7 +2167,7 @@ def main(
         )
         model = FSDP(
             model,
-            device_id=rank,
+            device_id=local_rank,
             auto_wrap_policy=auto_wrap_policy,
             mixed_precision=precision_policy,
             backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
