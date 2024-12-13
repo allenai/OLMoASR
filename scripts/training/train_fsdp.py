@@ -2211,7 +2211,7 @@ def main(
 
     # setting up wandb for logging
     if rank == 0:
-        run_id, tags = setup_wandb(
+        run_id = setup_wandb(
             run_id=run_id,
             exp_name=exp_name,
             job_type=job_type,
