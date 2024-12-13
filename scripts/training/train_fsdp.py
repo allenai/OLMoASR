@@ -988,6 +988,7 @@ def train(
     best_val_loss: Optional[float],
     best_eval_wer: Optional[float],
     run_eval: bool,
+    eval_script_path: str,
     eval_batch_size: int,
     eval_num_workers: int,
     eval_sets: List[str],
@@ -1400,6 +1401,7 @@ def train(
                     if (current_step % eval_freq) == 0 and current_step > 0:
                         for eval_set in eval_sets:
                             async_eval(
+                                eval_script_path=eval_script_path,
                                 current_step=current_step,
                                 batch_size=eval_batch_size,
                                 num_workers=eval_num_workers,
@@ -1939,6 +1941,7 @@ def evaluate(
 
 
 def async_eval(
+    eval_script_path: str,
     current_step: int,
     batch_size: int,
     num_workers: int,
@@ -1961,7 +1964,7 @@ def async_eval(
     hf_token = os.getenv("HF_TOKEN")
     cmd = [
         "python",
-        "scripts/eval/eval.py",
+        eval_script_path,
         f"--batch_size={batch_size}",
         f"--num_workers={num_workers}",
         f"--ckpt={ckpt}",
@@ -1995,6 +1998,7 @@ def main(
     log_dir: str = "logs",
     eval_dir: str = "data/eval",
     run_id_dir: str = "run_ids",
+    eval_script_path: str = "eval.py",
     lr: float = 1.5e-3,
     betas: tuple = (0.9, 0.98),
     eps: float = 1e-6,
@@ -2324,6 +2328,7 @@ def main(
             best_val_loss=best_val_loss,
             best_eval_wer=best_eval_wer,
             run_eval=run_eval,
+            eval_script_path=eval_script_path,
             eval_batch_size=eval_batch_size,
             eval_num_workers=num_workers,
             eval_sets=eval_sets,
@@ -2395,6 +2400,7 @@ def main(
             print(f"Evaluation after epoch at {current_step=} on rank {rank}")
             for eval_set in eval_sets:
                 async_eval(
+                    eval_script_path=eval_script_path,
                     current_step=current_step,
                     batch_size=eval_batch_size,
                     num_workers=num_workers,
