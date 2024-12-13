@@ -520,8 +520,9 @@ def setup_wandb(
     wandb.define_metric("train/*", step_metric="custom_step")
     wandb.define_metric("val/*", step_metric="custom_step")
     wandb.define_metric("eval/*", step_metric="custom_step")
-    
+
     return run_id
+
 
 def save_ckpt(
     rank: int,
@@ -587,6 +588,9 @@ def save_ckpt(
         model_state = model.state_dict()
         optim_state = FSDP.optim_state_dict(model=model, optim=optimizer)
 
+    # ckpt for eval
+    eval_ckpt = {"model_state_dict": model_state, "dims": model_dims}
+
     if rank == 0:
         os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
 
@@ -608,6 +612,14 @@ def save_ckpt(
             train_state,
             f"{ckpt_dir}/{exp_name}_{run_id}/train_state_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
         )
+        torch.save(
+            eval_ckpt,
+            f"{ckpt_dir}/{exp_name}_{run_id}/eval_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
+        )
+
+    return (
+        f"{ckpt_dir}/{exp_name}_{run_id}/eval_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
+    )
 
 
 def load_ckpt(
