@@ -953,6 +953,7 @@ def backward_hook(module, grad_input, grad_output):
 
 def train(
     rank: int,
+    local_rank: int,
     current_step: int,
     train_batch_size: int,
     train_dataloader: DataLoader,
@@ -1051,10 +1052,10 @@ def train(
                     padding_mask,
                 ) = batch
 
-                audio_input = audio_input.to(rank)
-                text_input = text_input.to(rank)
-                text_y = text_y.to(rank)
-                padding_mask = padding_mask.to(rank)
+                audio_input = audio_input.to(local_rank)
+                text_input = text_input.to(local_rank)
+                text_y = text_y.to(local_rank)
+                padding_mask = padding_mask.to(local_rank)
 
                 logits = model(audio_input, text_input, padding_mask, verbose)
 
@@ -1079,7 +1080,7 @@ def train(
                             grad_max = param.grad.max().item()
                             grad_norm = param.grad.norm().item()
                             print(
-                                f"Rank{rank}, grad stats for {name}: min={grad_min}, max={grad_max}, norm={grad_norm}"
+                                f"Rank{local_rank}, grad stats for {name}: min={grad_min}, max={grad_max}, norm={grad_norm}"
                             )
                     print(
                         f"len of model.named_parameters(): {len(list(model.named_parameters()))}"
@@ -1092,7 +1093,6 @@ def train(
                 if torch.isnan(train_loss):
                     text = f"Loss is NaN for {audio_files} at step {current_step}!"
                     verbose = True
-                    print(f"{rank=}")
                     print(f"{train_loss=}")
                     print(f"{logits=}")
                     print(f"{torch.max(logits)=}")
@@ -1150,7 +1150,7 @@ def train(
                         train_subs_all,
                         train_dels_all,
                         train_ins_all,
-                    ) = calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank)
+                    ) = calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, local_rank)
 
                 # Gradient clipping, if necessary, should be done before optimizer.step()
                 if scaler is not None:
@@ -1243,8 +1243,8 @@ def train(
                 )
 
                 # putting throughput on GPU
-                throughput_tensor = torch.tensor(throughput, device=rank)
-                time_tensor = torch.tensor(time_per_step, device=rank)
+                throughput_tensor = torch.tensor(throughput, device=local_rank)
+                time_tensor = torch.tensor(time_per_step, device=local_rank)
 
                 # Prepare tensors for all_gather
                 world_size = dist.get_world_size()
@@ -2269,6 +2269,7 @@ def main(
             scheduler,
         ) = train(
             rank=rank,
+            local_rank=local_rank,
             current_step=current_step,
             train_batch_size=train_batch_size,
             train_dataloader=train_dataloader,
