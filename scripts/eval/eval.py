@@ -261,7 +261,9 @@ def main(
         "ami_ihm",
         "ami_sdm",
     ],
+    current_step: Optional[int] = None,
     wandb_log: bool = False,
+    wandb_run_id: Optional[str] = None,
     wandb_log_dir: str = "wandb",
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
@@ -291,16 +293,6 @@ def main(
     references = []
 
     if wandb_log:
-        run_id = wandb.util.generate_id()
-        ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
-        exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
-        model_sizes = ["tiny", "small", "base", "medium", "large"]
-        model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
-        config = {
-            "ckpt": ckpt.split("/")[-1],
-            "model": ow_or_w,
-            "model_size": model_size,
-        }
         wandb_table_cols = [
             "eval_set",
             "audio",
@@ -311,24 +303,44 @@ def main(
             "ins",
             "wer",
         ]
-        wandb.init(
-            id=run_id,
-            resume="allow",
-            project="open_whisper",
-            entity="dogml",
-            job_type="evals",
-            name=exp_name,
-            dir=wandb_log_dir,
-            config=config,
-            tags=["eval", eval_set, ow_or_w, model_size],
-        )
+        if wandb_run_id:
+            wandb_table_cols.append("run_id")
+            wandb.init(
+                id=wandb_run_id,
+                resume="allow",
+                project="open_whisper",
+                entity="dogml",
+                save_code=True,
+                settings=wandb.Settings(init_timeout=300, _service_wait=300),
+            )
+        else:
+            run_id = wandb.util.generate_id()
+            ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
+            exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
+            model_sizes = ["tiny", "small", "base", "medium", "large"]
+            model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
+            config = {
+                "ckpt": ckpt.split("/")[-1],
+                "model": ow_or_w,
+                "model_size": model_size,
+            }
+            wandb.init(
+                id=run_id,
+                resume="allow",
+                project="open_whisper",
+                entity="dogml",
+                job_type="evals",
+                name=exp_name,
+                dir=wandb_log_dir,
+                config=config,
+                tags=["eval", eval_set, ow_or_w, model_size],
+            )
         eval_table = wandb.Table(columns=wandb_table_cols)
         table_iter = 0
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             _, audio_arr, audio_input, text_y = batch
-            print(audio_arr[0])
 
             norm_tgt_text = [normalizer(text) for text in text_y]
             audio_input = audio_input.to(device)
@@ -367,7 +379,7 @@ def main(
                 if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
                     table_iter += 1
                     for i in tqdm(
-                        range(0, len(norm_pred_text)), total=len(norm_pred_text)
+                        range(0, len(norm_pred_text), 8 if wandb_run_id else 1), total=len(norm_pred_text)
                     ):
                         wer = (
                             np.round(
@@ -386,16 +398,29 @@ def main(
                         dels = measures["deletions"]
                         ins = measures["insertions"]
 
-                        eval_table.add_data(
-                            eval_set,
-                            wandb.Audio(audio_arr[i], sample_rate=16000),
-                            norm_pred_text[i],
-                            norm_tgt_text[i],
-                            subs,
-                            dels,
-                            ins,
-                            wer,
-                        )
+                        if wandb_run_id:
+                            eval_table.add_data(
+                                eval_set,
+                                wandb.Audio(audio_arr[i], sample_rate=16000),
+                                norm_pred_text[i],
+                                norm_tgt_text[i],
+                                subs,
+                                dels,
+                                ins,
+                                wer,
+                                wandb_run_id,
+                            )
+                        else:
+                            eval_table.add_data(
+                                eval_set,
+                                wandb.Audio(audio_arr[i], sample_rate=16000),
+                                norm_pred_text[i],
+                                norm_tgt_text[i],
+                                subs,
+                                dels,
+                                ins,
+                                wer,
+                            )
 
                     wandb.log({f"eval_table_{table_iter}": eval_table})
                     eval_table = wandb.Table(columns=wandb_table_cols)
@@ -407,10 +432,16 @@ def main(
         avg_dels = avg_measures["deletions"]
 
         if wandb_log:
-            wandb.run.summary["avg_wer"] = avg_wer
-            wandb.run.summary["avg_subs"] = avg_subs
-            wandb.run.summary["avg_ins"] = avg_ins
-            wandb.run.summary["avg_dels"] = avg_dels
+            if wandb_run_id:
+                wandb.log({f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step})
+                wandb.log({f"eval/{eval_set}_subs": avg_subs, "custom_step": current_step})
+                wandb.log({f"eval/{eval_set}_ins": avg_ins, "custom_step": current_step})
+                wandb.log({f"eval/{eval_set}_dels": avg_dels, "custom_step": current_step})
+            else:
+                wandb.run.summary["avg_wer"] = avg_wer
+                wandb.run.summary["avg_subs"] = avg_subs
+                wandb.run.summary["avg_ins"] = avg_ins
+                wandb.run.summary["avg_dels"] = avg_dels
 
         print(
             f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
