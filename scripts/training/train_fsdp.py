@@ -1402,6 +1402,7 @@ def train(
                     if (current_step % eval_freq) == 0 and current_step > 0:
                         for eval_set in eval_sets:
                             async_eval(
+                                rank=rank,
                                 eval_script_path=eval_script_path,
                                 current_step=current_step,
                                 batch_size=eval_batch_size,
@@ -1942,6 +1943,7 @@ def evaluate(
 
 
 def async_eval(
+    rank: int,
     eval_script_path: str,
     current_step: int,
     batch_size: int,
@@ -1978,7 +1980,8 @@ def async_eval(
         f"--hf_token={hf_token}",
     ]
 
-    subprocess.Popen(cmd)
+    if rank == 0:
+        subprocess.Popen(cmd)
 
 
 def cleanup():
@@ -2399,6 +2402,7 @@ def main(
             print(f"Evaluation after epoch at {current_step=} on rank {rank}")
             for eval_set in eval_sets:
                 async_eval(
+                    rank=rank,
                     eval_script_path=eval_script_path,
                     current_step=current_step,
                     batch_size=eval_batch_size,
