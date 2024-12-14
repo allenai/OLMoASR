@@ -12,6 +12,7 @@ import multiprocessing
 from itertools import chain
 from collections import defaultdict
 import functools
+import subprocess
 
 import torch
 import torch.nn.functional as F
@@ -991,7 +992,7 @@ def train(
     eval_script_path: str,
     eval_batch_size: int,
     eval_num_workers: int,
-    eval_sets: List[str],
+    eval_sets: Union[Tuple, List],
     eval_dir: str,
     run_id: Optional[str],
     tags: Optional[List[str]],
@@ -2132,8 +2133,6 @@ def main(
         persistent_workers=persistent_workers,
         subset=subset,
     )
-    
-    eval_sets = eval_sets.split(",")
 
     # model precision
     if precision == "fp16":
