@@ -618,9 +618,7 @@ def save_ckpt(
             f"{ckpt_dir}/{exp_name}_{run_id}/eval_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
         )
 
-    return (
-        f"{ckpt_dir}/{exp_name}_{run_id}/eval_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt",
-    )
+    return f"{ckpt_dir}/{exp_name}_{run_id}/eval_{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}.pt"
 
 
 def load_ckpt(
