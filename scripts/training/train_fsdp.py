@@ -987,6 +987,7 @@ def train(
     best_val_loss: Optional[float],
     best_eval_wer: Optional[float],
     run_eval: bool,
+    eval_wandb_log: bool,
     eval_script_path: str,
     eval_batch_size: int,
     eval_num_workers: int,
@@ -1401,14 +1402,17 @@ def train(
                         for eval_set in eval_sets:
                             async_eval(
                                 rank=rank,
+                                exp_name=exp_name,
                                 eval_script_path=eval_script_path,
                                 current_step=current_step,
                                 batch_size=eval_batch_size,
                                 num_workers=eval_num_workers,
                                 ckpt=eval_ckpt,
                                 eval_set=eval_set,
+                                log_dir=log_dir,
                                 run_id=run_id,
                                 eval_dir=eval_dir,
+                                wandb_log=eval_wandb_log,
                             )
 
                     if (current_step % eval_freq) == 0 and current_step > 0:
@@ -1942,6 +1946,7 @@ def evaluate(
 
 def async_eval(
     rank: int,
+    exp_name: str,
     eval_script_path: str,
     current_step: int,
     batch_size: int,
@@ -1958,20 +1963,24 @@ def async_eval(
         "ami_ihm",
         "ami_sdm",
     ],
+    log_dir: str,
     run_id: str,
     eval_dir: str,
+    wandb_log: bool = False,
 ) -> None:
     wandb_log_dir = os.getenv("WANDB_DIR")
     hf_token = os.getenv("HF_TOKEN")
     cmd = [
         "python",
         eval_script_path,
+        f"--exp_name={exp_name}",
         f"--batch_size={batch_size}",
         f"--num_workers={num_workers}",
         f"--ckpt={ckpt}",
         f"--eval_set={eval_set}",
+        f"--log_dir={log_dir}",
         f"--current_step={current_step}",
-        "--wandb_log=True",
+        f"--wandb_log={wandb_log}",
         f"--wandb_run_id={run_id}",
         f"--wandb_log_dir={wandb_log_dir}",
         f"--eval_dir={eval_dir}",
@@ -2018,6 +2027,7 @@ def main(
     persistent_workers: bool = True,
     run_val: bool = True,
     run_eval: bool = False,
+    eval_wandb_log: bool = False,
     eval_sets: str = "librispeech_clean,librispeech_other",
     train_log_freq: int = 20000,
     val_freq: Optional[int] = 10000,
@@ -2328,6 +2338,7 @@ def main(
             best_val_loss=best_val_loss,
             best_eval_wer=best_eval_wer,
             run_eval=run_eval,
+            eval_wandb_log=eval_wandb_log,
             eval_script_path=eval_script_path,
             eval_batch_size=eval_batch_size,
             eval_num_workers=num_workers,
@@ -2401,14 +2412,17 @@ def main(
             for eval_set in eval_sets:
                 async_eval(
                     rank=rank,
+                    exp_name=exp_name,
                     eval_script_path=eval_script_path,
                     current_step=current_step,
                     batch_size=eval_batch_size,
                     num_workers=num_workers,
                     ckpt=eval_ckpt,
                     eval_set=eval_set,
+                    log_dir=log_dir,
                     run_id=run_id,
                     eval_dir=eval_dir,
+                    wandb_log=eval_wandb_log,
                 )
 
 
