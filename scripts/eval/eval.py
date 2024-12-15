@@ -247,6 +247,7 @@ class EvalDataset(Dataset):
 
 
 def main(
+    exp_name: str,
     batch_size: int,
     num_workers: int,
     ckpt: str,
@@ -261,6 +262,7 @@ def main(
         "ami_ihm",
         "ami_sdm",
     ],
+    log_dir: str,
     current_step: Optional[int] = None,
     wandb_log: bool = False,
     wandb_run_id: Optional[str] = None,
@@ -442,6 +444,11 @@ def main(
                 wandb.run.summary["avg_subs"] = avg_subs
                 wandb.run.summary["avg_ins"] = avg_ins
                 wandb.run.summary["avg_dels"] = avg_dels
+        else:
+            with open(f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt", "a") as f:
+                f.write(
+                    f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
+                )
 
         print(
             f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
