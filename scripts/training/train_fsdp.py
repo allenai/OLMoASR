@@ -1470,6 +1470,10 @@ def train(
             batch_audio_files = []
             batch_text_files = []
             batch_audio_arr = []
+            
+            # logging dataloading time
+            start_dl = time.time()
+            
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
