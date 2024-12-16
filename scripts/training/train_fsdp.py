@@ -2315,11 +2315,17 @@ def main(
 
         current_step = 0
         epoch = 0
-    
+
     # setting up activation checkpointing
-    non_reentrant_wrapper = functools.partial(checkpoint_wrapper, offload_to_cpu=False, checkpoint_impl=CheckpointImpl.NO_REENTRANT)
+    non_reentrant_wrapper = functools.partial(
+        checkpoint_wrapper,
+        offload_to_cpu=False,
+        checkpoint_impl=CheckpointImpl.NO_REENTRANT,
+    )
     check_fn = lambda submodule: isinstance(submodule, ResidualAttentionBlock)
-    apply_activation_checkpointing(model, checkpoint_wrapper_fn=non_reentrant_wrapper, check_fn=check_fn)
+    apply_activation_checkpointing(
+        model, checkpoint_wrapper_fn=non_reentrant_wrapper, check_fn=check_fn
+    )
 
     # setting up wandb for logging
     if rank == 0:
@@ -2354,7 +2360,7 @@ def main(
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
 
     # for other ranks, need to access file for run_id
-    dist.barrier() # wait for rank 0 to write run_id to file and then read it
+    dist.barrier()  # wait for rank 0 to write run_id to file and then read it
     if rank != 0:
         with open(f"{run_id_dir}/{exp_name}.txt", "r") as f:
             run_id = f.read().strip()
