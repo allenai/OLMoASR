@@ -35,6 +35,7 @@ from torch.distributed.fsdp import (
     FullOptimStateDictConfig,
     StateDictType,
     sharded_grad_scaler,
+    ShardingStrategy,
 )
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     CPUOffload,
@@ -2219,7 +2220,7 @@ def main(
             mixed_precision=precision_policy,
             backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
             use_orig_params=use_orig_params,
-            sharding_strategy=sharding_strategy,
+            sharding_strategy=ShardingStrategy(sharding_strategy),
         )
 
         # optimizer and scheduler instantiation
