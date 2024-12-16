@@ -38,7 +38,6 @@ from torch.distributed.fsdp import (
     ShardingStrategy,
 )
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
-    CPUOffload,
     BackwardPrefetch,
 )
 from torch.distributed.fsdp.wrap import (
@@ -636,6 +635,7 @@ def load_ckpt(
     precision: Literal["fp16", "fp32", "pure_fp16", "bfloat16"],
     precision_policy: MixedPrecision,
     use_orig_params: bool,
+    sharding_strategy: ShardingStrategy,
 ) -> Tuple[
     int,
     float,
@@ -719,6 +719,7 @@ def load_ckpt(
         sync_module_states=True,
         backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
         use_orig_params=use_orig_params,
+        sharding_strategy=sharding_strategy,
     )
 
     optimizer = AdamW(model.parameters())
@@ -2039,7 +2040,9 @@ def main(
     add_module_hooks: bool = False,
     precision: Literal["fp16", "fp32", "pure_fp16", "bfloat16"] = "fp16",
     use_orig_params: bool = False,
-    sharding_strategy: Literal["FULL_SHARD", "SHARD_GRAD_OP", "HYBRID_SHARD", "_HYBRID_SHARD_ZERO2"] = "FULL_SHARD",
+    sharding_strategy: Literal[
+        "FULL_SHARD", "SHARD_GRAD_OP", "HYBRID_SHARD", "_HYBRID_SHARD_ZERO2"
+    ] = "FULL_SHARD",
 ) -> None:
     """Main function for training
 
@@ -2177,6 +2180,16 @@ def main(
         )
         autocast_precision = torch.bfloat16
 
+    # sharding strategy
+    if sharding_strategy == "FULL_SHARD":
+        sharding_strategy = ShardingStrategy.FULL_SHARD
+    elif sharding_strategy == "SHARD_GRAD_OP":
+        sharding_strategy = ShardingStrategy.SHARD_GRAD_OP
+    elif sharding_strategy == "HYBRID_SHARD":
+        sharding_strategy = ShardingStrategy.HYBRID_SHARD
+    elif sharding_strategy == "_HYBRID_SHARD_ZERO2":
+        sharding_strategy = ShardingStrategy._HYBRID_SHARD_ZERO2
+
     # model instantiation
     if run_id is not None or "/" in ckpt_file_name:
         (
@@ -2205,6 +2218,7 @@ def main(
             precision=precision,
             precision_policy=precision_policy,
             use_orig_params=use_orig_params,
+            sharding_strategy=sharding_strategy,
         )
     else:
         model = ow.model.Whisper(dims=model_dims).to(local_rank)
@@ -2220,7 +2234,7 @@ def main(
             mixed_precision=precision_policy,
             backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
             use_orig_params=use_orig_params,
-            sharding_strategy=ShardingStrategy(sharding_strategy),
+            sharding_strategy=sharding_strategy,
         )
 
         # optimizer and scheduler instantiation
