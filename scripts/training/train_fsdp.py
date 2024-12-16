@@ -2038,6 +2038,7 @@ def main(
     add_module_hooks: bool = False,
     precision: Literal["fp16", "fp32", "pure_fp16", "bfloat16"] = "fp16",
     use_orig_params: bool = False,
+    sharding_strategy: Literal["FULL_SHARD", "SHARD_GRAD_OP", "HYBRID_SHARD", "_HYBRID_SHARD_ZERO2"] = "FULL_SHARD",
 ) -> None:
     """Main function for training
 
@@ -2218,6 +2219,7 @@ def main(
             mixed_precision=precision_policy,
             backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
             use_orig_params=use_orig_params,
+            sharding_strategy=sharding_strategy,
         )
 
         # optimizer and scheduler instantiation
