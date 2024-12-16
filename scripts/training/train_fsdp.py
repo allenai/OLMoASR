@@ -1064,6 +1064,24 @@ def train(
         start_step = time.time()
 
         with set_detect_anomaly(mode=detect_anomaly):
+            # logging dataloading time
+            end_dl = time.time()
+            time_dl = end_dl - start_dl
+            time_dl_tensor = torch.tensor(time_dl, device=local_rank)
+            gathered_dl_time = [
+                torch.zeros_like(time_dl_tensor) for _ in range(dist.get_world_size())
+            ]
+            dist.all_gather(gathered_dl_time, time_dl_tensor)
+            if rank == 0:
+                gathered_dl_time = [t.item() for t in gathered_dl_time]
+                for i, dl_time in enumerate(gathered_dl_time):
+                    wandb.log(
+                        {
+                            f"train/dl_time_gpu={i}": dl_time,
+                            "custom_step": current_step,
+                        }
+                    )
+            
             with autocast(device_type="cuda", dtype=precision):
                 (
                     audio_files,
