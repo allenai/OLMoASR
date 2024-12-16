@@ -2091,7 +2091,7 @@ def main(
     tags = [
         "fsdp-train",
         "grad-acc",
-        "fp16",
+        "bfloat16",
     ]
 
     if ckpt_file_name is None:
