@@ -1098,7 +1098,25 @@ def train(
                 text_y = text_y.to(local_rank)
                 padding_mask = padding_mask.to(local_rank)
 
+                start_fwd = time.time()
                 logits = model(audio_input, text_input, padding_mask, verbose)
+                end_fwd = time.time()
+                
+                time_fwd = end_fwd - start_fwd
+                time_fwd_tensor = torch.tensor(time_fwd, device=local_rank)
+                gathered_fwd_time = [
+                    torch.zeros_like(time_fwd_tensor) for _ in range(dist.get_world_size())
+                ]
+                dist.all_gather(gathered_fwd_time, time_fwd_tensor)
+                if rank == 0:
+                    gathered_fwd_time = [t.item() for t in gathered_fwd_time]
+                    for i, fwd_time in enumerate(gathered_fwd_time):
+                        wandb.log(
+                            {
+                                f"train/fwd_time_gpu={i}": fwd_time,
+                                "custom_step": current_step,
+                            }
+                        )
 
                 train_loss = F.cross_entropy(
                     logits.view(-1, logits.shape[-1]),
