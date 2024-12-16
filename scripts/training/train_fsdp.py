@@ -40,6 +40,11 @@ from torch.distributed.fsdp import (
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     BackwardPrefetch,
 )
+from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
+    checkpoint_wrapper,
+    CheckpointImpl,
+    apply_activation_checkpointing,
+)
 from torch.distributed.fsdp.wrap import (
     transformer_auto_wrap_policy,
 )
@@ -2270,6 +2275,11 @@ def main(
 
         current_step = 0
         epoch = 0
+    
+    # setting up activation checkpointing
+    non_reentrant_wrapper = functools.partial(checkpoint_wrapper, offload_to_cpu=False, checkpoint_impl=CheckpointImpl.NO_REENTRANT)
+    check_fn = lambda submodule: isinstance(submodule, ResidualAttentionBlock)
+    apply_activation_checkpointing(model, checkpoint_wrapper_fn=non_reentrant_wrapper, check_fn=check_fn)
 
     # setting up wandb for logging
     if rank == 0:
@@ -2441,7 +2451,6 @@ def main(
                     eval_dir=eval_dir,
                     wandb_log=eval_wandb_log,
                 )
-
 
             print(f"Rank {rank} reaching barrier")
             dist.barrier()
