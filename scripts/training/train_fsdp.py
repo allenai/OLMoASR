@@ -1059,6 +1059,7 @@ def train(
         start_time = time.time()
 
     train_sampler.set_epoch(epoch)
+    start_dl = time.time()
     for batch_idx, batch in enumerate(train_dataloader):
         model.train()
         start_step = time.time()
