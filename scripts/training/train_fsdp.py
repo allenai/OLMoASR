@@ -1085,7 +1085,7 @@ def train(
                             "custom_step": current_step,
                         }
                     )
-            
+
             with autocast(device_type="cuda", dtype=precision):
                 (
                     audio_files,
@@ -1105,11 +1105,12 @@ def train(
                 start_fwd = time.time()
                 logits = model(audio_input, text_input, padding_mask, verbose)
                 end_fwd = time.time()
-                
+
                 time_fwd = end_fwd - start_fwd
                 time_fwd_tensor = torch.tensor(time_fwd, device=local_rank)
                 gathered_fwd_time = [
-                    torch.zeros_like(time_fwd_tensor) for _ in range(dist.get_world_size())
+                    torch.zeros_like(time_fwd_tensor)
+                    for _ in range(dist.get_world_size())
                 ]
                 dist.all_gather(gathered_fwd_time, time_fwd_tensor)
                 if rank == 0:
@@ -1301,12 +1302,10 @@ def train(
 
                 # logging throughput
                 end_step = time.time()
-                time_per_step = (end_step - start_step) / 60
+                time_per_step = end_step - start_step
                 throughput = (
-                    ((train_batch_size * accumulation_steps) / (end_step - start_step))
-                    * 30
-                    / 60
-                )
+                    (train_batch_size * accumulation_steps * 30) / 60
+                ) / time_per_step
 
                 # putting throughput on GPU
                 throughput_tensor = torch.tensor(throughput, device=local_rank)
@@ -1474,10 +1473,9 @@ def train(
             batch_audio_files = []
             batch_text_files = []
             batch_audio_arr = []
-            
+
             # logging dataloading time
             start_dl = time.time()
-            
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
@@ -2272,14 +2270,14 @@ def main(
     else:
         model = ow.model.Whisper(dims=model_dims).to(local_rank)
 
-        auto_wrap_policy = functools.partial(
-            transformer_auto_wrap_policy,
-            transformer_layer_cls={ResidualAttentionBlock, AudioEncoder, TextDecoder},
-        )
+        # auto_wrap_policy = functools.partial(
+        #     transformer_auto_wrap_policy,
+        #     transformer_layer_cls={ResidualAttentionBlock, AudioEncoder, TextDecoder},
+        # )
         model = FSDP(
             model,
             device_id=local_rank,
-            auto_wrap_policy=auto_wrap_policy,
+            # auto_wrap_policy=auto_wrap_policy,
             mixed_precision=precision_policy,
             backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
             use_orig_params=use_orig_params,
