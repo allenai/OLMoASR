@@ -819,21 +819,24 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank):
         dels = measures["deletions"]
         ins = measures["insertions"]
 
-    # Use torch.tensor to work with dist.all_reduce
-    train_wer_tensor = torch.tensor(train_wer, device=rank)
-    train_subs_tensor = torch.tensor(subs, device=rank)
-    train_dels_tensor = torch.tensor(dels, device=rank)
-    train_ins_tensor = torch.tensor(ins, device=rank)
-    # Aggregate WER across all processes
+    # Use CPU tensors instead of GPU tensors
+    train_wer_tensor = torch.tensor(train_wer, device="cpu")
+    train_subs_tensor = torch.tensor(subs, device="cpu")
+    train_dels_tensor = torch.tensor(dels, device="cpu")
+    train_ins_tensor = torch.tensor(ins, device="cpu")
+
+    # Aggregate WER across all processes (supports CPU tensors)
     dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
     dist.all_reduce(train_subs_tensor, op=dist.ReduceOp.SUM)
     dist.all_reduce(train_dels_tensor, op=dist.ReduceOp.SUM)
     dist.all_reduce(train_ins_tensor, op=dist.ReduceOp.SUM)
+
     # Calculate the average WER across all processes
-    train_wer_all = train_wer_tensor.item() / dist.get_world_size()
-    train_subs_all = train_subs_tensor.item() / dist.get_world_size()
-    train_dels_all = train_dels_tensor.item() / dist.get_world_size()
-    train_ins_all = train_ins_tensor.item() / dist.get_world_size()
+    world_size = dist.get_world_size()
+    train_wer_all = train_wer_tensor.item() / world_size
+    train_subs_all = train_subs_tensor.item() / world_size
+    train_dels_all = train_dels_tensor.item() / world_size
+    train_ins_all = train_ins_tensor.item() / world_size
 
     return (
         norm_tgt_pred_pairs,
