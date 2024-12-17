@@ -820,10 +820,10 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank):
         ins = measures["insertions"]
 
     # Use CPU tensors instead of GPU tensors
-    train_wer_tensor = torch.tensor(train_wer, device="cpu")
-    train_subs_tensor = torch.tensor(subs, device="cpu")
-    train_dels_tensor = torch.tensor(dels, device="cpu")
-    train_ins_tensor = torch.tensor(ins, device="cpu")
+    train_wer_tensor = torch.tensor(train_wer, device=rank)
+    train_subs_tensor = torch.tensor(subs, device=rank)
+    train_dels_tensor = torch.tensor(dels, device=rank)
+    train_ins_tensor = torch.tensor(ins, device=rank)
 
     # Aggregate WER across all processes (supports CPU tensors)
     dist.all_reduce(train_wer_tensor, op=dist.ReduceOp.SUM)
