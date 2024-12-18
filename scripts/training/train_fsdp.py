@@ -358,6 +358,7 @@ def prepare_optim(
     betas: Tuple[float, float],
     eps: float,
     weight_decay: float,
+    cpu_offload: bool,
 ) -> torch.optim.Optimizer:
     """Prepares the optimizer for training
 
@@ -379,6 +380,7 @@ def prepare_optim(
         betas=betas,
         eps=eps,
         weight_decay=weight_decay,
+        fused=True if cpu_offload else False,
     )
 
     return optimizer
@@ -2097,6 +2099,7 @@ def main(
     sharding_strategy: Literal[
         "FULL_SHARD", "SHARD_GRAD_OP", "HYBRID_SHARD", "_HYBRID_SHARD_ZERO2"
     ] = "FULL_SHARD",
+    cpu_offload: bool = False,
 ) -> None:
     """Main function for training
 
@@ -2289,11 +2292,12 @@ def main(
             backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
             use_orig_params=use_orig_params,
             sharding_strategy=sharding_strategy,
+            cpu_offload=CPUOffload(offload_params=cpu_offload),
         )
 
         # optimizer and scheduler instantiation
         optimizer = prepare_optim(
-            model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay
+            model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, cpu_offload=cpu_offload
         )
 
         scheduler, accumulation_steps, warmup_steps, train_steps = prepare_sched(
@@ -2312,7 +2316,7 @@ def main(
             # scaler = GradScaler(init_scale=2**16)
             scaler = None
 
-        if run_val:
+        if run_val: 
             best_val_loss = float("inf")
         else:
             best_val_loss = None
