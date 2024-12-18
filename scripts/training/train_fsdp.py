@@ -1065,7 +1065,9 @@ def train(
     start_dl = time.time()
     for batch_idx, batch in enumerate(train_dataloader):
         model.train()
-        start_step = time.time()
+
+        if (batch_idx + 1) % accumulation_steps != 0:
+            start_step = time.time()
 
         with set_detect_anomaly(mode=detect_anomaly):
             # logging dataloading time
