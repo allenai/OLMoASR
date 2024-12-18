@@ -1210,9 +1210,9 @@ def train(
 
             # after accumulation_steps, update weights
             if ((batch_idx + 1) % accumulation_steps) == 0:
-                train_loss_tensor = total_loss.clone()
-                dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
-                train_loss_all = train_loss_tensor.item() / dist.get_world_size()
+                # train_loss_tensor = total_loss.clone()
+                dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+                train_loss_all = total_loss.item() / dist.get_world_size()
 
                 if ((current_step + 1) % train_log_freq) == 0:
                     (
