@@ -36,6 +36,7 @@ from torch.distributed.fsdp import (
     StateDictType,
     sharded_grad_scaler,
     ShardingStrategy,
+    CPUOffload,
 )
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     BackwardPrefetch,
@@ -56,7 +57,7 @@ from whisper.tokenizer import get_tokenizer
 import whisper.tokenizer
 from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
 import open_whisper as ow
-from whisper.model import ResidualAttentionBlock, AudioEncoder, TextDecoder
+from whisper.model import ResidualAttentionBlock, AudioEncoder, TextDecoder, MultiHeadAttention
 
 from scripts.eval.eval import EvalDataset
 from scripts.training import for_logging
@@ -2282,7 +2283,7 @@ def main(
 
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
-            transformer_layer_cls={ResidualAttentionBlock, AudioEncoder, TextDecoder},
+            transformer_layer_cls={ResidualAttentionBlock, AudioEncoder, TextDecoder, MultiHeadAttention},
         )
         model = FSDP(
             model,
@@ -2335,7 +2336,7 @@ def main(
         offload_to_cpu=False,
         checkpoint_impl=CheckpointImpl.NO_REENTRANT,
     )
-    check_fn = lambda submodule: isinstance(submodule, ResidualAttentionBlock)
+    check_fn = lambda submodule: isinstance(submodule, (ResidualAttentionBlock, MultiHeadAttention))
     apply_activation_checkpointing(
         model, checkpoint_wrapper_fn=non_reentrant_wrapper, check_fn=check_fn
     )
