@@ -1136,7 +1136,12 @@ def train(
             if scaler is not None:
                 scaler.scale(train_loss).backward()  # accumulate gradients
             else:
-                train_loss.backward()
+                if ((batch_idx + 1) % accumulation_steps) == 0:
+                    train_loss.backward()
+                else:
+                    with model.no_sync():
+                        train_loss.backward()
+                    
             if use_orig_params:
                 with FSDP.summon_full_params(module=model, with_grads=True):
                     for i, (name, param) in enumerate(model.named_parameters()):
