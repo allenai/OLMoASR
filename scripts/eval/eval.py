@@ -312,6 +312,7 @@ def main(
     if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
 
+    os.makedirs(log_dir, exist_ok=True)
     os.makedirs(wandb_log_dir, exist_ok=True)
     os.makedirs(eval_dir, exist_ok=True)
 
