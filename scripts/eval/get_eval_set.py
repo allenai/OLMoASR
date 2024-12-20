@@ -115,30 +115,14 @@ def get_eval_set(
         # removing the tar file
         os.remove(f"{eval_dir}/artie-bias-corpus.tar.gz")
     elif eval_set == "fleurs":
-        # downloading the files
-        command = [
-            "wget",
-            "-P",
-            eval_dir,
-            "https://huggingface.co/datasets/google/fleurs/resolve/main/data/en_us/test.tsv",
-        ]
-        subprocess.run(command)
-        command = [
-            "wget",
-            "-P",
-            eval_dir,
-            "https://huggingface.co/datasets/google/fleurs/resolve/main/data/en_us/audio/test.tar.gz",
-        ]
-        subprocess.run(command)
-        # extracting the file
-        command = ["tar", "-xvf", f"{eval_dir}/test.tar.gz", "-C", eval_dir]
-        subprocess.run(command)
-        # removing the tar file
-        os.remove(f"{eval_dir}/test.tar.gz")
-        # making directory
-        os.makedirs(f"{eval_dir}/fleurs", exist_ok=True)
-        os.rename(f"{eval_dir}/test.tsv", f"{eval_dir}/fleurs/test.tsv")
-        os.rename(f"{eval_dir}/test", f"{eval_dir}/fleurs/test")
+        dataset = load_dataset(
+            path="google/fleurs",
+            name="en_us",
+            cache_dir=eval_dir,
+            trust_remote_code=True,
+            num_proc=15,
+            save_infos=True,
+        )
     elif eval_set == "tedlium":
         # downloading the files
         command = [
@@ -164,35 +148,19 @@ def get_eval_set(
             elif f.endswith(".sph"):
                 os.rename(f"{eval_dir}/TEDLIUM_release-3/legacy/test/{f}", f"{eval_dir}/TEDLIUM_release-3/legacy/test/sph/{f}")
     elif eval_set == "voxpopuli":
-        command = [
-            "wget",
-            "-P",
-            eval_dir,
-            "https://huggingface.co/datasets/facebook/voxpopuli/resolve/main/data/en/test/test_part_0.tar.gz",
-        ]
-        subprocess.run(command)
-        command = [
-            "wget",
-            "-P",
-            eval_dir,
-            "https://huggingface.co/datasets/facebook/voxpopuli/resolve/main/data/en/asr_test.tsv",
-        ]
-        subprocess.run(command)
-        # extracting the file
-        command = ["tar", "-xvf", f"{eval_dir}/test_part_0.tar.gz", "-C", eval_dir]
-        subprocess.run(command)
-        # removing the tar file
-        os.remove(f"{eval_dir}/test_part_0.tar.gz")
-        # making directory
-        os.makedirs(f"{eval_dir}/voxpopuli", exist_ok=True)
-        os.rename(f"{eval_dir}/asr_test.tsv", f"{eval_dir}/voxpopuli/asr_test.tsv")
-        os.rename(f"{eval_dir}/test_part_0", f"{eval_dir}/voxpopuli/test")
+        dataset = load_dataset(
+            path="facebook/voxpopuli",
+            name="en",
+            cache_dir=eval_dir,
+            trust_remote_code=True,
+            num_proc=15,
+            save_infos=True,
+        )
     elif eval_set == "common_voice":
         dataset = load_dataset(
             path="mozilla-foundation/common_voice_5_1",
             name="en",
             token=hf_token,
-            split="test",
             cache_dir=eval_dir,
             trust_remote_code=True,
             num_proc=15,
