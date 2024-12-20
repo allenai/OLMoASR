@@ -397,9 +397,12 @@ def prepare_sched(
     warmup_steps = np.ceil(0.002 * train_steps)
 
     def lr_lambda(batch_idx: int) -> float:
-        eff_batch_idx = batch_idx // accumulation_steps
+        eff_batch_idx = batch_idx
+        print(f"{eff_batch_idx=}")
         if eff_batch_idx < warmup_steps:
+            print(f"{eff_batch_idx / warmup_steps=}")
             return float(eff_batch_idx) / float(max(1, warmup_steps))
+        print(f"{(train_steps - eff_batch_idx) / (train_steps - warmup_steps)=}")
         return max(
             0.0,
             float(train_steps - eff_batch_idx)
@@ -1376,6 +1379,7 @@ def train(
             )
 
         current_lr = optimizer.param_groups[0]["lr"]
+        print(f"{current_lr=}")
         if rank == 0:
             wandb.log({"train/learning_rate": current_lr, "custom_step": current_step})
         optimizer.zero_grad()
