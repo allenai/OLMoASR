@@ -397,7 +397,7 @@ def prepare_sched(
     warmup_steps = np.ceil(0.002 * train_steps)
 
     def lr_lambda(batch_idx: int) -> float:
-        eff_batch_idx = batch_idx
+        eff_batch_idx = (batch_idx + 1) // accumulation_steps
         print(f"{eff_batch_idx=}")
         if eff_batch_idx < warmup_steps:
             print(f"{eff_batch_idx / warmup_steps=}")
@@ -1038,6 +1038,7 @@ def train(
 
         # after accumulation_steps, update weights
         if ((batch_idx + 1) % accumulation_steps) == 0:
+            print(f"{batch_idx=}")
             train_loss_tensor = total_loss.clone()
             dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
@@ -1166,6 +1167,7 @@ def train(
                     )
 
             current_lr = optimizer.param_groups[0]["lr"]
+            print(f"{current_lr=}")
             # logging learning rate
             if rank == 0:
                 wandb.log(
@@ -1379,7 +1381,6 @@ def train(
             )
 
         current_lr = optimizer.param_groups[0]["lr"]
-        print(f"{current_lr=}")
         if rank == 0:
             wandb.log({"train/learning_rate": current_lr, "custom_step": current_step})
         optimizer.zero_grad()
