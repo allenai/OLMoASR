@@ -12,6 +12,9 @@ from functools import partial
 import yaml
 import time
 import argparse 
+import pysrt
+import webvtt
+from io import StringIO
 
 """
 Single node ec2 data filtering pipeline. 
@@ -69,7 +72,51 @@ def parse_config(config_path):
     return config_dict
 
 
+def parse_into_iter(content, subtitle_file_name):
+    """ Parses either the contents of an srt or vtt into an iterable string of things with a .text field """
+    ext = os.path.splitext(subtitle_file_name)[-1]
+    if ext == '.srt':
+        return pysrt.from_string(content)
+    elif ext == '.vtt':
+        return webvtt.from_string(content)
+    else:
+        raise Exception("Unsupported subtitle file type: %s" % subtitle_file_name)
+        
+        
 
+def parse_iter_to_string(iter_contents):
+    """ Parses the iterable back into the content form it came from (might throw away some vtt metadata)"""
+    if isinstance(iter_contents, pysrt.srtfile.SubRipFile):
+        sio = StringIO()
+        iter_contents.write_into(sio)
+        sio.seek(0)
+        return sio.read()
+    elif isinstance(iter_contents, webvtt.webvtt.WebVTT):
+        return iter_contents.content
+    else:
+        raise Exception("Unknown content type %s" % iter_contents.__class__)
+
+    
+def process_hitlist(hitlist, pipeline):
+    """ Processes hitlist in a nice way and prints it out
+        Each line looks like:
+        Step (int) | Killed %s of total | Killed % of remainder
+    """
+    total_lines = sum(hitlist.values())
+    remainder = total_lines
+    max_fxn_len = max(len(_['fxn']) for _ in pipeline)
+
+    for i, d in enumerate(pipeline, start=1):
+        fxn = d['fxn']
+        pad = ' ' * max(0, max_fxn_len - len(d['fxn']))
+        this_hit = hitlist.get(fxn, 0)
+
+        print("Step %02d (%s) %s | Killed %05.02f%% of total | Killed %05.02f%% of remainder" % (
+               i, fxn, pad, 100 * this_hit / total_lines, 100 * this_hit / remainder))
+        remainder -= this_hit
+
+
+    
 
 # =============================================================
 # =                         FILTERING ATOMS                   =
@@ -78,12 +125,14 @@ def parse_config(config_path):
 CONST_a2z = set([chr(ord('a') + i) for i in range(26)])
 CONST_A2Z = set(_.upper() for _ in CONST_a2z)
 
-def _filter_stub(content: str, **kwargs):
+def _filter_stub(content, **kwargs):
     """ Basic filtering stub. Always takes in a content and some kwargs
+        Content is of type SubRipFile or WebVTT. Both have iterables that have .text fields
+
         Will either return:
             None (kill the whole line)
         OR
-            the new content    
+            the new content (of the same type, but potentially different text) 
     """
     if content == None:
         return None
@@ -96,26 +145,49 @@ def identity_filter(content):
 
 def has_comma_period(content):
     # Returns full content if both a ',' and '.' are contained in the content
+    seen_period = seen_comma = False
+    for caption in content:
+        if not seen_period and '.' in caption.text:
+            seen_period = True
+        if not seen_comma and ',' in caption.text:
+            seen_comma = True
+        if seen_period and seen_comma:
+            return content
 
-    if '.' in content and ',' in content:
-        return content
     return None
 
 
 def has_mixed_case(content):
     # Returns full content if both an uppercase and lowercase character are present
-    charset = set(content)
+    seen_upper = seen_lower = False
 
-    if charset.intersection(CONST_a2z) and charset.intersection(CONST_A2Z):
-        return content
-    return None
+    for caption in content:
+        capset = set(caption.text)
+        if not seen_upper and CONST_A2Z.intersection(capset):
+            seen_upper = True
+        if not seen_lower and CONST_a2z.intersection(capset):
+            seen_lower = True
+        if seen_upper and seen_lower:
+            return content
+    
+    return None 
 
+
+def has_no_repeats(content):
+    textset = set()
+    for caption in content:
+        if caption.text in textset:
+            return None
+        textset.add(caption.text)
+
+    return content
 
 
 
 FILTER_DICT = {'identity': identity_filter,
                'has_comma_period': has_comma_period,
-               'has_mixed_case': has_mixed_case}
+               'has_mixed_case': has_mixed_case, 
+               'has_no_repeats': has_no_repeats}
 
 
 
@@ -134,14 +206,20 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
 
     # Process all lines
     output_lines = []
+    total_hitlist = defaultdict(int)
     for line in lines:
         lines_seen += 1
-        chars_seen += len(line['content'])
-        output_content = process_content(line['content'], config_dict)
+        parsed_content = parse_into_iter(line['content'], line['subtitle_file'])
+        chars_seen += len(line['content']) # TODO: Be more precise here
+        output_content, hitlist = process_content(parsed_content, config_dict)
+        for k,v in hitlist.items():
+            total_hitlist[k] += v
+
         if output_content != None:
+            output_content_str = parse_iter_to_string(output_content)
             lines_kept += 1
-            chars_kept += len(output_content)
-            line['content'] = output_content
+            chars_kept += len(output_content_str) # TODO: Be more precise here
+            line['content'] = output_content_str
             output_lines.append(line)
         else:
             continue
@@ -152,18 +230,22 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
         with open(output_file, 'wb') as f:
             f.write(gzip.compress(b'\n'.join([json.dumps(_).encode('utf-8') for _ in output_lines])))
 
-    return (lines_seen, lines_kept, chars_seen, chars_kept)
+    return (lines_seen, lines_kept, chars_seen, chars_kept, dict(total_hitlist))
 
 
 
 def process_content(content, config):
+    hitlist = defaultdict(int)
     for filter_dict in config['pipeline']:
         filter_fxn = FILTER_DICT[filter_dict['fxn']]
         kwargs = {k: v for k,v in filter_dict.items() if k != 'fxn'}
         content = filter_fxn(content, **kwargs)
         if content == None:
-            return None
-    return content
+            hitlist[filter_dict['fxn']] += 1
+            return None, hitlist
+
+    hitlist['pass'] += 1
+    return content, hitlist
 
 
 # =============================================================
@@ -185,16 +267,21 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
     output_numbers = run_imap_multiprocessing(partial_fxn, files, num_cpus)
 
     lines_seen = lines_kept = chars_seen = chars_kept = 0
-    for ls, lk, cs, ck in output_numbers:
+    total_hitlist = defaultdict(int)
+    for ls, lk, cs, ck, hitlist in output_numbers:
         lines_seen += ls
         lines_kept += lk
         chars_seen += cs
         chars_kept += ck
+        for k,v in hitlist.items():
+            total_hitlist[k] += v
 
 
     print("Processed %s files in %.02f seconds" % (len(files), time.time() - start_time))
     print("Kept %s/%s Lines | %.04f survival rate" % (lines_kept, lines_seen, lines_kept / lines_seen))
     print("Kept %s/%s Chars | %.04f survival rate" % (chars_kept, chars_seen, chars_kept / chars_seen))
+
+    process_hitlist(dict(total_hitlist), config_dict['pipeline'])
 
 
 if __name__ == '__main__':
