@@ -132,6 +132,7 @@ class EvalDataset(Dataset):
             "ami_ihm",
             "ami_sdm",
         ],
+        split: Optional[str] = None,
         hf_token: Optional[str] = None,
         eval_dir: str = "data/eval",
     ):
@@ -154,11 +155,18 @@ class EvalDataset(Dataset):
 
             self.dataset = ArtieBiasCorpus(root_dir=root_dir)
         elif eval_set == "fleurs":
-            root_dir = f"{eval_dir}/fleurs"
-            if not os.path.exists(root_dir):
+            if not os.path.exists(f"{eval_dir}/google___fleurs"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = Fleurs(root_dir=root_dir)
+            self.dataset = load_dataset(
+                path="google/fleurs",
+                name="en_us",
+                split=split,
+                cache_dir=eval_dir,
+                trust_remote_code=True,
+                num_proc=15,
+                save_infos=True,
+            )
         elif eval_set == "tedlium":
             if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
@@ -167,11 +175,17 @@ class EvalDataset(Dataset):
                 root=f"{eval_dir}", release="release3", subset="test"
             )
         elif eval_set == "voxpopuli":
-            root_dir = f"{eval_dir}/voxpopuli"
-            if not os.path.exists(root_dir):
+            if not os.path.exists(f"{eval_dir}/facebook___voxpopuli"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = VoxPopuli(root_dir=root_dir)
+            self.dataset = load_dataset(
+                path="facebook/voxpopuli",
+                name="en",
+                cache_dir=eval_dir,
+                trust_remote_code=True,
+                num_proc=15,
+                save_infos=True,
+            )
         elif eval_set == "common_voice":
             if not os.path.exists(f"{eval_dir}/mozilla-foundation___common_voice_5_1"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir, hf_token=hf_token)
@@ -180,7 +194,6 @@ class EvalDataset(Dataset):
                 path="mozilla-foundation/common_voice_5_1",
                 name="en",
                 token=hf_token,
-                split="test",
                 cache_dir=eval_dir,
                 trust_remote_code=True,
                 num_proc=15,
@@ -201,13 +214,13 @@ class EvalDataset(Dataset):
 
         self.eval_set = eval_set
 
-        if self.eval_set not in ["tedlium", "common_voice"]:
+        if self.eval_set not in ["tedlium", "common_voice", "fleurs", "voxpopuli"]:
             audio_files, transcript_texts = self.dataset.load()
             self.audio_files = audio_files
             self.transcript_texts = transcript_texts
 
     def __len__(self):
-        if self.eval_set in ["tedlium", "common_voice"]:
+        if self.eval_set in ["tedlium", "common_voice", "fleurs", "voxpopuli"]:
             return len(self.dataset)
         return len(self.audio_files)
 
@@ -232,6 +245,32 @@ class EvalDataset(Dataset):
             audio_arr = audio.pad_or_trim(waveform)
             audio_arr = audio_arr.astype(np.float32)
             audio_input = audio.log_mel_spectrogram(audio_arr)
+        elif self.eval_set == "fleurs":
+            waveform = self.dataset[index]["audio"]["array"]
+            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+            text_y = self.dataset[index]["raw_transcription"]
+            
+            if sampling_rate != 16000:
+                waveform = librosa.resample(
+                    waveform, orig_sr=sampling_rate, target_sr=16000
+                )
+                
+            audio_arr = audio.pad_or_trim(waveform)
+            audio_arr = audio_arr.astype(np.float32)
+            audio_input = audio.log_mel_spectrogram(audio_arr)
+        elif self.eval_set == "voxpopuli":
+            waveform = self.dataset[index]["audio"]["array"]
+            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+            text_y = self.dataset[index]["raw_text"]
+            
+            if sampling_rate != 16000:
+                waveform = librosa.resample(
+                    waveform, orig_sr=sampling_rate, target_sr=16000
+                )
+                
+            audio_arr = audio.pad_or_trim(waveform)
+            audio_arr = audio_arr.astype(np.float32)
+            audio_input = audio.log_mel_spectrogram(audio_arr)
         else:
             audio_fp = self.audio_files[index]
             audio_arr, audio_input = self.preprocess_audio(audio_fp)
@@ -247,7 +286,6 @@ class EvalDataset(Dataset):
 
 
 def main(
-    exp_name: str,
     batch_size: int,
     num_workers: int,
     ckpt: str,
@@ -264,6 +302,7 @@ def main(
     ],
     log_dir: str,
     current_step: Optional[int] = None,
+    exp_name: Optional[str] = None,
     wandb_log: bool = False,
     wandb_run_id: Optional[str] = None,
     wandb_log_dir: str = "wandb",
@@ -277,14 +316,6 @@ def main(
     os.makedirs(eval_dir, exist_ok=True)
 
     device = torch.device("cuda")
-    dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
-    dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        drop_last=False,
-        num_workers=num_workers,
-    )
 
     model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
     model.eval()
@@ -340,119 +371,136 @@ def main(
         eval_table = wandb.Table(columns=wandb_table_cols)
         table_iter = 0
 
-    with torch.no_grad():
-        for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-            _, audio_arr, audio_input, text_y = batch
-
-            norm_tgt_text = [normalizer(text) for text in text_y]
-            audio_input = audio_input.to(device)
-
-            options = DecodingOptions(language="en", without_timestamps=True)
-
-            results = model.decode(
-                audio_input, options=options
-            )  # using default arguments
-
-            norm_pred_text = [
-                normalizer(results[i].text)
-                for i in range(len(results))
-                if norm_tgt_text[i] != ""
-                and norm_tgt_text[i] != "ignore time segment in scoring"
-            ]
-            if wandb_log:
-                if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
-                    audio_arr = [
-                        audio_arr.numpy()[i]
-                        for i in range(len(results))
-                        if norm_tgt_text[i] != ""
-                        and norm_tgt_text[i] != "ignore time segment in scoring"
-                    ]
-            norm_tgt_text = [
-                norm_tgt_text[i]
-                for i in range(len(results))
-                if norm_tgt_text[i] != ""
-                and norm_tgt_text[i] != "ignore time segment in scoring"
-            ]
-
-            references.extend(norm_tgt_text)
-            hypotheses.extend(norm_pred_text)
-
-            if wandb_log:
-                if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
-                    table_iter += 1
-                    for i in tqdm(
-                        range(0, len(norm_pred_text), 8 if wandb_run_id else 1), total=len(norm_pred_text)
-                    ):
-                        wer = (
-                            np.round(
-                                jiwer.wer(
-                                    reference=norm_tgt_text[i],
-                                    hypothesis=norm_pred_text[i],
-                                ),
-                                2,
-                            )
-                            * 100
-                        )
-                        measures = jiwer.compute_measures(
-                            truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
-                        )
-                        subs = measures["substitutions"]
-                        dels = measures["deletions"]
-                        ins = measures["insertions"]
-
-                        if wandb_run_id:
-                            eval_table.add_data(
-                                eval_set,
-                                wandb.Audio(audio_arr[i], sample_rate=16000),
-                                norm_pred_text[i],
-                                norm_tgt_text[i],
-                                subs,
-                                dels,
-                                ins,
-                                wer,
-                                wandb_run_id,
-                            )
-                        else:
-                            eval_table.add_data(
-                                eval_set,
-                                wandb.Audio(audio_arr[i], sample_rate=16000),
-                                norm_pred_text[i],
-                                norm_tgt_text[i],
-                                subs,
-                                dels,
-                                ins,
-                                wer,
-                            )
-
-                    wandb.log({f"eval_table_{table_iter}": eval_table})
-                    eval_table = wandb.Table(columns=wandb_table_cols)
-
-        avg_wer = jiwer.wer(references, hypotheses) * 100
-        avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
-        avg_subs = avg_measures["substitutions"]
-        avg_ins = avg_measures["insertions"]
-        avg_dels = avg_measures["deletions"]
-
-        if wandb_log:
-            if wandb_run_id:
-                wandb.log({f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step})
-                wandb.log({f"eval/{eval_set}_subs": avg_subs, "custom_step": current_step})
-                wandb.log({f"eval/{eval_set}_ins": avg_ins, "custom_step": current_step})
-                wandb.log({f"eval/{eval_set}_dels": avg_dels, "custom_step": current_step})
-            else:
-                wandb.run.summary["avg_wer"] = avg_wer
-                wandb.run.summary["avg_subs"] = avg_subs
-                wandb.run.summary["avg_ins"] = avg_ins
-                wandb.run.summary["avg_dels"] = avg_dels
-        else:
-            with open(f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt", "a") as f:
-                f.write(
-                    f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
-                )
-
-        print(
-            f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+    if eval_set in ["tedlium", "common_voice", "fleurs", "voxpopuli"]:
+        splits = ["train", "validation", "test"]
+    else:
+        splits = []
+    
+    for i, split in enumerate(splits):
+        if len(splits) > 0:
+            print(f"Processing {split} split")
+        dataset = EvalDataset(eval_set=eval_set, split=split if len(splits) > 0 else None, hf_token=hf_token, eval_dir=eval_dir)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_last=False,
+            num_workers=num_workers,
         )
+
+        with torch.no_grad():
+            for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
+                _, audio_arr, audio_input, text_y = batch
+
+                norm_tgt_text = [normalizer(text) for text in text_y]
+                audio_input = audio_input.to(device)
+
+                options = DecodingOptions(language="en", without_timestamps=True)
+
+                results = model.decode(
+                    audio_input, options=options
+                )  # using default arguments
+
+                norm_pred_text = [
+                    normalizer(results[i].text)
+                    for i in range(len(results))
+                    if norm_tgt_text[i] != ""
+                    and norm_tgt_text[i] != "ignore time segment in scoring"
+                ]
+                if wandb_log:
+                    if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
+                        audio_arr = [
+                            audio_arr.numpy()[i]
+                            for i in range(len(results))
+                            if norm_tgt_text[i] != ""
+                            and norm_tgt_text[i] != "ignore time segment in scoring"
+                        ]
+                norm_tgt_text = [
+                    norm_tgt_text[i]
+                    for i in range(len(results))
+                    if norm_tgt_text[i] != ""
+                    and norm_tgt_text[i] != "ignore time segment in scoring"
+                ]
+
+                references.extend(norm_tgt_text)
+                hypotheses.extend(norm_pred_text)
+
+                if wandb_log:
+                    if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
+                        table_iter += 1
+                        for i in tqdm(
+                            range(0, len(norm_pred_text), 8 if wandb_run_id else 1), total=len(norm_pred_text)
+                        ):
+                            wer = (
+                                np.round(
+                                    jiwer.wer(
+                                        reference=norm_tgt_text[i],
+                                        hypothesis=norm_pred_text[i],
+                                    ),
+                                    2,
+                                )
+                                * 100
+                            )
+                            measures = jiwer.compute_measures(
+                                truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                            )
+                            subs = measures["substitutions"]
+                            dels = measures["deletions"]
+                            ins = measures["insertions"]
+
+                            if wandb_run_id:
+                                eval_table.add_data(
+                                    eval_set,
+                                    wandb.Audio(audio_arr[i], sample_rate=16000),
+                                    norm_pred_text[i],
+                                    norm_tgt_text[i],
+                                    subs,
+                                    dels,
+                                    ins,
+                                    wer,
+                                    wandb_run_id,
+                                )
+                            else:
+                                eval_table.add_data(
+                                    eval_set,
+                                    wandb.Audio(audio_arr[i], sample_rate=16000),
+                                    norm_pred_text[i],
+                                    norm_tgt_text[i],
+                                    subs,
+                                    dels,
+                                    ins,
+                                    wer,
+                                )
+
+                        wandb.log({f"eval_table_{table_iter}": eval_table})
+                        eval_table = wandb.Table(columns=wandb_table_cols)
+
+    avg_wer = jiwer.wer(references, hypotheses) * 100
+    avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
+    avg_subs = avg_measures["substitutions"]
+    avg_ins = avg_measures["insertions"]
+    avg_dels = avg_measures["deletions"]
+
+    if wandb_log:
+        if wandb_run_id:
+            wandb.log({f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step})
+            wandb.log({f"eval/{eval_set}_subs": avg_subs, "custom_step": current_step})
+            wandb.log({f"eval/{eval_set}_ins": avg_ins, "custom_step": current_step})
+            wandb.log({f"eval/{eval_set}_dels": avg_dels, "custom_step": current_step})
+        else:
+            wandb.run.summary["avg_wer"] = avg_wer
+            wandb.run.summary["avg_subs"] = avg_subs
+            wandb.run.summary["avg_ins"] = avg_ins
+            wandb.run.summary["avg_dels"] = avg_dels
+    else:
+        with open(f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt", "a") as f:
+            f.write(
+                f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
+            )
+
+    print(
+        f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+    )
 
 
 if __name__ == "__main__":
