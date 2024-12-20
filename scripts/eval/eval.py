@@ -181,6 +181,7 @@ class EvalDataset(Dataset):
             self.dataset = load_dataset(
                 path="facebook/voxpopuli",
                 name="en",
+                split=split,
                 cache_dir=eval_dir,
                 trust_remote_code=True,
                 num_proc=15,
@@ -193,6 +194,7 @@ class EvalDataset(Dataset):
             self.dataset = load_dataset(
                 path="mozilla-foundation/common_voice_5_1",
                 name="en",
+                split=split,
                 token=hf_token,
                 cache_dir=eval_dir,
                 trust_remote_code=True,
@@ -372,7 +374,7 @@ def main(
         eval_table = wandb.Table(columns=wandb_table_cols)
         table_iter = 0
 
-    if eval_set in ["tedlium", "common_voice", "fleurs", "voxpopuli"]:
+    if eval_set in ["common_voice", "fleurs", "voxpopuli"]:
         splits = ["train", "validation", "test"]
     else:
         splits = []
