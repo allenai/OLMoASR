@@ -1,7 +1,6 @@
 import glob
 import os 
 from typing import Tuple, Union, Dict, Any, Literal, Optional
-from open_whisper.utils import TranscriptReader
 import numpy as np
 import io
 from collections import defaultdict
@@ -12,6 +11,7 @@ from multiprocessing import Pool
 from functools import partial
 import yaml
 import time
+import argparse 
 
 """
 Single node ec2 data filtering pipeline. 
@@ -20,7 +20,18 @@ Just works local2local for now.
 Usage will be like:
 python jsonl_filter_single_node.py --config filter_config.yaml --input-dir <path/to/local/inputs> --output-dir <path/to/local/outputs>
 
-(filter config setup TBD)
+Example filter config:
+'''
+name: <name here>
+pipeline:
+ - fxn: fxn1
+   kwarg1: val1
+ - fxn: fxn2
+   kwarg2: val_a
+   kwarg3: val_b
+'''
+
+
 
 Will take a folder  of jsonl.gz's in and make a folder of jsonl.gz's out
 Each line in a jsonl.gz is a json-dict like: 
@@ -63,6 +74,9 @@ def parse_config(config_path):
 # =============================================================
 # =                         FILTERING ATOMS                   =
 # =============================================================
+# Some constants
+CONST_a2z = set([chr(ord('a') + i) for i in range(26)])
+CONST_A2Z = set(_.upper() for _ in CONST_a2z)
 
 def _filter_stub(content: str, **kwargs):
     """ Basic filtering stub. Always takes in a content and some kwargs
@@ -75,13 +89,33 @@ def _filter_stub(content: str, **kwargs):
         return None
 
 
-
 def identity_filter(content):
+    # Just a dummy identity map, aw
     return content
 
 
+def has_comma_period(content):
+    # Returns full content if both a ',' and '.' are contained in the content
 
-FILTER_DICT = {'identity': identity_filter}
+    if '.' in content and ',' in content:
+        return content
+    return None
+
+
+def has_mixed_case(content):
+    # Returns full content if both an uppercase and lowercase character are present
+    charset = set(content)
+
+    if charset.intersection(CONST_a2z) and charset.intersection(CONST_A2Z):
+        return content
+    return None
+
+
+
+
+FILTER_DICT = {'identity': identity_filter,
+               'has_comma_period': has_comma_period,
+               'has_mixed_case': has_mixed_case}
 
 
 
@@ -95,30 +129,37 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     """
     # Read file 
     lines = [json.loads(_) for _ in gzip.decompress(open(jsonl_path, 'rb').read()).splitlines()]
+    lines_seen = lines_kept = 0
+    chars_seen = chars_kept = 0
 
     # Process all lines
     output_lines = []
     for line in lines:
-        output_content = process_content(line['content'], config)
+        lines_seen += 1
+        chars_seen += len(line['content'])
+        output_content = process_content(line['content'], config_dict)
         if output_content != None:
+            lines_kept += 1
+            chars_kept += len(output_content)
             line['content'] = output_content
             output_lines.append(line)
         else:
             continue
 
     # Save to output
-    if len(output_lines) == 0:
-        return
-    output_file = os.path.join(output_dir, os.path.basename(jsonl_path))
-    with open(output_file, 'wb') as f:
-        f.write(gzip.compress(b'\n'.join([json.dumps(_).encode('utf-8') for _ in output_lines])))
+    if len(output_lines) > 0:        
+        output_file = os.path.join(output_dir, os.path.basename(jsonl_path))
+        with open(output_file, 'wb') as f:
+            f.write(gzip.compress(b'\n'.join([json.dumps(_).encode('utf-8') for _ in output_lines])))
+
+    return (lines_seen, lines_kept, chars_seen, chars_kept)
 
 
 
 def process_content(content, config):
     for filter_dict in config['pipeline']:
         filter_fxn = FILTER_DICT[filter_dict['fxn']]
-        kwargs = {k: v for k,v in filter_fxn.items() if k != 'fxn'}
+        kwargs = {k: v for k,v in filter_dict.items() if k != 'fxn'}
         content = filter_fxn(content, **kwargs)
         if content == None:
             return None
@@ -136,13 +177,24 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
         num_cpus = os.cpu_count()
 
     files = glob.glob(os.path.join(input_dir, '**/*.jsonl.gz'), recursive=True)
-    os.path.makedir(output_dir, exist_ok=True)
+    
+    os.makedirs(output_dir, exist_ok=True)
     config_dict = parse_config(config_path)
-
+    print("CONFIG IS ", config_dict)
     partial_fxn = partial(process_jsonl, config_dict=config_dict, output_dir=output_dir)
-    run_imap_multiprocessing(partial_fxn, files, num_cpus)
+    output_numbers = run_imap_multiprocessing(partial_fxn, files, num_cpus)
+
+    lines_seen = lines_kept = chars_seen = chars_kept = 0
+    for ls, lk, cs, ck in output_numbers:
+        lines_seen += ls
+        lines_kept += lk
+        chars_seen += cs
+        chars_kept += ck
+
 
     print("Processed %s files in %.02f seconds" % (len(files), time.time() - start_time))
+    print("Kept %s/%s Lines | %.04f survival rate" % (lines_kept, lines_seen, lines_kept / lines_seen))
+    print("Kept %s/%s Chars | %.04f survival rate" % (chars_kept, chars_seen, chars_kept / chars_seen))
 
 
 if __name__ == '__main__':
