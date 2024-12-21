@@ -1038,6 +1038,8 @@ def train(
         # after accumulation_steps, update weights
         if ((batch_idx + 1) % accumulation_steps) == 0:
             print(f"{batch_idx=}")
+            current_lr = optimizer.param_groups[0]["lr"]
+            print(f"{current_lr=}")
             train_loss_tensor = total_loss.clone()
             dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
