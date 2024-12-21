@@ -528,6 +528,7 @@ def setup_wandb(
     wandb.define_metric("train/*", step_metric="custom_step")
     wandb.define_metric("val/*", step_metric="custom_step")
     wandb.define_metric("eval/*", step_metric="custom_step")
+    wandb.define_metric("efficiency/*", step_metric="custom_step")
 
     return run_id
 
@@ -1085,7 +1086,7 @@ def train(
                 for i, dl_time in enumerate(gathered_dl_time):
                     wandb.log(
                         {
-                            f"train/dl_time_gpu={i}": dl_time,
+                            f"efficiency/dl_time_gpu={i}": dl_time,
                             "custom_step": current_step,
                         }
                     )
@@ -1121,7 +1122,7 @@ def train(
                     for i, fwd_time in enumerate(gathered_fwd_time):
                         wandb.log(
                             {
-                                f"train/fwd_time_gpu={i}": fwd_time,
+                                f"efficiency/fwd_time_gpu={i}": fwd_time,
                                 "custom_step": current_step,
                             }
                         )
@@ -1346,14 +1347,14 @@ def train(
                     for i, throughput in enumerate(gathered_throughput):
                         wandb.log(
                             {
-                                f"train/audio_min_per_GPU_second_gpu={i}": throughput,
+                                f"efficiency/audio_min_per_GPU_second_gpu={i}": throughput,
                                 "custom_step": current_step,
                             }
                         )
                     for i, time_per_step in enumerate(gathered_time):
                         wandb.log(
                             {
-                                f"train/time_per_step_gpu={i}": time_per_step,
+                                f"efficiency/time_per_step_gpu={i}": time_per_step,
                                 "custom_step": current_step,
                             }
                         )
