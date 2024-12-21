@@ -396,16 +396,15 @@ def prepare_sched(
         )  # Number of steps over which to accumulate gradients
     warmup_steps = np.ceil(0.002 * train_steps)
 
-    def lr_lambda(batch_idx: int) -> float:
-        eff_batch_idx = (batch_idx + 1) // accumulation_steps
-        print(f"{eff_batch_idx=}")
-        if eff_batch_idx < warmup_steps:
-            print(f"{eff_batch_idx / warmup_steps=}")
-            return float(eff_batch_idx) / float(max(1, warmup_steps))
-        print(f"{(train_steps - eff_batch_idx) / (train_steps - warmup_steps)=}")
+    def lr_lambda(current_step: int) -> float:
+        print(f"{current_step=}")
+        if current_step < warmup_steps:
+            print(f"{current_step / warmup_steps=}")
+            return float(current_step) / float(max(1, warmup_steps))
+        print(f"{(train_steps - current_step) / (train_steps - warmup_steps)=}")
         return max(
             0.0,
-            float(train_steps - eff_batch_idx)
+            float(train_steps - current_step)
             / float(max(1, train_steps - warmup_steps)),
         )
 
