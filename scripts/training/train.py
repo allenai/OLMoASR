@@ -397,11 +397,8 @@ def prepare_sched(
     warmup_steps = np.ceil(0.002 * train_steps)
 
     def lr_lambda(current_step: int) -> float:
-        print(f"{current_step=}")
         if current_step < warmup_steps:
-            print(f"{current_step / warmup_steps=}")
             return float(current_step) / float(max(1, warmup_steps))
-        print(f"{(train_steps - current_step) / (train_steps - warmup_steps)=}")
         return max(
             0.0,
             float(train_steps - current_step)
@@ -1037,9 +1034,6 @@ def train(
 
         # after accumulation_steps, update weights
         if ((batch_idx + 1) % accumulation_steps) == 0:
-            print(f"{batch_idx=}")
-            current_lr = optimizer.param_groups[0]["lr"]
-            print(f"{current_lr=}")
             train_loss_tensor = total_loss.clone()
             dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
             train_loss_all = train_loss_tensor.item() / dist.get_world_size()
@@ -1057,10 +1051,17 @@ def train(
             scaler.unscale_(optimizer)
             clip_grad_norm_(model.parameters(), max_grad_norm)
             scaler.step(optimizer)  # Only update weights after accumulation_steps
-            scaler.update()
-            scheduler.step()  # Adjust learning rate based on accumulated steps
-
             current_step += 1
+            scaler.update()
+
+            current_lr = optimizer.param_groups[0]["lr"]
+            # logging learning rate
+            if rank == 0:
+                wandb.log(
+                    {"train/learning_rate": current_lr, "custom_step": current_step}
+                )
+
+            scheduler.step()  # Adjust learning rate based on accumulated steps
 
             if current_step >= epoch_steps + (epoch_steps * epoch):
                 # logging
@@ -1167,13 +1168,6 @@ def train(
                         }
                     )
 
-            current_lr = optimizer.param_groups[0]["lr"]
-            print(f"{current_lr=}")
-            # logging learning rate
-            if rank == 0:
-                wandb.log(
-                    {"train/learning_rate": current_lr, "custom_step": current_step}
-                )
             optimizer.zero_grad()  # Reset gradients only after updating weights
             total_loss = 0.0
             if rank == 0:
