@@ -420,54 +420,53 @@ def main(
             hypotheses.extend(norm_pred_text)
 
             if wandb_log:
-                if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
-                    table_iter += 1
-                    for i in tqdm(
-                        range(0, len(norm_pred_text), 8 if wandb_run_id else 1), total=len(norm_pred_text)
-                    ):
-                        wer = (
-                            np.round(
-                                jiwer.wer(
-                                    reference=norm_tgt_text[i],
-                                    hypothesis=norm_pred_text[i],
-                                ),
-                                2,
-                            )
-                            * 100
+                table_iter += 1
+                for i in tqdm(
+                    range(0, len(norm_pred_text)), total=len(norm_pred_text)
+                ):
+                    wer = (
+                        np.round(
+                            jiwer.wer(
+                                reference=norm_tgt_text[i],
+                                hypothesis=norm_pred_text[i],
+                            ),
+                            2,
                         )
-                        measures = jiwer.compute_measures(
-                            truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                        * 100
+                    )
+                    measures = jiwer.compute_measures(
+                        truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                    )
+                    subs = measures["substitutions"]
+                    dels = measures["deletions"]
+                    ins = measures["insertions"]
+
+                    if wandb_run_id:
+                        eval_table.add_data(
+                            eval_set,
+                            wandb.Audio(audio_arr[i], sample_rate=16000),
+                            norm_pred_text[i],
+                            norm_tgt_text[i],
+                            subs,
+                            dels,
+                            ins,
+                            wer,
+                            wandb_run_id,
                         )
-                        subs = measures["substitutions"]
-                        dels = measures["deletions"]
-                        ins = measures["insertions"]
+                    else:
+                        eval_table.add_data(
+                            eval_set,
+                            wandb.Audio(audio_arr[i], sample_rate=16000),
+                            norm_pred_text[i],
+                            norm_tgt_text[i],
+                            subs,
+                            dels,
+                            ins,
+                            wer,
+                        )
 
-                        if wandb_run_id:
-                            eval_table.add_data(
-                                eval_set,
-                                wandb.Audio(audio_arr[i], sample_rate=16000),
-                                norm_pred_text[i],
-                                norm_tgt_text[i],
-                                subs,
-                                dels,
-                                ins,
-                                wer,
-                                wandb_run_id,
-                            )
-                        else:
-                            eval_table.add_data(
-                                eval_set,
-                                wandb.Audio(audio_arr[i], sample_rate=16000),
-                                norm_pred_text[i],
-                                norm_tgt_text[i],
-                                subs,
-                                dels,
-                                ins,
-                                wer,
-                            )
-
-                    wandb.log({f"eval_table_{table_iter}": eval_table})
-                    eval_table = wandb.Table(columns=wandb_table_cols)
+                wandb.log({f"eval_table_{table_iter}": eval_table})
+                eval_table = wandb.Table(columns=wandb_table_cols)
 
     avg_wer = jiwer.wer(references, hypotheses) * 100
     avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
