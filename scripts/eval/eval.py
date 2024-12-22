@@ -250,7 +250,7 @@ class EvalDataset(Dataset):
         elif self.eval_set == "fleurs":
             waveform = self.dataset[index]["audio"]["array"]
             sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-            text_y = self.dataset[index]["raw_transcription"]
+            text_y = self.dataset[index]["transcription"]
             
             if sampling_rate != 16000:
                 waveform = librosa.resample(
@@ -263,7 +263,7 @@ class EvalDataset(Dataset):
         elif self.eval_set == "voxpopuli":
             waveform = self.dataset[index]["audio"]["array"]
             sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-            text_y = self.dataset[index]["raw_text"]
+            text_y = self.dataset[index]["normalized_text"]
             
             if sampling_rate != 16000:
                 waveform = librosa.resample(
