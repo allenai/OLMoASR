@@ -381,6 +381,8 @@ def main(
     
     for i, split in enumerate(splits):
         if len(splits) > 0:
+            split_references = []
+            split_hypotheses = []
             print(f"Processing {split} split")
         dataset = EvalDataset(eval_set=eval_set, split=split if len(splits) > 0 else None, hf_token=hf_token, eval_dir=eval_dir)
         dataloader = DataLoader(
@@ -477,6 +479,11 @@ def main(
 
                         wandb.log({f"eval_table_{table_iter}": eval_table})
                         eval_table = wandb.Table(columns=wandb_table_cols)
+                
+            if len(splits) > 0:
+                print(f"Finished processing {split} split")
+                avg_wer = jiwer.wer(split_references, split_hypotheses) * 100
+                print(f"Average WER for {split} split: {avg_wer}")
 
     avg_wer = jiwer.wer(references, hypotheses) * 100
     avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
