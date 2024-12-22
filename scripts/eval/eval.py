@@ -132,7 +132,6 @@ class EvalDataset(Dataset):
             "ami_ihm",
             "ami_sdm",
         ],
-        split: Optional[str] = None,
         hf_token: Optional[str] = None,
         eval_dir: str = "data/eval",
     ):
@@ -161,7 +160,7 @@ class EvalDataset(Dataset):
             self.dataset = load_dataset(
                 path="google/fleurs",
                 name="en_us",
-                split=split,
+                split="test",
                 cache_dir=eval_dir,
                 trust_remote_code=True,
                 num_proc=15,
@@ -181,7 +180,7 @@ class EvalDataset(Dataset):
             self.dataset = load_dataset(
                 path="facebook/voxpopuli",
                 name="en",
-                split=split,
+                split="test",
                 cache_dir=eval_dir,
                 trust_remote_code=True,
                 num_proc=15,
@@ -194,7 +193,7 @@ class EvalDataset(Dataset):
             self.dataset = load_dataset(
                 path="mozilla-foundation/common_voice_5_1",
                 name="en",
-                split=split,
+                split="test",
                 token=hf_token,
                 cache_dir=eval_dir,
                 trust_remote_code=True,
@@ -320,6 +319,15 @@ def main(
 
     device = torch.device("cuda")
 
+    dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=num_workers,
+    )
+
     model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
     model.eval()
 
@@ -374,119 +382,92 @@ def main(
         eval_table = wandb.Table(columns=wandb_table_cols)
         table_iter = 0
 
-    if eval_set in ["common_voice", "fleurs", "voxpopuli"]:
-        splits = ["train", "validation", "test"]
-    else:
-        splits = []
-    
-    for i, split in enumerate(splits):
-        if len(splits) > 0:
-            split_references = []
-            split_hypotheses = []
-            print(f"Processing {split} split")
-        dataset = EvalDataset(eval_set=eval_set, split=split if len(splits) > 0 else None, hf_token=hf_token, eval_dir=eval_dir)
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            drop_last=False,
-            num_workers=num_workers,
-        )
+    with torch.no_grad():
+        for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
+            _, audio_arr, audio_input, text_y = batch
 
-        with torch.no_grad():
-            for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-                _, audio_arr, audio_input, text_y = batch
+            norm_tgt_text = [normalizer(text) for text in text_y]
+            audio_input = audio_input.to(device)
 
-                norm_tgt_text = [normalizer(text) for text in text_y]
-                audio_input = audio_input.to(device)
+            options = DecodingOptions(language="en", without_timestamps=True)
 
-                options = DecodingOptions(language="en", without_timestamps=True)
+            results = model.decode(
+                audio_input, options=options
+            )  # using default arguments
 
-                results = model.decode(
-                    audio_input, options=options
-                )  # using default arguments
+            norm_pred_text = [
+                normalizer(results[i].text)
+                for i in range(len(results))
+                if norm_tgt_text[i] != ""
+                and norm_tgt_text[i] != "ignore time segment in scoring"
+            ]
+            if wandb_log:
+                if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
+                    audio_arr = [
+                        audio_arr.numpy()[i]
+                        for i in range(len(results))
+                        if norm_tgt_text[i] != ""
+                        and norm_tgt_text[i] != "ignore time segment in scoring"
+                    ]
+            norm_tgt_text = [
+                norm_tgt_text[i]
+                for i in range(len(results))
+                if norm_tgt_text[i] != ""
+                and norm_tgt_text[i] != "ignore time segment in scoring"
+            ]
 
-                norm_pred_text = [
-                    normalizer(results[i].text)
-                    for i in range(len(results))
-                    if norm_tgt_text[i] != ""
-                    and norm_tgt_text[i] != "ignore time segment in scoring"
-                ]
-                if wandb_log:
-                    if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
-                        audio_arr = [
-                            audio_arr.numpy()[i]
-                            for i in range(len(results))
-                            if norm_tgt_text[i] != ""
-                            and norm_tgt_text[i] != "ignore time segment in scoring"
-                        ]
-                norm_tgt_text = [
-                    norm_tgt_text[i]
-                    for i in range(len(results))
-                    if norm_tgt_text[i] != ""
-                    and norm_tgt_text[i] != "ignore time segment in scoring"
-                ]
+            references.extend(norm_tgt_text)
+            hypotheses.extend(norm_pred_text)
 
-                references.extend(norm_tgt_text)
-                hypotheses.extend(norm_pred_text)
-                if len(splits) > 0:
-                    split_references.extend(norm_tgt_text)
-                    split_hypotheses.extend(norm_pred_text)
-
-                if wandb_log:
-                    if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
-                        table_iter += 1
-                        for i in tqdm(
-                            range(0, len(norm_pred_text), 8 if wandb_run_id else 1), total=len(norm_pred_text)
-                        ):
-                            wer = (
-                                np.round(
-                                    jiwer.wer(
-                                        reference=norm_tgt_text[i],
-                                        hypothesis=norm_pred_text[i],
-                                    ),
-                                    2,
-                                )
-                                * 100
+            if wandb_log:
+                if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
+                    table_iter += 1
+                    for i in tqdm(
+                        range(0, len(norm_pred_text), 8 if wandb_run_id else 1), total=len(norm_pred_text)
+                    ):
+                        wer = (
+                            np.round(
+                                jiwer.wer(
+                                    reference=norm_tgt_text[i],
+                                    hypothesis=norm_pred_text[i],
+                                ),
+                                2,
                             )
-                            measures = jiwer.compute_measures(
-                                truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                            * 100
+                        )
+                        measures = jiwer.compute_measures(
+                            truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                        )
+                        subs = measures["substitutions"]
+                        dels = measures["deletions"]
+                        ins = measures["insertions"]
+
+                        if wandb_run_id:
+                            eval_table.add_data(
+                                eval_set,
+                                wandb.Audio(audio_arr[i], sample_rate=16000),
+                                norm_pred_text[i],
+                                norm_tgt_text[i],
+                                subs,
+                                dels,
+                                ins,
+                                wer,
+                                wandb_run_id,
                             )
-                            subs = measures["substitutions"]
-                            dels = measures["deletions"]
-                            ins = measures["insertions"]
+                        else:
+                            eval_table.add_data(
+                                eval_set,
+                                wandb.Audio(audio_arr[i], sample_rate=16000),
+                                norm_pred_text[i],
+                                norm_tgt_text[i],
+                                subs,
+                                dels,
+                                ins,
+                                wer,
+                            )
 
-                            if wandb_run_id:
-                                eval_table.add_data(
-                                    eval_set,
-                                    wandb.Audio(audio_arr[i], sample_rate=16000),
-                                    norm_pred_text[i],
-                                    norm_tgt_text[i],
-                                    subs,
-                                    dels,
-                                    ins,
-                                    wer,
-                                    wandb_run_id,
-                                )
-                            else:
-                                eval_table.add_data(
-                                    eval_set,
-                                    wandb.Audio(audio_arr[i], sample_rate=16000),
-                                    norm_pred_text[i],
-                                    norm_tgt_text[i],
-                                    subs,
-                                    dels,
-                                    ins,
-                                    wer,
-                                )
-
-                        wandb.log({f"eval_table_{table_iter}": eval_table})
-                        eval_table = wandb.Table(columns=wandb_table_cols)
-                
-            if len(splits) > 0:
-                print(f"Finished processing {split} split")
-                avg_wer = jiwer.wer(split_references, split_hypotheses) * 100
-                print(f"Average WER for {split} split: {avg_wer}")
+                    wandb.log({f"eval_table_{table_iter}": eval_table})
+                    eval_table = wandb.Table(columns=wandb_table_cols)
 
     avg_wer = jiwer.wer(references, hypotheses) * 100
     avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
