@@ -429,6 +429,9 @@ def main(
 
                 references.extend(norm_tgt_text)
                 hypotheses.extend(norm_pred_text)
+                if len(splits) > 0:
+                    split_references.extend(norm_tgt_text)
+                    split_hypotheses.extend(norm_pred_text)
 
                 if wandb_log:
                     if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
