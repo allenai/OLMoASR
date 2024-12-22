@@ -118,6 +118,7 @@ def get_eval_set(
         dataset = load_dataset(
             path="google/fleurs",
             name="en_us",
+            split="test",
             cache_dir=eval_dir,
             trust_remote_code=True,
             num_proc=15,
@@ -151,6 +152,7 @@ def get_eval_set(
         dataset = load_dataset(
             path="facebook/voxpopuli",
             name="en",
+            split="test",
             cache_dir=eval_dir,
             trust_remote_code=True,
             num_proc=15,
@@ -160,6 +162,7 @@ def get_eval_set(
         dataset = load_dataset(
             path="mozilla-foundation/common_voice_5_1",
             name="en",
+            split="test",
             token=hf_token,
             cache_dir=eval_dir,
             trust_remote_code=True,
