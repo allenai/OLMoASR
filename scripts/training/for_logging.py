@@ -8,7 +8,6 @@ TRAIN_TABLE_COLS = [
     "unnorm_pred_text",
     "tgt_text",
     "unnorm_tgt_text",
-    "raw_tgt_text",
     "substitutions",
     "deletions",
     "insertions",
