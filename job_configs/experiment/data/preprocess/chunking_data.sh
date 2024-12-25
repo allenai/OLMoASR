@@ -1,25 +1,25 @@
 set -ex
 
-OUTPUT_DIR="/weka/huongn/440K_seg"
-SOURCE_DIR="/weka/huongn/440K_full"
+OUTPUT_DIR="/weka/huongn/leftover_seg"
+SOURCE_DIR="/weka/huongn/leftover"
 LOG_DIR="/results/huongn"
-PREPROC_FAIL_DIR="/weka/huongn/seg_fail"
-MISSING_PAIR_DIR="/weka/huongn/missing_pairs"
-JOBS_BATCH_SIZE=1
-START_SHARD_IDX=3985
-END_SHARD_IDX=3985
+PREPROC_FAIL_DIR="/weka/huongn/leftover_seg_fail"
+MISSING_PAIR_DIR="/weka/huongn/leftover_missing_pairs"
+JOBS_BATCH_SIZE=13
+START_SHARD_IDX=0
+END_SHARD_IDX=12
 IN_MEMORY=True
 JOB_BATCH_IDX=0
 
 gantry run \
-  --name "chunking_data_3985_11_21" \
+  --name "chunking_data_313" \
   --description "chunking audio-transcript pairs" \
   --allow-dirty \
   --no-nfs \
   --preemptible \
   --beaker-image huongn/data_chunking \
   --workspace ai2/open-whisper \
-  --cluster ai2/neptune-cirrascale \
+  --cluster ai2/jupiter-cirrascale-2 \
   --cpus 4.5 \
   --budget ai2/oe-data \
   --replicas ${JOBS_BATCH_SIZE} \
