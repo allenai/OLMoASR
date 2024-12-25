@@ -1,6 +1,6 @@
 gantry run \
-  --name "mixed_no_repeat_comma_period_mach_gen_15e3" \
-  --description "Filtering experiment transcripts that don’t have at least “,” or “.” or have repeating lines or are not in mixed-case or all" \
+  --name "mixed_no_repeat_comma_period_mach_gen_15e4_440K_bs44_ebs352_5pass_112024" \
+  --description "Filtering experiment transcripts that don’t have at least “,” or “.” or have repeating lines or are not in mixed-case or all (440K hours, 5 epochs)" \
   --allow-dirty \
   --no-nfs \
   --preemptible \
@@ -19,11 +19,11 @@ gantry run \
   --priority normal \
   -- /bin/bash -c "torchrun --nnodes 1 --nproc_per_node 8 scripts/training/train.py \
       --model_variant=tiny \
-      --exp_name=mixed_no_repeat_comma_period_mach_gen_15e3 \
+      --exp_name=mixed_no_repeat_comma_period_mach_gen_15e4_440K_bs44_ebs352_5pass_112024 \
       --job_type=filtering \
-      --samples_dicts_dir=/weka/huongn/ow_filtering/mixed_no_repeat_min_comma_period_2 \
-      --train_steps=1048576 \
-      --epoch_steps=205433 \
+      --samples_dicts_dir=/weka/huongn/samples_dicts/filtered/mixed_no_repeat_min_comma_period_full_1_2_3_4 \
+      --train_steps=762601 \
+      --epoch_steps=150327 \
       --ckpt_file_name=None \
       --ckpt_dir=/weka/huongn/ow_ckpts \
       --log_dir=/results/huongn/ow_logs \
@@ -36,17 +36,20 @@ gantry run \
       --eps=1e-6 \
       --weight_decay=0.1 \
       --max_grad_norm=1.0 \
-      --eff_batch_size=256 \
-      --train_batch_size=16 \
-      --val_batch_size=16 \
-      --eval_batch_size=16 \
-      --train_val_split=0.99 \
-      --num_workers=8 \
+      --eff_batch_size=352 \
+      --train_batch_size=44 \
+      --val_batch_size=32 \
+      --eval_batch_size=32 \
+      --train_val_split=1.0 \
+      --num_workers=4 \
       --pin_memory=True \
       --persistent_workers=True \
-      --run_val=True \
+      --run_val=False \
       --run_eval=True \
-      --train_log_freq=50 \
-      --val_freq=10 \
-      --eval_freq=40 \
-      --ckpt_freq=2000" # every step, others above are just times over training
+      --train_log_freq=1454 \
+      --val_freq=7273 \
+      --eval_freq=7273 \
+      --ckpt_freq=1454" 
+
+# 2^20 = 1048576
+# latest filter: 52740400 segments -> 206018 steps / epoch
