@@ -24,3 +24,4 @@ checkpoints
 *.out
 logs/training
 logs/data/download
+logs/data/evals
