@@ -2,10 +2,10 @@ set -ex
 
 SOURCE_DIR="/weka/huongn/440K_full"
 LOG_DIR="/weka/huongn"
-START_SHARD_IDX=0
+START_SHARD_IDX=7744
 END_SHARD_IDX=8448
 BATCH_SIZE=704
-NUM_REPLICAS=12
+NUM_REPLICAS=1
 
 gantry run \
   --name "filter_en_only" \
@@ -15,7 +15,7 @@ gantry run \
   --preemptible \
   --pip requirements-filter.txt \
   --workspace ai2/open-whisper \
-  --cluster ai2/jupiter-cirrascale-2 \
+  --cluster ai2/neptune-cirrascale \
   --cpus 10 \
   --priority normal \
   --budget ai2/oe-data \

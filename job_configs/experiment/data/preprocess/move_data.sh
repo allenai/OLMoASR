@@ -5,7 +5,7 @@ gantry run \
   --no-nfs \
   --preemptible \
   --workspace ai2/open-whisper \
-  --cluster ai2/jupiter-cirrascale-2 \
+  --cluster ai2/neptune-cirrascale \
   --cpus 69 \
   --gpus 3 \
   --replicas 20 \
@@ -14,7 +14,7 @@ gantry run \
   --budget ai2/oe-data \
   --weka oe-data-default:/weka \
   -- /bin/bash -c "python scripts/data/processing/move_data.py \
-    --paths_file="/weka/huongn/metadata/bad_mod_rnd_2_paths.txt" \
+    --paths_file="/weka/huongn/metadata/temp_2.txt" \
     --dry_run=False \
-    --batch_size=21587
+    --batch_size=49333
     "

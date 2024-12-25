@@ -1,8 +1,11 @@
 BATCH_SIZE=40
 REPLICAS=10
-for ((i = 0; i < 31; i++))
+INIT_DIR_IDX=16000
+for ((i = 0; i < 25; i++))
 do
-  START_DIR_IDX=$((3600 + (BATCH_SIZE * REPLICAS * i)))
+  START_DIR_IDX=$((INIT_DIR_IDX + (BATCH_SIZE * REPLICAS * i)))
+  echo "START_DIR_IDX=${START_DIR_IDX}"
+  echo "BATCH_SIZE=${BATCH_SIZE}"
   gantry run \
     --name "gcs_to_weka" \
     --description "data transfer from gcs to weka" \
@@ -11,8 +14,8 @@ do
     --preemptible \
     --beaker-image huongn/gcs_to_weka \
     --workspace ai2/open-whisper \
-    --cluster ai2/jupiter-cirrascale-2 \
-    --cpus 10 \
+    --cluster ai2/neptune-cirrascale \
+    --cpus 30 \
     --pip requirements-filter.txt \
     --budget ai2/oe-data \
     --replicas ${REPLICAS} \
@@ -22,14 +25,15 @@ do
       download_files_batch \
       --start_dir_idx=${START_DIR_IDX} \
       --batch_size=${BATCH_SIZE} \
-      --local_dir=/weka/huongn/tars/4M/seg_250 \
+      --local_dir=/weka/huongn/tars/8M/full_250_10K \
       --bucket_name=ow-download-4m \
-      --bucket_prefix=segments \
+      --bucket_prefix=ow_4M_full \
       --service_account=349753783513-compute@developer.gserviceaccount.com \
       --key_file=/gcp_service_key.json \
       --log_file=/results/huongn/gcs_to_weka.log \
       --padding=8 \
       --file_ext=tar.gz
       "
+  echo "Sleeping for 10 minutes"
   sleep 600
 done
