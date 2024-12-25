@@ -1,4 +1,3 @@
-import pytest
 import os
 from scripts.data.filtering.data_filter import DataFilter, FilterFunc, DataReader
 import ray
@@ -48,16 +47,36 @@ class TestFilters:
         filter_func = FilterFunc.only_mixed
         TestFilters.base_test(data_dir, filter_func)
     
-    def test_no_repeat(self):
-        data_dir = "data/tests/filter/no_repeat"
-        filter_func = FilterFunc.no_repeat
-        TestFilters.base_test(data_dir, filter_func)
-    
     def test_min_comma_period(self):
         data_dir = "data/tests/filter/min_comma_period"
         filter_func = FilterFunc.min_comma_period
         TestFilters.base_test(data_dir, filter_func)
     
+    def test_no_repeat(self):
+        data_dir = "data/tests/filter/no_repeat"
+        filter_func = FilterFunc.no_repeat
+        TestFilters.base_test(data_dir, filter_func)
+    
+    def test_no_upper_no_repeat(self):
+        data_dir = "data/tests/filter/no_upper_no_repeat"
+        filter_func = FilterFunc.no_upper_no_repeat
+        TestFilters.base_test(data_dir, filter_func)
+    
+    def test_no_lower_no_repeat(self):
+        data_dir = "data/tests/filter/no_lower_no_repeat"
+        filter_func = FilterFunc.no_lower_no_repeat
+        TestFilters.base_test(data_dir, filter_func)
+    
+    def test_min_comma_period_no_repeat(self):
+        data_dir = "data/tests/filter/min_comma_period_no_repeat"
+        filter_func = FilterFunc.min_comma_period_no_repeat
+        TestFilters.base_test(data_dir, filter_func)
+        
+    def test_mixed_no_repeat(self):
+        data_dir = "data/tests/filter/mixed_no_repeat"
+        filter_func = FilterFunc.mixed_no_repeat
+        TestFilters.base_test(data_dir, filter_func)
+        
     def test_min_comma_period_mixed_no_repeat(self):
         data_dir = "data/tests/filter/min_comma_period_mixed_no_repeat"
         filter_func = FilterFunc.min_comma_period_mixed_no_repeat
