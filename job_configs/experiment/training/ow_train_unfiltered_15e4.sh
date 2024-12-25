@@ -1,11 +1,11 @@
 gantry run \
-  --name "ow_train_unfiltered_15e3" \
-  --description "Training run w/ unfiltered data and best hyperparameters" \
+  --name "unfiltered_tiny_15e4_440K_bs40_ebs320_5pass_112424" \
+  --description "Training run w/ unfiltered data" \
   --allow-dirty \
   --no-nfs \
   --preemptible \
   --workspace ai2/open-whisper \
-  --cluster ai2/neptune-cirrascale \
+  --cluster ai2/jupiter-cirrascale-2 \
   --gpus 8 \
   --beaker-image huongn/ow_train_gantry \
   --pip requirements-main.txt \
@@ -19,11 +19,11 @@ gantry run \
   --priority normal \
   -- /bin/bash -c "torchrun --nnodes 1 --nproc_per_node 8 scripts/training/train.py \
       --model_variant=tiny \
-      --exp_name=ow_train_unfiltered_15e3 \
+      --exp_name=unfiltered_tiny_15e4_440K_bs40_ebs320_5pass_112424 \
       --job_type=filtering \
-      --samples_dicts_dir=/weka/huongn/ow_filtering/unfiltered \
-      --train_steps=1048576 \
-      --epoch_steps=202476 \
+      --samples_dicts_dir=/weka/huongn/samples_dicts/unfiltered_all_rnds \
+      --train_steps=838861 \
+      --epoch_steps=165104 \
       --ckpt_file_name=None \
       --ckpt_dir=/weka/huongn/ow_ckpts \
       --log_dir=/results/huongn/ow_logs \
@@ -36,17 +36,17 @@ gantry run \
       --eps=1e-6 \
       --weight_decay=0.1 \
       --max_grad_norm=1.0 \
-      --eff_batch_size=256 \
-      --train_batch_size=16 \
-      --val_batch_size=16 \
-      --eval_batch_size=16 \
-      --train_val_split=0.99 \
-      --num_workers=8 \
+      --eff_batch_size=320 \
+      --train_batch_size=40 \
+      --val_batch_size=32 \
+      --eval_batch_size=32 \
+      --train_val_split=1.0 \
+      --num_workers=4 \
       --pin_memory=True \
       --persistent_workers=True \
-      --run_val=True \
+      --run_val=False \
       --run_eval=True \
-      --train_log_freq=50 \
-      --val_freq=10 \
-      --eval_freq=10 \
-      --ckpt_freq=2300" # every step, others above are just times over training
+      --train_log_freq=1600 \
+      --val_freq=8000 \
+      --eval_freq=8000 \
+      --ckpt_freq=1600" 
