@@ -10,7 +10,6 @@ from whisper.decoding import decode as decode_function
 from whisper.decoding import detect_language as detect_language_function
 from whisper.transcribe import transcribe as transcribe_function
 
-
 class LayerNorm(nn.LayerNorm):
     """
     This function is from OpenAI's Whisper repository.
@@ -142,9 +141,13 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.n_head = n_head
         self.query = Linear(n_state, n_state)  # W_q
+        nn.init.kaiming_normal_(self.query.weight, mode="fan_in", nonlinearity="relu")
         self.key = Linear(n_state, n_state, bias=False)  # W_k
+        nn.init.kaiming_normal_(self.key.weight, mode="fan_in", nonlinearity="relu")
         self.value = Linear(n_state, n_state)  # W_v
+        nn.init.kaiming_normal_(self.value.weight, mode="fan_in", nonlinearity="relu")
         self.out = Linear(n_state, n_state)  # W_o
+        nn.init.kaiming_normal_(self.out.weight, mode="fan_in", nonlinearity="relu")
 
     def forward(
         self,
@@ -152,6 +155,8 @@ class MultiHeadAttention(nn.Module):
         xa: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
         kv_cache: Optional[dict] = None,
+        verbose: bool = False,
+        block_count: int = 0,
     ):
         q = self.query(x)  # W_q * x
         # not sure when which branch is taken
@@ -165,19 +170,50 @@ class MultiHeadAttention(nn.Module):
             k = kv_cache[self.key]
             v = kv_cache[self.value]
 
-        wv, qk = self.qkv_attention(q, k, v, mask)
+        if verbose:
+            print("MultiHeadAttention forward pass")
+            print(f"{q=}")
+            print(f"{k=}")
+            print(f"{v=}")
+            print("Attention computation")
+        wv, qk = self.qkv_attention(q, k, v, mask, verbose=verbose, block_count=block_count)
+        if verbose:
+            print(f"{wv=}")
         return self.out(wv), qk
 
     def qkv_attention(
-        self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None
+        self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None, verbose: bool = False, block_count: int = 0
     ):
         n_batch, n_ctx, n_state = q.shape
         scale = (n_state // self.n_head) ** -0.25
+        if verbose:
+            print(f"{scale=}")
         q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3) * scale
         k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 3, 1) * scale
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+        if verbose:
+            print("Scaling QKV")
+            print(f"{q.shape=}")
+            print(f"{torch.max(q, dim=-1).values=}")
+            print(f"{torch.min(q, dim=-1).values=}")
+            print(f"{q=}")
+            print(f"{k.shape=}")
+            print(f"{torch.max(k, dim=-1).values=}")
+            print(f"{torch.min(k, dim=-1).values=}")
+            print(f"{k=}")
+            print(f"{v.shape=}")
+            print(f"{torch.max(v, dim=-1).values=}")
+            print(f"{torch.min(v, dim=-1).values=}")
+            print(f"{v=}")
 
         qk = q @ k
+        if verbose:
+            if mask is not None:
+                print("Before adding mask")
+            print(f"{qk.shape=}")
+            print(f"{torch.max(qk, dim=-1).values=}")
+            print(f"{torch.min(qk, dim=-1).values=}")
+            print(f"{qk=}")
         if mask is not None:
             if len(mask.shape) == 2:
                 qk = qk + mask
@@ -188,10 +224,29 @@ class MultiHeadAttention(nn.Module):
                         :, :, :n_ctx, :n_ctx
                     ]
                 )
-
+        if verbose:
+            if mask is not None:
+                print("After adding mask")
+            print(f"{qk.shape=}")
+            print(f"{torch.max(qk, dim=-1).values=}")
+            print(f"{torch.min(qk, dim=-1).values=}")
+            print(f"{qk=}")
+            
         qk = qk.float()
+        if verbose:
+            print("Converting QK to torch.float32")
+            print(f"{qk.shape=}")
+            print(f"{torch.max(qk, dim=-1).values=}")
+            print(f"{torch.min(qk, dim=-1).values=}")
+            print(f"{qk=}")
 
         w = F.softmax(qk, dim=-1).to(q.dtype)
+        if verbose:
+            print("Softmax")
+            print(f"{torch.max(w, dim=-1).values=}")
+            print(f"{torch.min(w, dim=-1).values=}")
+            print(f"{w.shape=}")
+            print(f"{w=}")
         return (w @ v).permute(0, 2, 1, 3).flatten(start_dim=2), qk.detach()
 
 
@@ -229,10 +284,12 @@ class ResidualAttentionBlock(nn.Module):
         xa: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
         kv_cache: Optional[dict] = None,
+        verbose: bool = False,
+        block_count: int = 0,
     ):
-        x = x + self.attn(self.attn_ln(x), mask=mask, kv_cache=kv_cache)[0]
+        x = x + self.attn(self.attn_ln(x), mask=mask, kv_cache=kv_cache, block_count=block_count)[0]
         if self.cross_attn:
-            x = x + self.cross_attn(self.cross_attn_ln(x), xa, kv_cache=kv_cache)[0]
+            x = x + self.cross_attn(self.cross_attn_ln(x), xa, kv_cache=kv_cache, verbose=verbose)[0]
         x = x + self.mlp(self.mlp_ln(x))
         return x
 
@@ -261,22 +318,45 @@ class AudioEncoder(nn.Module):
         )
         self.ln_post = LayerNorm(n_state)
 
-    def forward(self, x: Tensor):
+    def forward(self, x: Tensor, verbose: bool = False):
         """
         x : torch.Tensor, shape = (batch_size, n_mels, n_ctx)
             the mel spectrogram of the audio
         """
+        if verbose:
+            print("Starting audio encoder forward pass")
+            print(f"{x.shape=}")
+            print(f"{x=}")
         x = F.gelu(self.conv1(x))
         x = F.gelu(self.conv2(x))
         x = x.permute(0, 2, 1)
+        if verbose:
+            print("After convolution")
+            print(f"{x.shape=}")
+            print(f"{x=}")
 
         assert x.shape[1:] == self.positional_embedding.shape, "incorrect audio shape"
         x = (x + self.positional_embedding).to(x.dtype)
+        if verbose:
+            print("After adding positional embeddings")
+            print(f"{x.shape=}")
+            print(f"{x=}")
 
+        block_count = 0
         for block in self.blocks:
-            x = block(x)
+            if verbose:
+                print(f"Block {block_count}")
+            x = block(x, verbose=verbose)
+            if verbose:
+                print(f"{x.shape=}")
+                print(f"{x=}")
+            block_count += 1
 
         x = self.ln_post(x)
+        if verbose:
+            print("After layer norm")
+            print(f"{x.shape=}")
+            print(f"{x=}")
         return x
 
 
@@ -304,6 +384,7 @@ class TextDecoder(nn.Module):
         )
 
         self.positional_embedding = nn.Parameter(torch.empty(n_ctx, n_state))
+        nn.init.kaiming_normal_(self.positional_embedding, mode="fan_in", nonlinearity="relu")
 
         self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
             [
@@ -322,6 +403,7 @@ class TextDecoder(nn.Module):
         xa: Tensor,
         kv_cache: Optional[dict] = None,
         padding_mask: Optional[Tensor] = None,
+        verbose: bool = False,
     ):
         """
         x : torch.LongTensor, shape = (batch_size, <= n_ctx)
@@ -330,11 +412,23 @@ class TextDecoder(nn.Module):
             the encoded audio features to be attended on
         """
         offset = next(iter(kv_cache.values())).shape[1] if kv_cache else 0
+        if verbose:
+            print("Starting text decoder forward pass")
+            print(f"{x.shape=}")
+            print(f"{x=}")
+            print(f"{xa.shape=}")
+            print(f"{xa=}")
+            print(f"{self.token_embedding(x)=}")
+            print(f"{self.positional_embedding[offset : offset + x.shape[-1]]=}")
         x = (
             self.token_embedding(x)
             + self.positional_embedding[offset : offset + x.shape[-1]]
         )
         x = x.to(xa.dtype)
+        if verbose:
+            print("After token and positional embedding")
+            print(f"{x.shape=}")
+            print(f"{x=}")
 
         n_ctx = x.shape[1]
         if padding_mask is not None:
@@ -349,14 +443,27 @@ class TextDecoder(nn.Module):
             self.mask = (
                 torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1).to(device=x.device)
             )
-
+        if verbose:
+            print("Starting decoder blocks")
+        block_count = 0
         for block in self.blocks:
-            x = block(x, xa, mask=self.mask, kv_cache=kv_cache)
-
+            if verbose:
+                print(f"Block {block_count}")
+            x = block(x, xa, mask=self.mask, kv_cache=kv_cache, verbose=verbose, block_count=block_count)
+            if verbose:
+                print(f"{x.shape=}")
+                print(f"{x=}")
+            block_count += 1
         x = self.ln(x)
+        if verbose:
+            print("After layer norm")
+            print(f"{x.shape=}")
+            print(f"{x=}")
         logits = (
             x @ torch.transpose(self.token_embedding.weight.to(x.dtype), 0, 1)
         ).float()
+        if verbose:
+            print(f"{logits=}")
 
         return logits
 
@@ -402,9 +509,9 @@ class Whisper(nn.Module):
         return self.decoder(tokens, audio_features, padding_mask=padding_mask)
 
     def forward(
-        self, mel: torch.Tensor, tokens: torch.Tensor, padding_mask: torch.Tensor = None
+        self, mel: torch.Tensor, tokens: torch.Tensor, padding_mask: torch.Tensor = None, verbose: bool = False
     ) -> Dict[str, torch.Tensor]:
-        return self.decoder(tokens, self.encoder(mel), padding_mask=padding_mask)
+        return self.decoder(tokens, self.encoder(mel, verbose=verbose), padding_mask=padding_mask, verbose=verbose)
 
     @property
     def device(self):

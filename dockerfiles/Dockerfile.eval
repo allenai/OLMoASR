@@ -12,6 +12,7 @@ WORKDIR /stage/
 COPY requirements-eval.txt requirements-eval.txt
 
 # installing dependencies
+RUN apt-get update && apt-get install -y git wget curl build-essential ffmpeg
 RUN pip install -r requirements-eval.txt
 
 # copying necessary files and directories to container

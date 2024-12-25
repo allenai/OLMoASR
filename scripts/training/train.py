@@ -22,7 +22,7 @@ from torch.nn.utils import clip_grad_norm_
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 
 import whisper
 from whisper import audio, DecodingOptions
@@ -186,7 +186,8 @@ def setup(rank: int, world_size: int) -> None:
         rank: The rank of the current process
         world_size: The total number of processes
     """
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    torch.cuda.set_device(rank)
+    dist.init_process_group("nccl")
 
 
 def open_dicts_file(samples_dicts_file) -> List[Dict]:
@@ -411,13 +412,12 @@ def prepare_sched(
         )  # Number of steps over which to accumulate gradients
     warmup_steps = np.ceil(0.002 * train_steps)
 
-    def lr_lambda(batch_idx: int) -> float:
-        eff_batch_idx = batch_idx // accumulation_steps
-        if eff_batch_idx < warmup_steps:
-            return float(eff_batch_idx) / float(max(1, warmup_steps))
+    def lr_lambda(current_step: int) -> float:
+        if current_step < warmup_steps:
+            return float(current_step) / float(max(1, warmup_steps))
         return max(
             0.0,
-            float(train_steps - eff_batch_idx)
+            float(train_steps - current_step)
             / float(max(1, train_steps - warmup_steps)),
         )
 
@@ -432,6 +432,7 @@ def setup_wandb(
     job_type: str,
     subset: Optional[int],
     model_variant: str,
+    model_dims: ModelDimensions,
     train_steps: int,
     epoch_steps: int,
     warmup_steps: int,
@@ -487,6 +488,16 @@ def setup_wandb(
         "world_size": world_size,
         "num_workers": num_workers,
         "model_variant": model_variant,
+        "n_mels": model_dims.n_mels,
+        "n_audio_ctx": model_dims.n_audio_ctx,
+        "n_audio_state": model_dims.n_audio_state,
+        "n_audio_head": model_dims.n_audio_head,
+        "n_audio_layer": model_dims.n_audio_layer,
+        "n_vocab": model_dims.n_vocab,
+        "n_text_ctx": model_dims.n_text_ctx,
+        "n_text_state": model_dims.n_text_state,
+        "n_text_head": model_dims.n_text_head,
+        "n_text_layer": model_dims.n_text_layer,
         "train_val_split": train_val_split,
         "subset": subset,
     }
@@ -978,7 +989,7 @@ def train(
         model.train()
         start_step = time.time()
 
-        with autocast():
+        with autocast(device_type="cuda"):
             (
                 audio_files,
                 transcript_files,
@@ -1061,10 +1072,17 @@ def train(
             scaler.unscale_(optimizer)
             clip_grad_norm_(model.parameters(), max_grad_norm)
             scaler.step(optimizer)  # Only update weights after accumulation_steps
-            scaler.update()
-            scheduler.step()  # Adjust learning rate based on accumulated steps
-
             current_step += 1
+            scaler.update()
+
+            current_lr = optimizer.param_groups[0]["lr"]
+            # logging learning rate
+            if rank == 0:
+                wandb.log(
+                    {"train/learning_rate": current_lr, "custom_step": current_step}
+                )
+
+            scheduler.step()  # Adjust learning rate based on accumulated steps
 
             if current_step >= epoch_steps + (epoch_steps * epoch):
                 # logging
@@ -1142,23 +1160,17 @@ def train(
             # putting throughput on GPU
             throughput_tensor = torch.tensor(throughput, device=rank)
             time_tensor = torch.tensor(time_per_step, device=rank)
-            # prepare list to gather throughput from all processes
-            if rank == 0:
-                gathered_throughput = [
-                    torch.zeros_like(throughput_tensor).to(rank)
-                    for _ in range(dist.get_world_size())
-                ]
-                gathered_time = [
-                    torch.zeros_like(time_tensor).to(rank)
-                    for _ in range(dist.get_world_size())
-                ]
-            else:
-                gathered_throughput = None
-                gathered_time = None
 
-            dist.gather(throughput_tensor, gather_list=gathered_throughput, dst=0)
-            dist.gather(time_tensor, gather_list=gathered_time, dst=0)
+            # Prepare tensors for all_gather
+            world_size = dist.get_world_size()
+            gathered_throughput = [torch.zeros_like(throughput_tensor) for _ in range(world_size)]
+            gathered_time = [torch.zeros_like(time_tensor) for _ in range(world_size)]
 
+            # All-gather tensors
+            dist.all_gather(gathered_throughput, throughput_tensor)
+            dist.all_gather(gathered_time, time_tensor)
+
+            # Convert tensors to Python scalars and log (only if rank == 0 to reduce duplicate logging)
             if rank == 0:
                 gathered_throughput = [t.item() for t in gathered_throughput]
                 gathered_time = [t.item() for t in gathered_time]
@@ -1169,7 +1181,6 @@ def train(
                             "custom_step": current_step,
                         }
                     )
-
                 for i, time_per_step in enumerate(gathered_time):
                     wandb.log(
                         {
@@ -1178,12 +1189,6 @@ def train(
                         }
                     )
 
-            current_lr = optimizer.param_groups[0]["lr"]
-            # logging learning rate
-            if rank == 0:
-                wandb.log(
-                    {"train/learning_rate": current_lr, "custom_step": current_step}
-                )
             optimizer.zero_grad()  # Reset gradients only after updating weights
             total_loss = 0.0
             if rank == 0:
@@ -2015,8 +2020,8 @@ def main(
             optimizer=optimizer,
         )
 
-        scaler = GradScaler()
-
+        scaler = GradScaler(init_scale=2 ** 16)
+        
         if run_val:
             best_val_loss = float("inf")
         else:
@@ -2038,6 +2043,7 @@ def main(
             job_type=job_type,
             subset=subset,
             model_variant=model_variant,
+            model_dims=model_dims,
             train_steps=train_steps,
             epoch_steps=epoch_steps,
             warmup_steps=warmup_steps,

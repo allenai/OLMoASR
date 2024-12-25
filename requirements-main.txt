@@ -1,4 +1,4 @@
-datasets
+datasets==2.21.0
 fire
 jiwer
 pysrt
@@ -8,10 +8,11 @@ torch
 torchaudio
 tqdm
 webvtt_py
-wandb
+wandb==0.18.7
 tiktoken
 numpy
 openai-whisper
 webdataset
 soundfile
 ray
+librosa
