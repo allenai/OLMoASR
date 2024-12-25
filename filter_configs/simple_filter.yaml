@@ -1,0 +1,5 @@
+name: simple_filter
+pipeline:
+  - fxn: has_comma_period
+  - fxn: has_mixed_case
+  - fxn: has_no_repeats
