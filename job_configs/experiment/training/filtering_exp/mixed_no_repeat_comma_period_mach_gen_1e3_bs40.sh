@@ -1,6 +1,6 @@
 gantry run \
-  --name "mixed_no_repeat_comma_period_mach_gen_15e3_mod_44" \
-  --description "Filtering experiment transcripts that don’t have at least “,” or “.” or have repeating lines or are not in mixed-case or all" \
+  --name "mixed_no_repeat_comma_period_mach_gen_tiny_1e3_440K_bs40_ebs320_5pass_113024" \
+  --description "Filtering experiment transcripts that don’t have at least “,” or “.” or have repeating lines or are not in mixed-case or all (440K hours, 5 epochs)" \
   --allow-dirty \
   --no-nfs \
   --preemptible \
@@ -19,11 +19,11 @@ gantry run \
   --priority normal \
   -- /bin/bash -c "torchrun --nnodes 1 --nproc_per_node 8 scripts/training/train.py \
       --model_variant=tiny \
-      --exp_name=mixed_no_repeat_comma_period_mach_gen_15e3_mod_44 \
+      --exp_name=mixed_no_repeat_comma_period_mach_gen_tiny_1e3_440K_bs40_ebs320_5pass_113024 \
       --job_type=filtering \
-      --samples_dicts_dir=/weka/huongn/ow_filtering/mixed_no_repeat_min_comma_period \
-      --train_steps=89221 \
-      --epoch_steps=89221 \
+      --samples_dicts_dir=/weka/huongn/samples_dicts/filtered/mixed_no_repeat_min_comma_period_full_1_2_3_4 \
+      --train_steps=165360 \
+      --epoch_steps=165360 \
       --ckpt_file_name=None \
       --ckpt_dir=/weka/huongn/ow_ckpts \
       --log_dir=/results/huongn/ow_logs \
@@ -31,7 +31,7 @@ gantry run \
       --run_id_dir=/weka/huongn/ow_run_ids \
       --rank=None \
       --world_size=None \
-      --lr=1.5e-3 \
+      --lr=1e-3 \
       --betas='(0.9, 0.98)' \
       --eps=1e-6 \
       --weight_decay=0.1 \
@@ -41,7 +41,7 @@ gantry run \
       --val_batch_size=40 \
       --eval_batch_size=40 \
       --train_val_split=1.0 \
-      --num_workers=8 \
+      --num_workers=4 \
       --pin_memory=True \
       --persistent_workers=True \
       --run_val=False \
@@ -49,10 +49,7 @@ gantry run \
       --train_log_freq=1600 \
       --val_freq=8000 \
       --eval_freq=8000 \
-      --ckpt_freq=1600" # every step, others above are just times over training
+      --ckpt_freq=1600" 
 
-# 111526 w/ ebs=256
-# 55763 w/ ebs=512
-# 74351 w/ ebs=384
-# 89221 w/ ebs=320
-# 81110 w/ ebs=352
+# 2^20 = 1048576
+# latest filter: 52740400 segments -> 206018 steps / epoch

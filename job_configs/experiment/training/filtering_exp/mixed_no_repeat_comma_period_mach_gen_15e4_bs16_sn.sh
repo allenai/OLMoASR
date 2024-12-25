@@ -6,21 +6,20 @@ LEARNING_RATE=1.5e-3
 LR="15e4"
 AUDIO_HOURS=440
 BATCH_SIZE=16
-EFFECTIVE_BATCH_SIZE=512
+EFFECTIVE_BATCH_SIZE=256
 EPOCHS=5
 NUM_WORKERS=8
 DATE="121724"
-SHARDING_STRATEGY="_HYBRID_SHARD_ZERO2"
-EXP_NAME="${FILTER}_${MODEL_SIZE}_${LR}_${AUDIO_HOURS}K_bs${BATCH_SIZE}_ebs${EFFECTIVE_BATCH_SIZE}_${NUM_WORKERS}workers_${EPOCHS}pass_${SHARDING_STRATEGY}_${DATE}_2"
+EXP_NAME="${FILTER}_${MODEL_SIZE}_${LR}_${AUDIO_HOURS}K_bs${BATCH_SIZE}_ebs${EFFECTIVE_BATCH_SIZE}_${NUM_WORKERS}workers_${EPOCHS}pass_${DATE}_sn"
 
 GPU_COUNT=8
-REPLICAS=2 
+REPLICAS=1 
 SHARED_MEMORY="10.0GiB"
 
 JOB_TYPE="filtering"
 SAMPLES_DICTS_DIR="/weka/huongn/samples_dicts/filtered/mixed_no_repeat_min_comma_period_full_1_2_3_4"
-TRAIN_STEPS=524288 #1048576 883012
-EPOCH_STEPS=103350 #206699 174063
+TRAIN_STEPS=1048576 #1048576 883012 524288
+EPOCH_STEPS=206699 #206699 174063 103350
 EVAL_BATCH_SIZE=8
 RUN_EVAL="True"
 EVAL_SETS="librispeech_clean,librispeech_other"
@@ -32,6 +31,7 @@ DETECT_ANOMALY="False"
 ADD_MODULE_HOOKS="True"
 PRECISION="bfloat16"
 USE_ORIG_PARAMS="False"
+SHARDING_STRATEGY="FULL_SHARD"
 
 gantry run \
   --name ${EXP_NAME} \
@@ -41,15 +41,10 @@ gantry run \
   --no-nfs \
   --preemptible \
   --workspace ai2/open-whisper \
-  --cluster ai2/jupiter-cirrascale-2 \
+  --cluster ai2/ganymede-cirrascale \
   --gpus ${GPU_COUNT} \
   --replicas ${REPLICAS} \
   --shared-memory ${SHARED_MEMORY} \
-  --leader-selection \
-  --propagate-failure \
-  --propagate-preemption \
-  --synchronized-start-timeout "30m" \
-  --host-networking \
   --beaker-image huongn/ow_train_gantry \
   --pip requirements-main.txt \
   --budget ai2/prior \
@@ -60,10 +55,8 @@ gantry run \
   --env-secret HF_TOKEN=HF_TOKEN \
   --env WANDB_DIR=/results/huongn/ow_logs \
   --env TORCH_NCCL_BLOCKING_WAIT=1 \
-  --env NCCL_SOCKET_IFNAME=ib \
-  --env NCCL_IB_HCA=^=mlx5_bond_0 \
   --env NCCL_DEBUG=INFO \
-  -- /bin/bash -c "torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} --rdzv_id=101 --rdzv_backend=c10d --rdzv_endpoint=\${BEAKER_LEADER_REPLICA_HOSTNAME}:29400 scripts/training/train_fsdp.py \
+  -- /bin/bash -c "torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} scripts/training/train_fsdp.py \
       --model_variant=${MODEL_SIZE} \
       --exp_name=${EXP_NAME} \
       --job_type=${JOB_TYPE} \
