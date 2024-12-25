@@ -441,6 +441,9 @@ def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> Tuple[bool, Op
             return True, None
         else:
             return False, None
+    except RuntimeError:
+        logger.info(f"Error processing text:{e}")
+        return True, "error"
     except Exception as e:
         logger.info(f"Error processing text:{e}")
         return True, "error"

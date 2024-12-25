@@ -4,12 +4,12 @@ from fire import Fire
 
 def main(queue_name: str, batch_file):
     qm = QueueManager(queue_name)
-    batches = [{"tarFile": f"{i:08}.tar.gz"} for i in range(0, 16000)]
+    batches = [{"tarFile": f"{i:08}.tar.gz"} for i in range(16000, 26000)]
     # qm.purge()
     # with open(batch_file, "r") as f:
     #     items = [json.loads(line.strip()) for line in f]
 
-    for item in batches[8000:]:
+    for item in batches:
         qm.upload([item])
 
 if __name__ == '__main__':

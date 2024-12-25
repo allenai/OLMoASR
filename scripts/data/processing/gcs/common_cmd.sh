@@ -9,11 +9,11 @@ python scripts/data/processing/gcs/create_instances.py \
     --bucket=ow-download-4m \
     --project_id=oe-training \
     --service_account=349753783513-compute@developer.gserviceaccount.com \
-    --vm_count=13 \
+    --vm_count=1 \
     --zone=us-central1-a \
     --machine_type=n2d-highcpu-48 \
     --termination_action=DELETE \
-    --base_name=ow-segmentation \
+    --base_name=ow-seg-seg \
     --queue_id=ow-seg \
     --tar_prefix="ow_4M_full" \
     --log_dir="seg_logs" \
@@ -23,8 +23,15 @@ python scripts/data/processing/gcs/create_instances.py \
 
 # northamerica-northeast1-a - ow-chunk
 # us-south1-a - ow-seg-seg
-# us-central1-a - ow-segmentation
-# us-west1-a - ow-seg
+# us-west1-a - ow-segmentation
+# us-central1-a - ow-seg
 # us-east1-b - ow-segment
 # asia-east1-a - ow-chunking
 # europe-north1-a - ow-chunk-chunk
+
+python scripts/data/processing/gcs/check_util.py --zone=us-south1-a --base_name=ow-seg-seg
+python scripts/data/processing/gcs/check_util.py --zone=us-west1-a --base_name=ow-segmentation
+python scripts/data/processing/gcs/check_util.py --zone=us-central1-a --base_name=ow-seg
+python scripts/data/processing/gcs/check_util.py --zone=us-east1-b --base_name=ow-segment
+python scripts/data/processing/gcs/check_util.py --zone=asia-east1-a --base_name=ow-chunking
+python scripts/data/processing/gcs/check_util.py --zone=northamerica-northeast1-a --base_name=ow-chunk
