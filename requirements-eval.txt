@@ -1,4 +1,4 @@
-datasets
+datasets==2.21.0
 fire
 jiwer
 torch
@@ -10,3 +10,5 @@ openai-whisper
 pysrt
 regex
 webvtt_py
+librosa
+wandb==0.18.7

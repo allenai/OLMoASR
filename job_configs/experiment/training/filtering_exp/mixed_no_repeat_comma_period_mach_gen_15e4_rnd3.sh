@@ -1,12 +1,11 @@
 gantry run \
-  --name "mixed_no_repeat_comma_period_mach_gen" \
-  --description "Filtering experiment transcripts that don’t have at least “.” or “.” or have repeating lines or are not in mixed-case or all" \
+  --name "mixed_no_repeat_comma_period_mach_gen_20K_111124_rnd3_bad_mod_2" \
+  --description "Filtering experiment transcripts that don’t have at least “,” or “.” or have repeating lines or are not in mixed-case or all (20K hours, from 3rd round download)" \
   --allow-dirty \
   --no-nfs \
   --preemptible \
   --workspace ai2/open-whisper \
-  --cluster ai2/neptune-cirrascale \
-  --cpus 248 \
+  --cluster ai2/jupiter-cirrascale-2 \
   --gpus 8 \
   --beaker-image huongn/ow_train_gantry \
   --pip requirements-main.txt \
@@ -20,15 +19,16 @@ gantry run \
   --priority normal \
   -- /bin/bash -c "torchrun --nnodes 1 --nproc_per_node 8 scripts/training/train.py \
       --model_variant=tiny \
-      --exp_name=mixed_no_repeat_comma_period_mach_gen \
+      --exp_name=mixed_no_repeat_comma_period_mach_gen_20K_111124_rnd3_bad_mod_2 \
       --job_type=filtering \
-      --samples_dicts_dir=/weka/huongn/ow_filtering/mixed_no_repeat_min_comma_period \
+      --samples_dicts_dir=/weka/huongn/samples_dicts/filtered/mixed_no_repeat_min_comma_period_bad_mod_2 \
       --train_steps=9375 \
-      --run_id=None \
+      --epoch_steps=9375 \
       --ckpt_file_name=None \
       --ckpt_dir=/weka/huongn/ow_ckpts \
-      --log_dir=/data/huongn/ow_logs \
+      --log_dir=/results/huongn/ow_logs \
       --eval_dir=/ow_eval \
+      --run_id_dir=/weka/huongn/ow_run_ids \
       --rank=None \
       --world_size=None \
       --lr=1.5e-3 \
@@ -40,13 +40,13 @@ gantry run \
       --train_batch_size=16 \
       --val_batch_size=16 \
       --eval_batch_size=16 \
-      --train_val_split=0.99 \
+      --train_val_split=1.0 \
       --num_workers=8 \
       --pin_memory=True \
       --persistent_workers=True \
-      --run_val=True \
+      --run_val=False \
       --run_eval=True \
-      --train_log_freq=50 \
-      --val_freq=10 \
-      --eval_freq=5"
-  
+      --train_log_freq=500 \
+      --val_freq=1000 \
+      --eval_freq=1000 \
+      --ckpt_freq=500" 

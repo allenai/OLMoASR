@@ -1,8 +1,22 @@
 # base image - pytorch
 FROM pytorch/pytorch:2.4.0-cuda11.8-cudnn9-runtime
 
+RUN cat /etc/os-release
+
 # setting the environment variables
 ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
+ENV MOFED_VER=24.10-0.7.0.0
+ENV OS_VER=ubuntu22.04
+ENV PLATFORM=x86_64
 
-RUN apt-get update && apt-get install -y git
+RUN apt-get update && apt-get install -y git wget
+
+# Install MLNX OFED user-space drivers
+# See https://docs.nvidia.com/networking/pages/releaseview.action?pageId=15049785#Howto:DeployRDMAacceleratedDockercontaineroverInfiniBandfabric.-Dockerfile
+RUN wget --quiet https://content.mellanox.com/ofed/MLNX_OFED-${MOFED_VER}/MLNX_OFED_LINUX-${MOFED_VER}-${OS_VER}-${PLATFORM}.tgz && \
+    tar -xvf MLNX_OFED_LINUX-${MOFED_VER}-${OS_VER}-${PLATFORM}.tgz && \
+    MLNX_OFED_LINUX-${MOFED_VER}-${OS_VER}-${PLATFORM}/mlnxofedinstall --basic --user-space-only --without-fw-update -q && \
+    rm -rf MLNX_OFED_LINUX-${MOFED_VER}-${OS_VER}-${PLATFORM} && \
+    rm MLNX_OFED_LINUX-${MOFED_VER}-${OS_VER}-${PLATFORM}.tgz
+

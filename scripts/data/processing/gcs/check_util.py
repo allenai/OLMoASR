@@ -2,11 +2,10 @@ from google.cloud import monitoring_v3, compute_v1
 from google.protobuf import timestamp_pb2
 import time
 import re
+from fire import Fire
 
 # Set your project ID, zone, and other parameters
 PROJECT_ID = "oe-training"
-ZONE = "us-east1-b"  # Adjust to your instances' zone
-BASE_NAME = "ow-segment"  # Base name pattern for instances (e.g., "my-instance")
 CPU_THRESHOLD = 4  # CPU utilization threshold in percentage
 MONITORING_INTERVAL = 240  # Check interval in seconds
 
@@ -75,19 +74,19 @@ def get_instances_by_base_name(project_id, zone, base_name):
     instances = client.list(project=project_id, zone=zone)
     return [instance for instance in instances if re.match(f"^{base_name}", instance.name)]
 
-def main():
-    instances = get_instances_by_base_name(PROJECT_ID, ZONE, BASE_NAME)
-    print(f"Found {len(instances)} instances with base name '{BASE_NAME}'.")
+def main(zone, base_name):
+    instances = get_instances_by_base_name(PROJECT_ID, zone, base_name)
+    print(f"Found {len(instances)} instances with base name '{base_name}'.")
 
     while True:
         print("Starting monitoring loop...")
         for instance in instances:
-            cpu_utilization = get_cpu_utilization(PROJECT_ID, instance.id, ZONE)
+            cpu_utilization = get_cpu_utilization(PROJECT_ID, instance.id, zone)
             print(f"Instance {instance.name} - Current CPU utilization: {cpu_utilization:.2f}%")
 
             if cpu_utilization < CPU_THRESHOLD:
                 print(f"Instance {instance.name} - CPU utilization ({cpu_utilization:.2f}%) below threshold. Resetting.")
-                reset_instance(PROJECT_ID, ZONE, instance.name)
+                reset_instance(PROJECT_ID, zone, instance.name)
             else:
                 print(f"Instance {instance.name} - CPU utilization ({cpu_utilization:.2f}%) is within limits.")
 
@@ -95,4 +94,4 @@ def main():
         time.sleep(MONITORING_INTERVAL)
 
 if __name__ == "__main__":
-    main()
+    Fire(main)

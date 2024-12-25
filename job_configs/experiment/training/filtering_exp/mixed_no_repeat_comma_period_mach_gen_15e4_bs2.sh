@@ -1,5 +1,5 @@
 gantry run \
-  --name "mixed_no_repeat_comma_period_mach_gen_15e3" \
+  --name "mixed_no_repeat_comma_period_mach_gen_large_15e4_440K_bs2_ebs256_5pass_120424" \
   --description "Filtering experiment transcripts that don’t have at least “,” or “.” or have repeating lines or are not in mixed-case or all" \
   --allow-dirty \
   --no-nfs \
@@ -17,13 +17,13 @@ gantry run \
   --env TORCH_NCCL_BLOCKING_WAIT=1 \
   --env NCCL_DEBUG=INFO \
   --priority normal \
-  -- /bin/bash -c "torchrun --nnodes 1 --nproc_per_node 8 scripts/training/train.py \
-      --model_variant=tiny \
-      --exp_name=mixed_no_repeat_comma_period_mach_gen_15e3 \
+  -- /bin/bash -c "torchrun --nnodes 1 --nproc_per_node 8 scripts/training/train_fsdp.py \
+      --model_variant=large \
+      --exp_name=mixed_no_repeat_comma_period_mach_gen_large_15e4_440K_bs2_ebs256_5pass_120424 \
       --job_type=filtering \
-      --samples_dicts_dir=/weka/huongn/ow_filtering/mixed_no_repeat_min_comma_period_2 \
+      --samples_dicts_dir=/weka/huongn/samples_dicts/filtered/mixed_no_repeat_min_comma_period_full_1_2_3_4 \
       --train_steps=1048576 \
-      --epoch_steps=205433 \
+      --epoch_steps=206699 \
       --ckpt_file_name=None \
       --ckpt_dir=/weka/huongn/ow_ckpts \
       --log_dir=/results/huongn/ow_logs \
@@ -37,16 +37,19 @@ gantry run \
       --weight_decay=0.1 \
       --max_grad_norm=1.0 \
       --eff_batch_size=256 \
-      --train_batch_size=16 \
-      --val_batch_size=16 \
-      --eval_batch_size=16 \
-      --train_val_split=0.99 \
+      --train_batch_size=2 \
+      --val_batch_size=2 \
+      --eval_batch_size=2 \
+      --train_val_split=1.0 \
       --num_workers=8 \
       --pin_memory=True \
       --persistent_workers=True \
-      --run_val=True \
+      --run_val=False \
       --run_eval=True \
-      --train_log_freq=50 \
-      --val_freq=10 \
-      --eval_freq=40 \
-      --ckpt_freq=2000" # every step, others above are just times over training
+      --train_log_freq=2000 \
+      --val_freq=10000 \
+      --eval_freq=10000 \
+      --ckpt_freq=2000" 
+
+# 2^20 = 1048576
+# latest filter: 52740400 segments -> 206018 steps / epoch

@@ -9,15 +9,15 @@ gantry run \
   --cpus 20 \
   --pip requirements-filter.txt \
   --budget ai2/oe-data \
-  --replicas 20 \
+  --replicas 10 \
   --priority normal \
   --weka oe-data-default:/weka \
   -- /bin/bash -c "python scripts/data/processing/cross_check.py \
     --full_dir_path=/weka/huongn/ow_full \
     --seg_dir_path=/weka/huongn/ow_seg \
-    --spill_dir=/weka/huongn/ow_spill_4M \
-    --batch_size=200 \
-    --start_shard_idx=8449 \
-    --end_shard_idx=12448 \
+    --spill_dir=/weka/huongn/ow_spill_8M_10K \
+    --batch_size=250 \
+    --start_shard_idx=12449 \
+    --end_shard_idx=14948 \
     --dry_run=False
     " 

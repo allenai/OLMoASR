@@ -1,6 +1,7 @@
 from typing import Literal, Optional
 import os
 import numpy as np
+import librosa
 import torch
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 from datasets import load_dataset
@@ -8,12 +9,26 @@ import jiwer
 from whisper import audio, DecodingOptions
 from whisper.normalizers import EnglishTextNormalizer
 from open_whisper import load_model
-import torchaudio
 from fire import Fire
 from tqdm import tqdm
 from torchaudio.datasets import TEDLIUM
 from scripts.eval.get_eval_set import get_eval_set
 from scripts.eval.gen_inf_ckpt import gen_inf_ckpt
+import wandb
+from tqdm import tqdm
+
+EVAL_SETS = [
+    "librispeech_clean",
+    "librispeech_other",
+    "artie_bias_corpus",
+    "fleurs",
+    "tedlium",
+    "voxpopuli",
+    "common_voice",
+    "ami_ihm",
+    "ami_sdm",
+]
+
 
 class Librispeech:
     def __init__(self, root_dir):
@@ -125,48 +140,66 @@ class EvalDataset(Dataset):
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = Librispeech(
-                root_dir=root_dir)
+            self.dataset = Librispeech(root_dir=root_dir)
         elif eval_set == "librispeech_other":
             root_dir = f"{eval_dir}/librispeech_test_other"
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = Librispeech(
-                root_dir=root_dir)
+            self.dataset = Librispeech(root_dir=root_dir)
         elif eval_set == "artie_bias_corpus":
             root_dir = f"{eval_dir}/artie-bias-corpus"
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = ArtieBiasCorpus(
-                root_dir=root_dir)
+            self.dataset = ArtieBiasCorpus(root_dir=root_dir)
         elif eval_set == "fleurs":
-            root_dir = f"{eval_dir}/fleurs"
-            if not os.path.exists(root_dir):
+            if not os.path.exists(f"{eval_dir}/google___fleurs"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-                
-            self.dataset = Fleurs(root_dir=root_dir)
+
+            self.dataset = load_dataset(
+                path="google/fleurs",
+                name="en_us",
+                split="test",
+                cache_dir=eval_dir,
+                trust_remote_code=True,
+                num_proc=15,
+                save_infos=True,
+            )
         elif eval_set == "tedlium":
             if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = TEDLIUM(root=f"{eval_dir}", release="release3", subset="test")
+            self.dataset = TEDLIUM(
+                root=f"{eval_dir}", release="release3", subset="test"
+            )
         elif eval_set == "voxpopuli":
-            root_dir = f"{eval_dir}/voxpopuli"
-            if not os.path.exists(root_dir):
+            if not os.path.exists(f"{eval_dir}/facebook___voxpopuli"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = VoxPopuli(root_dir=root_dir)
+            self.dataset = load_dataset(
+                path="facebook/voxpopuli",
+                name="en",
+                split="test",
+                cache_dir=eval_dir,
+                trust_remote_code=True,
+                num_proc=15,
+                save_infos=True,
+            )
         elif eval_set == "common_voice":
-            if not os.path.exists(f"{eval_dir}/mozilla-foundation/common_voice_5_1"):
+            if not os.path.exists(f"{eval_dir}/mozilla-foundation___common_voice_5_1"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir, hf_token=hf_token)
 
             self.dataset = load_dataset(
                 path="mozilla-foundation/common_voice_5_1",
                 name="en",
+                split="test",
                 token=hf_token,
-                split="test",)
+                cache_dir=eval_dir,
+                trust_remote_code=True,
+                num_proc=15,
+                save_infos=True,
+            )
         elif eval_set == "ami_ihm":
             root_dir = f"{eval_dir}/ami/ihm"
             if not os.path.exists(root_dir):
@@ -178,17 +211,17 @@ class EvalDataset(Dataset):
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = AMI(root_dir=root_dir)        
+            self.dataset = AMI(root_dir=root_dir)
 
         self.eval_set = eval_set
 
-        if self.eval_set not in ["tedlium", "common_voice"]:
+        if self.eval_set not in ["tedlium", "common_voice", "fleurs", "voxpopuli"]:
             audio_files, transcript_texts = self.dataset.load()
             self.audio_files = audio_files
             self.transcript_texts = transcript_texts
 
     def __len__(self):
-        if self.eval_set in ["tedlium", "common_voice"]:
+        if self.eval_set in ["tedlium", "common_voice", "fleurs", "voxpopuli"]:
             return len(self.dataset)
         return len(self.audio_files)
 
@@ -206,17 +239,42 @@ class EvalDataset(Dataset):
             text_y = self.dataset[index]["sentence"]
 
             if sampling_rate != 16000:
-                resampler = torchaudio.transforms.Resample(
-                    orig_freq=sampling_rate, new_freq=16000
+                waveform = librosa.resample(
+                    waveform, orig_sr=sampling_rate, target_sr=16000
                 )
-                waveform = resampler(waveform)
 
+            audio_arr = audio.pad_or_trim(waveform)
+            audio_arr = audio_arr.astype(np.float32)
+            audio_input = audio.log_mel_spectrogram(audio_arr)
+        elif self.eval_set == "fleurs":
+            waveform = self.dataset[index]["audio"]["array"]
+            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+            text_y = self.dataset[index]["transcription"]
+            
+            if sampling_rate != 16000:
+                waveform = librosa.resample(
+                    waveform, orig_sr=sampling_rate, target_sr=16000
+                )
+                
+            audio_arr = audio.pad_or_trim(waveform)
+            audio_arr = audio_arr.astype(np.float32)
+            audio_input = audio.log_mel_spectrogram(audio_arr)
+        elif self.eval_set == "voxpopuli":
+            waveform = self.dataset[index]["audio"]["array"]
+            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+            text_y = self.dataset[index]["normalized_text"]
+            
+            if sampling_rate != 16000:
+                waveform = librosa.resample(
+                    waveform, orig_sr=sampling_rate, target_sr=16000
+                )
+                
             audio_arr = audio.pad_or_trim(waveform)
             audio_arr = audio_arr.astype(np.float32)
             audio_input = audio.log_mel_spectrogram(audio_arr)
         else:
             audio_fp = self.audio_files[index]
-            audio_input = self.preprocess_audio(audio_fp)
+            audio_arr, audio_input = self.preprocess_audio(audio_fp)
             text_y = self.transcript_texts[index]
 
         return audio_fp, audio_arr, audio_input, text_y
@@ -225,10 +283,12 @@ class EvalDataset(Dataset):
         audio_arr = audio.load_audio(audio_file, sr=16000)
         audio_arr = audio.pad_or_trim(audio_arr)
         mel_spec = audio.log_mel_spectrogram(audio_arr)
-        return mel_spec
+        return audio_arr, mel_spec
 
 
 def main(
+    batch_size: int,
+    num_workers: int,
     ckpt: str,
     eval_set: Literal[
         "librispeech_clean",
@@ -241,15 +301,32 @@ def main(
         "ami_ihm",
         "ami_sdm",
     ],
+    log_dir: str,
+    current_step: Optional[int] = None,
+    exp_name: Optional[str] = None,
+    wandb_log: bool = False,
+    wandb_run_id: Optional[str] = None,
+    wandb_log_dir: str = "wandb",
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
 ):
-    if "inf" not in ckpt:
+    if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
-                
+
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(wandb_log_dir, exist_ok=True)
+    os.makedirs(eval_dir, exist_ok=True)
+
     device = torch.device("cuda")
+
     dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=False, drop_last=False)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=num_workers,
+    )
 
     model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
     model.eval()
@@ -259,10 +336,56 @@ def main(
     hypotheses = []
     references = []
 
+    if wandb_log:
+        wandb_table_cols = [
+            "eval_set",
+            "audio",
+            "prediction",
+            "target",
+            "subs",
+            "dels",
+            "ins",
+            "wer",
+        ]
+        if wandb_run_id:
+            wandb_table_cols.append("run_id")
+            wandb.init(
+                id=wandb_run_id,
+                resume="allow",
+                project="open_whisper",
+                entity="dogml",
+                save_code=True,
+                settings=wandb.Settings(init_timeout=300, _service_wait=300),
+            )
+        else:
+            run_id = wandb.util.generate_id()
+            ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
+            exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
+            model_sizes = ["tiny", "small", "base", "medium", "large"]
+            model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
+            config = {
+                "ckpt": ckpt.split("/")[-1],
+                "model": ow_or_w,
+                "model_size": model_size,
+            }
+            wandb.init(
+                id=run_id,
+                resume="allow",
+                project="open_whisper",
+                entity="dogml",
+                job_type="evals",
+                name=exp_name,
+                dir=wandb_log_dir,
+                config=config,
+                tags=["eval", eval_set, ow_or_w, model_size],
+            )
+        eval_table = wandb.Table(columns=wandb_table_cols)
+        table_iter = 0
+
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-            *_, audio_input, text_y = batch
-    
+            _, audio_arr, audio_input, text_y = batch
+
             norm_tgt_text = [normalizer(text) for text in text_y]
             audio_input = audio_input.to(device)
 
@@ -278,18 +401,99 @@ def main(
                 if norm_tgt_text[i] != ""
                 and norm_tgt_text[i] != "ignore time segment in scoring"
             ]
+            if wandb_log:
+                if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
+                    audio_arr = [
+                        audio_arr.numpy()[i]
+                        for i in range(len(results))
+                        if norm_tgt_text[i] != ""
+                        and norm_tgt_text[i] != "ignore time segment in scoring"
+                    ]
             norm_tgt_text = [
                 norm_tgt_text[i]
                 for i in range(len(results))
                 if norm_tgt_text[i] != ""
                 and norm_tgt_text[i] != "ignore time segment in scoring"
             ]
+
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
 
-        # avg_wer = total_wer / len(dataloader)
-        avg_wer = jiwer.wer(references, hypotheses) * 100
-        print(f"Average WER: {avg_wer}")
+            if wandb_log:
+                table_iter += 1
+                for i in tqdm(
+                    range(0, len(norm_pred_text)), total=len(norm_pred_text)
+                ):
+                    wer = (
+                        np.round(
+                            jiwer.wer(
+                                reference=norm_tgt_text[i],
+                                hypothesis=norm_pred_text[i],
+                            ),
+                            2,
+                        )
+                        * 100
+                    )
+                    measures = jiwer.compute_measures(
+                        truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                    )
+                    subs = measures["substitutions"]
+                    dels = measures["deletions"]
+                    ins = measures["insertions"]
+
+                    if wandb_run_id:
+                        eval_table.add_data(
+                            eval_set,
+                            wandb.Audio(audio_arr[i], sample_rate=16000),
+                            norm_pred_text[i],
+                            norm_tgt_text[i],
+                            subs,
+                            dels,
+                            ins,
+                            wer,
+                            wandb_run_id,
+                        )
+                    else:
+                        eval_table.add_data(
+                            eval_set,
+                            wandb.Audio(audio_arr[i], sample_rate=16000),
+                            norm_pred_text[i],
+                            norm_tgt_text[i],
+                            subs,
+                            dels,
+                            ins,
+                            wer,
+                        )
+
+                wandb.log({f"eval_table_{table_iter}": eval_table})
+                eval_table = wandb.Table(columns=wandb_table_cols)
+
+    avg_wer = jiwer.wer(references, hypotheses) * 100
+    avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
+    avg_subs = avg_measures["substitutions"]
+    avg_ins = avg_measures["insertions"]
+    avg_dels = avg_measures["deletions"]
+
+    if wandb_log:
+        if wandb_run_id:
+            wandb.log({f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step})
+            wandb.log({f"eval/{eval_set}_subs": avg_subs, "custom_step": current_step})
+            wandb.log({f"eval/{eval_set}_ins": avg_ins, "custom_step": current_step})
+            wandb.log({f"eval/{eval_set}_dels": avg_dels, "custom_step": current_step})
+        else:
+            wandb.run.summary["avg_wer"] = avg_wer
+            wandb.run.summary["avg_subs"] = avg_subs
+            wandb.run.summary["avg_ins"] = avg_ins
+            wandb.run.summary["avg_dels"] = avg_dels
+    else:
+        with open(f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt", "a") as f:
+            f.write(
+                f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
+            )
+
+    print(
+        f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+    )
 
 
 if __name__ == "__main__":
