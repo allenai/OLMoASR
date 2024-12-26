@@ -1893,6 +1893,10 @@ def main(
     else:
         with open(f"{run_id_dir}/{exp_name}.txt", "r") as f:
             run_id = f.read().strip()
+        
+        # in the case that previous job crashed before a ckpt could be saved, generate a new run_id
+        if not os.path.exists(f"{ckpt_dir}/{exp_name}_{run_id}"):
+            run_id = None
     
     if ckpt_file_name is None:
         ckpt_file_name = ""
@@ -2044,10 +2048,9 @@ def main(
             log_dir=log_dir,
         )
 
-        if not os.path.exists(f"{run_id_dir}/{exp_name}.txt"):
-            with open(f"{run_id_dir}/{exp_name}.txt", "w") as f:
-                f.write(run_id)
-        
+        with open(f"{run_id_dir}/{exp_name}.txt", "w") as f:
+            f.write(run_id)
+
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
 
     while current_step < train_steps:
