@@ -402,13 +402,12 @@ def main(
                 and norm_tgt_text[i] != "ignore time segment in scoring"
             ]
             if wandb_log:
-                if (batch_idx + 1) % int(np.ceil(len(dataloader) / 10)) == 0:
-                    audio_arr = [
-                        audio_arr.numpy()[i]
-                        for i in range(len(results))
-                        if norm_tgt_text[i] != ""
-                        and norm_tgt_text[i] != "ignore time segment in scoring"
-                    ]
+                audio_arr = [
+                    audio_arr.numpy()[i]
+                    for i in range(len(results))
+                    if norm_tgt_text[i] != ""
+                    and norm_tgt_text[i] != "ignore time segment in scoring"
+                ]
             norm_tgt_text = [
                 norm_tgt_text[i]
                 for i in range(len(results))
