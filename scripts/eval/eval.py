@@ -364,7 +364,7 @@ def main(
             model_sizes = ["tiny", "small", "base", "medium", "large"]
             model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
             config = {
-                "ckpt": ckpt.split("/")[-1],
+                "ckpt": "/".join(ckpt.split("/")[-2:]),
                 "model": ow_or_w,
                 "model_size": model_size,
             }
