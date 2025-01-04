@@ -115,3 +115,5 @@ def main(src_dir, split_factor, output_dir):
             )
         )
         
+if __name__ == "__main__":
+    Fire(main)
