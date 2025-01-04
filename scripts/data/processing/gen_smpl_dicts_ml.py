@@ -61,16 +61,12 @@ def same_lang(smpl_dicts):
                 continue
 
 
-def write_to_jsonl(smpl_dicts, output_dir):
+def write_to_jsonl(smpl_dicts):
+    smpl_dict, output_dir = smpl_dicts
     os.makedirs(output_dir, exist_ok=True)
     with open(f"{output_dir}/samples_dicts.jsonl", "w") as f:
         for smpl_dict in smpl_dicts:
             f.write(json.dumps({"sample_dicts": smpl_dict}) + "\n")
-
-
-def parallel_write_to_jsonl(args):
-    return write_to_jsonl(*args)
-
 
 def main(src_dir, split_factor, output_dir):
     segs_dir = glob.glob(src_dir + "/*/*")
@@ -105,13 +101,12 @@ def main(src_dir, split_factor, output_dir):
     ]
 
     print(f"{len(smpl_dicts_batches)=}")
-    print(f"{smpl_dicts_batches[:5]=}")
 
     with multiprocessing.Pool() as pool:
         res = list(
             tqdm(
                 pool.imap_unordered(
-                    parallel_write_to_jsonl,
+                    write_to_jsonl,
                     smpl_dicts_batches,
                 ),
                 total=len(smpl_dicts_batches),
