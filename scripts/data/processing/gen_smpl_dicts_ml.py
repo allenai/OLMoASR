@@ -9,7 +9,7 @@ import json
 from itertools import repeat
 from whisper.tokenizer import LANGUAGES
 from fire import Fire
-
+import os
 
 def get_all_paths(path: str):
     return glob.glob(path + "/*")
