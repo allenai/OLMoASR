@@ -76,13 +76,13 @@ def main(src_dir, split_factor, output_dir):
     segs_dir = glob.glob(src_dir + "/*/*")
     print(f"{len(segs_dir)=}")
     print(f"{segs_dir[:5]=}")
-    
+
     print("Generating sample dictionaries")
     with multiprocessing.Pool() as pool:
         smpl_dicts = list(
             tqdm(pool.imap_unordered(gen_smpl_dict, segs_dir), total=len(segs_dir))
         )
-    
+
     print(f"{len(smpl_dicts)=}")
     print(f"{smpl_dicts[:5]=}")
 
@@ -91,17 +91,19 @@ def main(src_dir, split_factor, output_dir):
         smpl_dicts = list(
             tqdm(pool.imap_unordered(same_lang, smpl_dicts), total=len(smpl_dicts))
         )
-    
+
     print(f"{len(smpl_dicts)=}")
     print(f"{smpl_dicts[:5]=}")
 
     print("Writing sample dictionaries to jsonl")
     smpl_dicts = list(filter(None, smpl_dicts))
 
+    batch_size = len(smpl_dicts) // split_factor
     smpl_dicts_batches = [
-        (arr.tolist(), f"{output_dir}/{(i):03}")
-        for i, arr in enumerate(np.array_split(smpl_dicts, split_factor))
+        (smpl_dicts[i : i + batch_size], i // batch_size)
+        for i in range(0, len(smpl_dicts), batch_size)
     ]
+
     print(f"{len(smpl_dicts_batches)=}")
     print(f"{smpl_dicts_batches[:5]=}")
 
@@ -115,6 +117,7 @@ def main(src_dir, split_factor, output_dir):
                 total=len(smpl_dicts_batches),
             )
         )
-        
+
+
 if __name__ == "__main__":
     Fire(main)
