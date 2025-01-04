@@ -42,18 +42,18 @@ def same_lang(smpl_dicts):
         text = reader.extract_text(transcript=transcript)
         if text != "":
             isReliable, _, details = cld2.detect(text)
-            if not isReliable:
-                print(f"Unreliable detection")
+            # if not isReliable:
+            #     print(f"Unreliable detection")
+            # else:
+            lang_code = details[0][1]
+            if lang_code != smpl_dict["language"]:
+                return None
+                # print(f"Language mismatch: {lang_code} vs {smpl_dict['language']}")
             else:
-                lang_code = details[0][1]
-                if lang_code != smpl_dict["language"]:
-                    return None
-                    # print(f"Language mismatch: {lang_code} vs {smpl_dict['language']}")
+                if i == len(smpl_dicts) - 1:
+                    return smpl_dicts
                 else:
-                    if i == len(smpl_dicts) - 1:
-                        return smpl_dicts
-                    else:
-                        continue
+                    continue
         else:
             if i == len(smpl_dicts) - 1:
                 return smpl_dicts
