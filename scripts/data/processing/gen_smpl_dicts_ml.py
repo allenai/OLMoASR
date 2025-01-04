@@ -8,6 +8,7 @@ from open_whisper.utils import TranscriptReader
 import json
 from itertools import repeat
 from whisper.tokenizer import LANGUAGES
+from fire import Fire
 
 
 def get_all_paths(path: str):
