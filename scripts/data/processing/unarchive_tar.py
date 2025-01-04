@@ -27,7 +27,10 @@ def unarchive_tar_file(tar_files_dir_idx: Tuple, output_dir):
     Returns:
         str: Message indicating the completion of the task.
     """
-    output_dir = os.path.join(output_dir, tar_files_dir_idx[1])
+    if tar_files_dir_idx[1] == "":
+        output_dir = os.path.join(output_dir, tar_files_dir_idx[0].split("/")[-1].split(".")[0])
+    else:
+        output_dir = os.path.join(output_dir, tar_files_dir_idx[1])
     os.makedirs(output_dir, exist_ok=True)
 
     for tar_file in tar_files_dir_idx[0]:
@@ -54,7 +57,7 @@ def unarchive_tar(
     ][batch_idx * batch_size : (batch_idx * batch_size) + batch_size]
     start_dir_idx = start_dir_idx + ((batch_size // group_by) * batch_idx)
     tar_files_dir_idx = [
-        (batch_tar[i : i + group_by], f"{(start_dir_idx + (i // group_by)):08}")
+        (batch_tar[i : i + group_by], f"{(start_dir_idx + (i // group_by)):08}" if group_by > 1 else "")
         for i in range(0, batch_size, group_by)
     ]
 
