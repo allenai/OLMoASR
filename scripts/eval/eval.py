@@ -557,7 +557,7 @@ def ml_eval(
                 "spanish",
                 "french",
                 "italian",
-                "portugese",
+                "portuguese",
                 "polish",
             ]
     else:
