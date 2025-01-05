@@ -104,7 +104,7 @@ def get_eval_set(
                 "spanish",
                 "french",
                 "italian",
-                "portugese",
+                "portuguese",
                 "polish",
             ]
         else:
