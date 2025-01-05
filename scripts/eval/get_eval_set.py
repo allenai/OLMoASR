@@ -29,6 +29,7 @@ def get_eval_set(
     eval_set: Literal[
         "librispeech_clean",
         "librispeech_other",
+        "multilingual_librispeech",
         "artie_bias_corpus",
         "fleurs",
         "tedlium",
@@ -37,6 +38,7 @@ def get_eval_set(
         "ami_ihm",
         "ami_sdm",
     ],
+    lang: Optional[str] = None,
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
 ) -> Optional[str]:
@@ -95,14 +97,29 @@ def get_eval_set(
         )
         shutil.rmtree(f"{eval_dir}/LibriSpeech")
     elif eval_set == "multilingual_librispeech":
-        dataset = load_dataset(
-            path="facebook/multilingual_librispeech",
-            split="test",
-            cache_dir=eval_dir,
-            trust_remote_code=True,
-            num_proc=15,
-            save_infos=True,
-        )
+        if lang is None:
+            langs = [
+                "english",
+                "german",
+                "dutch",
+                "spanish",
+                "french",
+                "italian",
+                "portugese",
+                "polish",
+            ]
+        else:
+            langs = [lang]
+        for lang in langs:
+            dataset = load_dataset(
+                path="facebook/multilingual_librispeech",
+                name=lang,
+                split="test",
+                cache_dir=eval_dir,
+                trust_remote_code=True,
+                num_proc=15,
+                save_infos=True,
+            )
     elif eval_set == "artie_bias_corpus":
         # downloading the file
         command = [
