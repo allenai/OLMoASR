@@ -52,7 +52,7 @@ from torch.distributed.fsdp.wrap import (
 
 import whisper
 from whisper import audio, DecodingOptions
-from whisper.normalizers import EnglishTextNormalizer
+from whisper.normalizers import BasicTextNormalizer
 from whisper.tokenizer import get_tokenizer
 import whisper.tokenizer
 from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
@@ -997,7 +997,7 @@ def train(
     scaler: Optional[GradScaler],
     model: FSDP,
     tokenizer: whisper.tokenizer.Tokenizer,
-    normalizer: EnglishTextNormalizer,
+    normalizer: BasicTextNormalizer,
     optimizer: torch.optim.Optimizer,
     scheduler: LambdaLR,
     accumulation_steps: int,
@@ -1627,7 +1627,7 @@ def validate(
     scaler: Optional[GradScaler],
     model: FSDP,
     tokenizer: whisper.tokenizer.Tokenizer,
-    normalizer: EnglishTextNormalizer,
+    normalizer: BasicTextNormalizer,
     optimizer: torch.optim.Optimizer,
     scheduler: LambdaLR,
     model_dims: ModelDimensions,
@@ -1861,7 +1861,7 @@ def evaluate(
     model_dims: ModelDimensions,
     model_variant: str,
     eval_loaders: List[DataLoader],
-    normalizer: EnglishTextNormalizer,
+    normalizer: BasicTextNormalizer,
     best_val_loss: Optional[float],
     best_eval_wer: Optional[float],
     tags: Optional[List[str]],
@@ -2188,7 +2188,7 @@ def main(
     # setup the tokenizer and normalizer
     tokenizer = functools.partial(get_tokenizer, multilingual=True)
     # tokenizer = get_tokenizer(multilingual=False)
-    normalizer = EnglishTextNormalizer()
+    normalizer = BasicTextNormalizer()
     n_text_ctx = model_dims.n_text_ctx
 
     # load samples dicts
