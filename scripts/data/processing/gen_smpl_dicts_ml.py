@@ -11,6 +11,7 @@ from whisper.tokenizer import LANGUAGES
 from fire import Fire
 import os
 
+
 def get_all_paths(path: str):
     return glob.glob(path + "/*")
 
@@ -61,12 +62,13 @@ def same_lang(smpl_dicts):
                 continue
 
 
-def write_to_jsonl(smpl_dicts):
-    smpl_dict, output_dir = smpl_dicts
+def write_to_jsonl(smpl_dicts_tuple):
+    smpl_dicts, output_dir = smpl_dicts_tuple
     os.makedirs(output_dir, exist_ok=True)
     with open(f"{output_dir}/samples_dicts.jsonl", "w") as f:
         for smpl_dict in smpl_dicts:
             f.write(json.dumps({"sample_dicts": smpl_dict}) + "\n")
+
 
 def main(src_dir, split_factor, output_dir):
     segs_dir = glob.glob(src_dir + "/*/*")
@@ -96,7 +98,7 @@ def main(src_dir, split_factor, output_dir):
 
     batch_size = len(smpl_dicts) // split_factor
     smpl_dicts_batches = [
-        (smpl_dicts[i : i + batch_size], f"{output_dir}/{i:03}")
+        (smpl_dicts[i : i + batch_size], f"{output_dir}/{(i // batch_size):03}")
         for i in range(0, len(smpl_dicts), batch_size)
     ]
 
