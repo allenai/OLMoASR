@@ -94,6 +94,15 @@ def get_eval_set(
             f"{eval_dir}/LibriSpeech/test-other", f"{eval_dir}/librispeech_test_other"
         )
         shutil.rmtree(f"{eval_dir}/LibriSpeech")
+    elif eval_set == "multilingual_librispeech":
+        dataset = load_dataset(
+            path="facebook/multilingual_librispeech",
+            split="test",
+            cache_dir=eval_dir,
+            trust_remote_code=True,
+            num_proc=15,
+            save_infos=True,
+        )
     elif eval_set == "artie_bias_corpus":
         # downloading the file
         command = [
