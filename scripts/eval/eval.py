@@ -124,6 +124,7 @@ class EvalDataset(Dataset):
         eval_set: Literal[
             "librispeech_clean",
             "librispeech_other",
+            "multilingual_librispeech",
             "artie_bias_corpus",
             "fleurs",
             "tedlium",
