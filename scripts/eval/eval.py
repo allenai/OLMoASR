@@ -549,6 +549,11 @@ def ml_eval(
 
     device = torch.device("cuda")
 
+    model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
+    model.eval()
+
+    normalizer = BasicTextNormalizer(remove_diacritics=True)
+
     if lang is None:
         if eval_set == "multilingual_librispeech":
             langs = [
@@ -613,7 +618,7 @@ def ml_eval(
             )
         eval_table = wandb.Table(columns=wandb_table_cols)
         table_iter = 0
-
+    
     for lang in langs:
         dataset = EvalDataset(
             eval_set=eval_set, lang=lang, hf_token=hf_token, eval_dir=eval_dir
@@ -625,11 +630,6 @@ def ml_eval(
             drop_last=False,
             num_workers=num_workers,
         )
-
-        model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
-        model.eval()
-
-        normalizer = BasicTextNormalizer()
 
         hypotheses = []
         references = []
