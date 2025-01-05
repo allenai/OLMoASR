@@ -99,7 +99,6 @@ def get_eval_set(
     elif eval_set == "multilingual_librispeech":
         if lang is None:
             langs = [
-                "english",
                 "german",
                 "dutch",
                 "spanish",

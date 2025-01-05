@@ -552,7 +552,6 @@ def ml_eval(
     if lang is None:
         if eval_set == "multilingual_librispeech":
             langs = [
-                "english",
                 "german",
                 "dutch",
                 "spanish",
