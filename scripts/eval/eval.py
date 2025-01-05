@@ -290,8 +290,7 @@ class EvalDataset(Dataset):
         elif self.eval_set == "multilingual_librispeech":
             waveform = self.dataset[index]["audio"]["array"]
             sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-            print(self.dataset[index])
-            text_y = self.dataset[index]["text"]
+            text_y = self.dataset[index]["transcript"]
 
             if sampling_rate != 16000:
                 waveform = librosa.resample(
