@@ -230,13 +230,13 @@ class EvalDataset(Dataset):
 
         self.eval_set = eval_set
 
-        if self.eval_set not in ["tedlium", "common_voice", "fleurs", "voxpopuli"]:
+        if self.eval_set not in ["tedlium", "common_voice", "fleurs", "voxpopuli", "multilingual_librispeech"]:
             audio_files, transcript_texts = self.dataset.load()
             self.audio_files = audio_files
             self.transcript_texts = transcript_texts
 
     def __len__(self):
-        if self.eval_set in ["tedlium", "common_voice", "fleurs", "voxpopuli"]:
+        if self.eval_set in ["tedlium", "common_voice", "fleurs", "voxpopuli", "multilingual_librispeech"]:
             return len(self.dataset)
         return len(self.audio_files)
 
