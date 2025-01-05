@@ -96,7 +96,7 @@ def main(src_dir, split_factor, output_dir):
 
     batch_size = len(smpl_dicts) // split_factor
     smpl_dicts_batches = [
-        (smpl_dicts[i : i + batch_size], i // batch_size)
+        (smpl_dicts[i : i + batch_size], f"{output_dir}/{i:03}")
         for i in range(0, len(smpl_dicts), batch_size)
     ]
 
