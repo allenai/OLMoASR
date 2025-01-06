@@ -12,6 +12,7 @@ from fire import Fire
 import os
 from typing import Optional
 
+
 def get_all_paths(path: str):
     return glob.glob(path + "/*")
 
@@ -77,8 +78,10 @@ def main(src_dir, split_factor, output_dir, batches: Optional[None] = None):
         print(f"{batch_size=}")
         batch_idx = os.getenv("BEAKER_REPLICA_RANK")
         print(f"{batch_idx=}")
-        segs_dir = segs_dir[batch_idx * batch_size : (batch_idx * batch_size) + batch_size]
-        
+        segs_dir = segs_dir[
+            batch_idx * batch_size : (batch_idx * batch_size) + batch_size
+        ]
+
     print(f"{len(segs_dir)=}")
     print(f"{segs_dir[:5]=}")
     print(f"{segs_dir[-5:]=}")
@@ -106,11 +109,16 @@ def main(src_dir, split_factor, output_dir, batches: Optional[None] = None):
 
     batch_size = len(smpl_dicts) // split_factor
     smpl_dicts_batches = [
-        (smpl_dicts[i : i + batch_size], f"{output_dir}/{(i // batch_size):03}")
+        (
+            smpl_dicts[i : i + batch_size],
+            f"{output_dir}/{((i // batch_size) if batches is None else (i // batch_size) + (split_factor * batch_idx)):03}",
+        )
         for i in range(0, len(smpl_dicts), batch_size)
     ]
 
     print(f"{len(smpl_dicts_batches)=}")
+    print(f"{smpl_dicts_batches[0][-1]=}")
+    print(f"{smpl_dicts_batches[-1][-1]=}")
 
     with multiprocessing.Pool() as pool:
         res = list(
