@@ -120,10 +120,10 @@ def get_eval_set(
                 eval_dir,
                 f"https://dl.fbaipublicfiles.com/mls/mls_{lang}_opus.tar.gz",
             ]
-            subprocess.Popen(command)
+            subprocess.run(command)
             # extracting the file
             command = ["tar", "-xzvf", f"{eval_dir}/mls_{lang}_opus.tar.gz", "-C", eval_dir, f"mls_{lang}_opus/test"]
-            subprocess.Popen(command)
+            subprocess.run(command)
             # removing the tar file
             os.remove(f"{eval_dir}/mls_{lang}_opus.tar.gz")
     elif eval_set == "artie_bias_corpus":
