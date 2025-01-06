@@ -106,19 +106,26 @@ def get_eval_set(
                 "italian",
                 "portuguese",
                 "polish",
+                "english",
             ]
         else:
             langs = [lang]
         for lang in langs:
-            dataset = load_dataset(
-                path="facebook/multilingual_librispeech",
-                name=lang,
-                split="test",
-                cache_dir=eval_dir,
-                trust_remote_code=True,
-                num_proc=15,
-                save_infos=True,
-            )
+            # downloading the file
+            eval_dir = f"{eval_dir}/mls"
+            os.makedirs(eval_dir, exist_ok=True)
+            command = [
+                "wget",
+                "-P",
+                eval_dir,
+                f"https://dl.fbaipublicfiles.com/mls/mls_{lang}_opus.tar.gz",
+            ]
+            subprocess.Popen(command)
+            # extracting the file
+            command = ["tar", "-xzvf", f"{eval_dir}/mls_{lang}_opus.tar.gz", "-C", eval_dir, f"mls_{lang}_opus/test"]
+            subprocess.Popen(command)
+            # removing the tar file
+            os.remove(f"{eval_dir}/mls_{lang}_opus.tar.gz")
     elif eval_set == "artie_bias_corpus":
         # downloading the file
         command = [
@@ -170,9 +177,15 @@ def get_eval_set(
         os.makedirs(f"{eval_dir}/TEDLIUM_release-3/legacy/test/stm", exist_ok=True)
         for f in os.listdir(f"{eval_dir}/TEDLIUM_release-3/legacy/test"):
             if f.endswith(".stm"):
-                os.rename(f"{eval_dir}/TEDLIUM_release-3/legacy/test/{f}", f"{eval_dir}/TEDLIUM_release-3/legacy/test/stm/{f}")
+                os.rename(
+                    f"{eval_dir}/TEDLIUM_release-3/legacy/test/{f}",
+                    f"{eval_dir}/TEDLIUM_release-3/legacy/test/stm/{f}",
+                )
             elif f.endswith(".sph"):
-                os.rename(f"{eval_dir}/TEDLIUM_release-3/legacy/test/{f}", f"{eval_dir}/TEDLIUM_release-3/legacy/test/sph/{f}")
+                os.rename(
+                    f"{eval_dir}/TEDLIUM_release-3/legacy/test/{f}",
+                    f"{eval_dir}/TEDLIUM_release-3/legacy/test/sph/{f}",
+                )
     elif eval_set == "voxpopuli":
         dataset = load_dataset(
             path="facebook/voxpopuli",
