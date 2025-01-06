@@ -57,6 +57,32 @@ class Librispeech:
         return list(audio_text.keys()), list(audio_text.values())
 
 
+class MLS:
+    def __init__(self, root_dir, lang):
+        self.root_dir = root_dir
+        self.lang = lang
+
+    def load(self):
+        main_dir = f"{self.root_dir}/mls_{self.lang}_opus/test"
+        transcript_fp = f"{main_dir}/transcripts.txt"
+        audio_dir = f"{main_dir}/audio"
+
+        with open(transcript_fp, "r") as f:
+            audio_text_tpl = [line.strip().split("\t") for line in f]
+
+        audio_text = {}
+        for audio_file, text in audio_text_tpl:
+            audio_fp = os.path.join(
+                audio_dir,
+                audio_file.split("_")[0],
+                audio_file.split("_")[1],
+                f"{audio_file}.opus",
+            )
+            audio_text[audio_fp] = text.strip()
+
+        return list(audio_text.keys()), list(audio_text.values())
+
+
 class ArtieBiasCorpus:
     def __init__(self, root_dir):
         self.root_dir = root_dir
@@ -150,18 +176,11 @@ class EvalDataset(Dataset):
 
             self.dataset = Librispeech(root_dir=root_dir)
         elif eval_set == "multilingual_librispeech":
-            if not os.path.exists(f"{eval_dir}/faceboook___multilingual_librispeech"):
+            root_dir = f"{eval_dir}/mls/mls_{lang}_opus"
+            if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-            self.dataset = load_dataset(
-                path="facebook/multilingual_librispeech",
-                name=lang,
-                split="test",
-                cache_dir=eval_dir,
-                trust_remote_code=True,
-                num_proc=15,
-                save_infos=True,
-            )
+            
+            self.dataset = MLS(root_dir=root_dir, lang=lang)
         elif eval_set == "artie_bias_corpus":
             root_dir = f"{eval_dir}/artie-bias-corpus"
             if not os.path.exists(root_dir):
@@ -230,13 +249,23 @@ class EvalDataset(Dataset):
 
         self.eval_set = eval_set
 
-        if self.eval_set not in ["tedlium", "common_voice", "fleurs", "voxpopuli", "multilingual_librispeech"]:
+        if self.eval_set not in [
+            "tedlium",
+            "common_voice",
+            "fleurs",
+            "voxpopuli",
+        ]:
             audio_files, transcript_texts = self.dataset.load()
             self.audio_files = audio_files
             self.transcript_texts = transcript_texts
 
     def __len__(self):
-        if self.eval_set in ["tedlium", "common_voice", "fleurs", "voxpopuli", "multilingual_librispeech"]:
+        if self.eval_set in [
+            "tedlium",
+            "common_voice",
+            "fleurs",
+            "voxpopuli",
+        ]:
             return len(self.dataset)
         return len(self.audio_files)
 
@@ -278,19 +307,6 @@ class EvalDataset(Dataset):
             waveform = self.dataset[index]["audio"]["array"]
             sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
             text_y = self.dataset[index]["normalized_text"]
-
-            if sampling_rate != 16000:
-                waveform = librosa.resample(
-                    waveform, orig_sr=sampling_rate, target_sr=16000
-                )
-
-            audio_arr = audio.pad_or_trim(waveform)
-            audio_arr = audio_arr.astype(np.float32)
-            audio_input = audio.log_mel_spectrogram(audio_arr)
-        elif self.eval_set == "multilingual_librispeech":
-            waveform = self.dataset[index]["audio"]["array"]
-            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-            text_y = self.dataset[index]["transcript"]
 
             if sampling_rate != 16000:
                 waveform = librosa.resample(
@@ -618,7 +634,7 @@ def ml_eval(
             )
         eval_table = wandb.Table(columns=wandb_table_cols)
         table_iter = 0
-    
+
     for lang in langs:
         dataset = EvalDataset(
             eval_set=eval_set, lang=lang, hf_token=hf_token, eval_dir=eval_dir
