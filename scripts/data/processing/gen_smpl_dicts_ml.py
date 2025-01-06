@@ -76,7 +76,7 @@ def main(src_dir, split_factor, output_dir, batches: Optional[None] = None):
     if batches is not None:
         batch_size = (len(segs_dir) // batches) + 1
         print(f"{batch_size=}")
-        batch_idx = os.getenv("BEAKER_REPLICA_RANK")
+        batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
         print(f"{batch_idx=}")
         segs_dir = segs_dir[
             batch_idx * batch_size : (batch_idx * batch_size) + batch_size
