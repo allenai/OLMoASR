@@ -58,12 +58,11 @@ class Librispeech:
 
 
 class MLS:
-    def __init__(self, root_dir, lang):
+    def __init__(self, root_dir):
         self.root_dir = root_dir
-        self.lang = lang
 
     def load(self):
-        main_dir = f"{self.root_dir}/mls_{self.lang}_opus/test"
+        main_dir = f"{self.root_dir}/test"
         transcript_fp = f"{main_dir}/transcripts.txt"
         audio_dir = f"{main_dir}/audio"
 
@@ -176,11 +175,11 @@ class EvalDataset(Dataset):
 
             self.dataset = Librispeech(root_dir=root_dir)
         elif eval_set == "multilingual_librispeech":
-            root_dir = f"{eval_dir}/mls"
+            root_dir = f"{eval_dir}/mls/mls_{lang}_opus"
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
             
-            self.dataset = MLS(root_dir=root_dir, lang=lang)
+            self.dataset = MLS(root_dir=root_dir)
         elif eval_set == "artie_bias_corpus":
             root_dir = f"{eval_dir}/artie-bias-corpus"
             if not os.path.exists(root_dir):
