@@ -78,6 +78,7 @@ def download_files_set(
     service_account: str,
     key_file: str,
     log_file: str,
+    batches: Optional[int] = None,
 ):
     os.makedirs(local_dir, exist_ok=True)
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -93,6 +94,18 @@ def download_files_set(
     
     with open(set_file, "r") as f:
         file_names = [line.strip() for line in f]
+    print(f"{len(file_names)=}")
+    print(f"{file_names[-10:]=}")
+    
+    if batches:
+        batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
+        batch_size = len(file_names) // batches
+        print(f"{batch_idx=}")
+        print(f"{batch_size=}")
+        file_names = file_names[batch_idx * batch_size : (batch_idx + 1) * batch_size]
+        print(f"{len(file_names)=}")
+        print(f"{file_names[-10:]=}")
+        
     with multiprocessing.Pool() as pool:
         res = list(
             tqdm(
