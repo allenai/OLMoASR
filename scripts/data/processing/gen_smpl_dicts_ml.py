@@ -10,7 +10,7 @@ from itertools import repeat
 from whisper.tokenizer import LANGUAGES
 from fire import Fire
 import os
-
+from typing import Optional
 
 def get_all_paths(path: str):
     return glob.glob(path + "/*")
@@ -70,10 +70,18 @@ def write_to_jsonl(smpl_dicts_tuple):
             f.write(json.dumps({"sample_dicts": smpl_dict}) + "\n")
 
 
-def main(src_dir, split_factor, output_dir):
+def main(src_dir, split_factor, output_dir, batches: Optional[None] = None):
     segs_dir = glob.glob(src_dir + "/*/*")
+    if batches is not None:
+        batch_size = (len(segs_dir) // batches) + 1
+        print(f"{batch_size=}")
+        batch_idx = os.getenv("BEAKER_REPLICA_RANK")
+        print(f"{batch_idx=}")
+        segs_dir = segs_dir[batch_idx * batch_size : (batch_idx * batch_size) + batch_size]
+        
     print(f"{len(segs_dir)=}")
     print(f"{segs_dir[:5]=}")
+    print(f"{segs_dir[-5:]=}")
 
     print("Generating sample dictionaries")
     with multiprocessing.Pool() as pool:
