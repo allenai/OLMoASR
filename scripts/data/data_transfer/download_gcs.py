@@ -99,7 +99,7 @@ def download_files_set(
     
     if batches:
         batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
-        batch_size = len(file_names) // batches
+        batch_size = (len(file_names) // batches) + 1
         print(f"{batch_idx=}")
         print(f"{batch_size=}")
         file_names = file_names[batch_idx * batch_size : (batch_idx + 1) * batch_size]
