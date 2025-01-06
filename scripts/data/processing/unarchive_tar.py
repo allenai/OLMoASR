@@ -60,6 +60,8 @@ def unarchive_tar(
         (batch_tar[i : i + group_by], f"{(start_dir_idx + (i // group_by)):08}" if group_by > 1 else "")
         for i in range(0, batch_size, group_by)
     ]
+    if group_by == 1:
+        tar_files_dir_idx = [tpl for tpl in tar_files_dir_idx if tpl[0] != []]
 
     print(f"{batch_idx=}")
     print(f"{batch_tar=}")
