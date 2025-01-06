@@ -176,7 +176,7 @@ class EvalDataset(Dataset):
 
             self.dataset = Librispeech(root_dir=root_dir)
         elif eval_set == "multilingual_librispeech":
-            root_dir = f"{eval_dir}/mls/mls_{lang}_opus"
+            root_dir = f"{eval_dir}/mls"
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
             
