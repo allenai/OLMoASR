@@ -103,10 +103,10 @@ class AudioTextDataset(Dataset):
             language = sample_dict["language"]
         else:
             language = "en"
-        tokenizer = tokenizer(language=language)
+        tokenizer_lang = tokenizer(language=language)
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
         text_input, text_y, padding_mask = self.preprocess_text(
-            transcript_file, tokenizer
+            transcript_file, tokenizer_lang
     )
 
         return (
@@ -778,16 +778,16 @@ def gen_pred(logits, text_y, tokenizer, languages):
     microbatch_pred_text = []
     microbatch_unnorm_pred_text = []
     for i, pred_instance in enumerate(pred.cpu().numpy()):
-        tokenizer = tokenizer(language=languages[i])
-        pred_instance_text = tokenizer.decode(list(pred_instance))
+        tokenizer_lang = tokenizer(language=languages[i])
+        pred_instance_text = tokenizer_lang.decode(list(pred_instance))
         microbatch_unnorm_pred_text.append(pred_instance_text)
         pred_instance_text = ow.utils.remove_after_endoftext(pred_instance_text)
         microbatch_pred_text.append(pred_instance_text)
 
     microbatch_tgt_text = []
     for i, text_y_instance in enumerate(text_y.cpu().numpy()):
-        tokenizer = tokenizer(language=languages[i])
-        tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
+        tokenizer_lang = tokenizer(language=languages[i])
+        tgt_y_instance_text = tokenizer_lang.decode(list(text_y_instance))
         tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
         tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
         microbatch_tgt_text.append(tgt_y_instance_text)
