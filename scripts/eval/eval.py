@@ -651,7 +651,7 @@ def ml_eval(
 
         with torch.no_grad():
             for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-                _, audio_arr, audio_input, text_y = batch
+                _, audio_input, mel_spec, text_y = batch
 
                 norm_tgt_text = [normalizer(text) for text in text_y]
                 audio_input = audio_input.to(device)
