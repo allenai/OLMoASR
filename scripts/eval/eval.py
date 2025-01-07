@@ -567,7 +567,7 @@ def ml_eval(
     model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
     model.eval()
 
-    normalizer = BasicTextNormalizer(remove_diacritics=True)
+    normalizer = BasicTextNormalizer()
 
     if lang is None:
         if eval_set == "multilingual_librispeech":
@@ -656,7 +656,7 @@ def ml_eval(
                 norm_tgt_text = [normalizer(text) for text in text_y]
                 audio_input = audio_input.to(device)
 
-                options = DecodingOptions(language=lang, without_timestamps=True)
+                options = DecodingOptions(language=lang, without_timestamps=True, beam_size=5, best_of=5)
                 results = model.decode(audio_input, options=options)
 
                 norm_pred_text = [
