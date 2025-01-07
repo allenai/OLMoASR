@@ -660,19 +660,19 @@ def ml_eval(
                 results = model.transcribe(audio_input[0], **options)
 
                 norm_pred_text = [
-                    normalizer(results[i]["text"])
-                    for i in range(len(results))
+                    normalizer(results["text"])
+                    for i in range(len(norm_tgt_text))
                     if norm_tgt_text[i] != ""
                 ]
                 if wandb_log:
                     audio_arr = [
                         audio_arr.numpy()[i]
-                        for i in range(len(results))
+                        for i in range(len(norm_tgt_text))
                         if norm_tgt_text[i] != ""
                     ]
                 norm_tgt_text = [
                     norm_tgt_text[i]
-                    for i in range(len(results))
+                    for i in range(len(norm_tgt_text))
                     if norm_tgt_text[i] != ""
                 ]
 
