@@ -178,7 +178,7 @@ class EvalDataset(Dataset):
             root_dir = f"{eval_dir}/mls/mls_{lang}_opus"
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir, lang=lang)
-            
+
             self.dataset = MLS(root_dir=root_dir)
         elif eval_set == "artie_bias_corpus":
             root_dir = f"{eval_dir}/artie-bias-corpus"
@@ -656,7 +656,13 @@ def ml_eval(
                 norm_tgt_text = [normalizer(text) for text in text_y]
                 audio_input = audio_input.to(device)
 
-                options = dict(task="transcribe", language=lang, without_timestamps=True, beam_size=5, best_of=5)
+                options = dict(
+                    task="transcribe",
+                    language=lang,
+                    without_timestamps=True,
+                    beam_size=5,
+                    best_of=5,
+                )
                 results = model.transcribe(audio_input[0], **options)
 
                 norm_pred_text = [
@@ -768,9 +774,11 @@ def ml_eval(
                 wandb.run.summary[f"avg_{lang}_ins"] = avg_ins
                 wandb.run.summary[f"avg_{lang}_dels"] = avg_dels
         else:
-            with open(
-                f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt", "a"
-            ) as f:
+            if exp_name is not None and wandb_run_id is not None:
+                path = f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt"
+            else:
+                path = f"{log_dir}/eval_results.txt"
+            with open(path, "a") as f:
                 f.write(
                     f"{eval_set} {lang} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
                 )
