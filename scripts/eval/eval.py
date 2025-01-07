@@ -629,7 +629,7 @@ def ml_eval(
                 name=exp_name,
                 dir=wandb_log_dir,
                 config=config,
-                tags=["eval", eval_set, ow_or_w, model_size],
+                tags=["eval", "multilingual", eval_set, ow_or_w, model_size],
             )
         eval_table = wandb.Table(columns=wandb_table_cols)
         table_iter = 0
