@@ -656,11 +656,11 @@ def ml_eval(
                 norm_tgt_text = [normalizer(text) for text in text_y]
                 audio_input = audio_input.to(device)
 
-                options = DecodingOptions(language=lang, without_timestamps=True, beam_size=5)
-                results = model.decode(audio_input, options=options)
+                options = DecodingOptions(task="transcribe", language=lang, without_timestamps=True, beam_size=5, best_of=5)
+                results = model.transcribe(audio_input, options=options)
 
                 norm_pred_text = [
-                    normalizer(results[i].text)
+                    normalizer(results[i]["text"])
                     for i in range(len(results))
                     if norm_tgt_text[i] != ""
                 ]
