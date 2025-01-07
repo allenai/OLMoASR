@@ -72,7 +72,7 @@ def write_to_jsonl(smpl_dicts_tuple):
 
 
 def main(src_dir, split_factor, output_dir, batches: Optional[None] = None):
-    segs_dir = glob.glob(src_dir + "/*/*")
+    segs_dir = sorted(glob.glob(src_dir + "/*/*"))
     if batches is not None:
         batch_size = (len(segs_dir) // batches) + 1
         print(f"{batch_size=}")
