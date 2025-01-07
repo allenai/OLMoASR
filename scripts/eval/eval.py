@@ -657,7 +657,7 @@ def ml_eval(
                 audio_input = audio_input.to(device)
 
                 options = dict(task="transcribe", language=lang, without_timestamps=True, beam_size=5, best_of=5)
-                results = model.transcribe(audio_input, **options)
+                results = model.transcribe(audio_input[0], **options)
 
                 norm_pred_text = [
                     normalizer(results[i]["text"])
