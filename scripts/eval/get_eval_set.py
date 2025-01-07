@@ -97,35 +97,20 @@ def get_eval_set(
         )
         shutil.rmtree(f"{eval_dir}/LibriSpeech")
     elif eval_set == "multilingual_librispeech":
-        if lang is None:
-            langs = [
-                "german",
-                "dutch",
-                "spanish",
-                "french",
-                "italian",
-                "portuguese",
-                "polish",
-                "english",
-            ]
-        else:
-            langs = [lang]
-        for lang in langs:
-            # downloading the file
-            eval_dir = f"{eval_dir}/mls"
-            os.makedirs(eval_dir, exist_ok=True)
-            command = [
-                "wget",
-                "-P",
-                eval_dir,
-                f"https://dl.fbaipublicfiles.com/mls/mls_{lang}_opus.tar.gz",
-            ]
-            subprocess.run(command)
-            # extracting the file
-            command = ["tar", "-xzvf", f"{eval_dir}/mls_{lang}_opus.tar.gz", "-C", eval_dir, f"mls_{lang}_opus/test"]
-            subprocess.run(command)
-            # removing the tar file
-            os.remove(f"{eval_dir}/mls_{lang}_opus.tar.gz")
+        eval_dir = f"{eval_dir}/mls"
+        os.makedirs(eval_dir, exist_ok=True)
+        command = [
+            "wget",
+            "-P",
+            eval_dir,
+            f"https://dl.fbaipublicfiles.com/mls/mls_{lang}_opus.tar.gz",
+        ]
+        subprocess.run(command)
+        # extracting the file
+        command = ["tar", "-xzvf", f"{eval_dir}/mls_{lang}_opus.tar.gz", "-C", eval_dir, f"mls_{lang}_opus/test"]
+        subprocess.run(command)
+        # removing the tar file
+        os.remove(f"{eval_dir}/mls_{lang}_opus.tar.gz")
     elif eval_set == "artie_bias_corpus":
         # downloading the file
         command = [
