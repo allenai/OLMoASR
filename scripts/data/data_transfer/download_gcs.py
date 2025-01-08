@@ -26,13 +26,14 @@ def download_file(
     cmd = (
         f"gsutil -m cp -L {log_file} -r gs://{bucket_name}/{bucket_prefix}/{file_name} {local_dir}",
     )
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True)
-        logger.info(result.stdout)
-        logger.info(result.stderr)
-    except Exception as e:
-        logger.info(result.stderr)
-        logger.error(e)
+    if not os.path.exists(os.path.join(local_dir, file_name)):
+        try:
+            result = subprocess.run(cmd, shell=True, capture_output=True)
+            logger.info(result.stdout)
+            logger.info(result.stderr)
+        except Exception as e:
+            logger.info(result.stderr)
+            logger.error(e)
 
 def download_dir(
     local_dir: str,
