@@ -103,8 +103,10 @@ class AudioTextDataset(Dataset):
             language = sample_dict["language"]
         else:
             language = "en"
-        print(f"{language=}")
-        tokenizer_lang = tokenizer(language=language)
+        try:
+            tokenizer_lang = tokenizer(language=language)
+        except:
+            print(f"{language=} not found in tokenizer")
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
         text_input, text_y, padding_mask = self.preprocess_text(
             transcript_file, tokenizer_lang
