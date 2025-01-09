@@ -28,6 +28,8 @@ def unarchive_tar_file(tar_files_dir_idx: Tuple, output_dir):
         str: Message indicating the completion of the task.
     """
     if tar_files_dir_idx[1] == "":
+        if not os.path.exists(tar_files_dir_idx[0][0]):
+            return f"Tar file {tar_files_dir_idx[0][0]} does not exist."
         output_dir = os.path.join(output_dir, tar_files_dir_idx[0][0].split("/")[-1].split(".")[0])
     else:
         output_dir = os.path.join(output_dir, tar_files_dir_idx[1])
@@ -81,6 +83,10 @@ def unarchive_tar(
                 total=len(tar_files_dir_idx),
             )
         )
+        
+    res = [r for r in res if r is not None]
+    print(f"{len(res)=}")
+    print(f"{res=}")
 
 
 if __name__ == "__main__":
