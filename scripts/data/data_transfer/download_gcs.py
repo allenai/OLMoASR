@@ -56,7 +56,7 @@ def download_dir(
         logger.error(e)
     
     cmd = (
-        f"gsutil -m cp -L {log_file} -r gs://{bucket_name}/{bucket_prefix} {local_dir}"
+        f"gsutil -m cp -n -L {log_file} -r gs://{bucket_name}/{bucket_prefix} {local_dir}"
     )
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True)
