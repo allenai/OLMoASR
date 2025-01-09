@@ -71,6 +71,7 @@ def main(
 
         new_samples_dicts = [nsd for nsd in new_samples_dicts if len(nsd) > 0]
         print(f"{len(new_samples_dicts)=}")
+        os.makedirs(f"{output_dir}/{(start_output_dir_idx + i):03}", exist_ok=True)
         with open(
             f"{output_dir}/{(start_output_dir_idx + i):03}/samples_dicts.jsonl", "w"
         ) as f:
