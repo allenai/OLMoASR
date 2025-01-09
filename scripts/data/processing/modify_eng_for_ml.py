@@ -44,7 +44,7 @@ def main(
     output_dir: str,
     start_output_dir_idx: Optional[int] = None,
 ):
-    samples_dicts_files = glob.glob(samples_dicts_dir + "/*")
+    samples_dicts_files = sorted(glob.glob(samples_dicts_dir + "/*/samples_dicts.jsonl"))
     print(f"{len(samples_dicts_files)=}")
     batch_size = (len(samples_dicts_files) // batches) + 1
     print(f"{batch_size=}")
