@@ -820,13 +820,17 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank):
         dels = 0
         ins = 0
     else:
-        train_wer = (
-            jiwer.wer(
-                reference=batch_tgt_text_full,
-                hypothesis=batch_pred_text_full,
+        try:
+            train_wer = (
+                jiwer.wer(
+                    reference=batch_tgt_text_full,
+                    hypothesis=batch_pred_text_full,
+                )
+                * 100
             )
-            * 100
-        )
+        except ValueError:
+            print(f"{batch_tgt_text_full=}")
+            print(f"{batch_pred_text_full=}")
         measures = jiwer.compute_measures(
             truth=batch_tgt_text_full, hypothesis=batch_pred_text_full
         )
