@@ -36,13 +36,13 @@ def gen_smpl_dict(segs_dir) -> List:
     return smpl_dicts
 
 
-def gen_smpl_dict_jsonl(transcript_segs_dir, audio_seg_dir) -> List:
-    audio_seg_dir = (
-        audio_seg_dir + f"/{os.path.dirname(transcript_segs_dir).split('/')[-1]}"
+def gen_smpl_dict_jsonl(transcript_seg_dir, audio_dir) -> List:
+    audio_dir = (
+        audio_dir + f"/{os.path.dirname(transcript_seg_dir).split('/')[-1]}"
     )
-    text_files = sorted(glob.glob(transcript_segs_dir + "/*/*"))
+    text_files = sorted(glob.glob(transcript_seg_dir + "/*"))
     npy_files = [
-        p.replace(transcript_segs_dir, audio_seg_dir).split(".")[0] + ".npy"
+        p.replace(os.path.dirname(transcript_seg_dir), audio_dir).split(".")[0] + ".npy"
         for p in text_files
     ]
     text_npy_samples = list(zip(text_files, npy_files))
@@ -62,7 +62,7 @@ def main(
     batch_size: int,
     shard_metadata: Optional[str] = None,
     jsonl_seg_dir: Optional[str] = None,
-    audio_seg_dir: Optional[str] = None,
+    audio_dir: Optional[str] = None,
 ):
     batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
     samples_dicts_dir = samples_dicts_dir + f"/{batch_idx:03}"
@@ -92,9 +92,11 @@ def main(
             )
 
     else:
-        data_dirs = sorted(glob.glob(jsonl_seg_dir + "/*"))[
+        shard_dirs = sorted(glob.glob(jsonl_seg_dir + "/*"))[
             batch_idx * batch_size : (batch_idx + 1) * batch_size
         ]
+        logger.info(f"{shard_dirs[0]=}, {shard_dirs[-1]=}, {len(shard_dirs)=}")
+        data_dirs = list(chain(*[glob.glob(shard_dir + "/*") for shard_dir in shard_dirs]))
         logger.info(f"{len(data_dirs)=}")
         logger.info(f"{data_dirs[:5]=}")
         logger.info(f"{data_dirs[-5:]}")
@@ -104,7 +106,7 @@ def main(
                 tqdm(
                     pool.imap_unordered(
                         parallel_gen_smpl_dict_jsonl,
-                        zip(data_dirs, repeat(audio_seg_dir)),
+                        zip(data_dirs, repeat(audio_dir)),
                     ),
                     total=len(data_dirs),
                 )
