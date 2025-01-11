@@ -40,7 +40,7 @@ def gen_smpl_dict_jsonl(transcript_segs_dir, audio_seg_dir) -> List:
     audio_seg_dir = (
         audio_seg_dir + f"/{os.path.dirname(transcript_segs_dir).split('/')[-1]}"
     )
-    text_files = sorted(glob.glob(transcript_segs_dir + "/*"))
+    text_files = sorted(glob.glob(transcript_segs_dir + "/*/*"))
     npy_files = [
         p.replace(transcript_segs_dir, audio_seg_dir).split(".")[0] + ".npy"
         for p in text_files
