@@ -806,12 +806,12 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank):
     batch_tgt_text_full = [
         norm_batch_tgt_text[i]
         for i in range(len(norm_batch_tgt_text))
-        if len(norm_batch_tgt_text[i]) > 0
+        if len(norm_batch_tgt_text[i].strip()) > 0
     ]
     batch_pred_text_full = [
         norm_batch_pred_text[i]
         for i in range(len(norm_batch_pred_text))
-        if len(norm_batch_tgt_text[i]) > 0
+        if len(norm_batch_tgt_text[i].strip()) > 0
     ]
 
     if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
