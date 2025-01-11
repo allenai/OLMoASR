@@ -16,6 +16,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def upload_dir(local_dir, bucket_name, bucket_prefix, service_account, key_file):
+    try:
+        cmd = f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}'"
+        result = subprocess.run(cmd, shell=True, capture_output=True)
+        logger.info(result.stdout)
+        logger.info(result.stderr)
+    except Exception as e:
+        logger.info(result.stderr)
+        logger.error(e)
+
+    cmd = f"gsutil -m cp -r {local_dir} gs://{bucket_name}/{bucket_prefix}"
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True)
+        logger.info(result.stdout)
+        logger.info(result.stderr)
+    except Exception as e:
+        logger.info(result.stderr)
+        logger.error(e)
+    
 def download_file(
     file_name: str,
     local_dir: str,
