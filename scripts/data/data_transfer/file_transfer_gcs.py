@@ -201,5 +201,6 @@ if __name__ == "__main__":
             "download_files_batch": download_files_batch,
             "download_files_set": download_files_set,
             "download_dir": download_dir,
+            "upload_dir": upload_dir,
         }
     )
