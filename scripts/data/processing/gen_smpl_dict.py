@@ -2,7 +2,7 @@ import glob
 import os
 from typing import Dict, Any, Optional, List
 from fire import Fire
-from itertools import chain
+from itertools import chain, repeat
 import logging
 import multiprocessing
 from tqdm import tqdm
@@ -36,9 +36,15 @@ def gen_smpl_dict(segs_dir) -> List:
     return smpl_dicts
 
 
-def gen_smpl_dict_jsonl(transcript_segs_dir) -> List:
+def gen_smpl_dict_jsonl(transcript_segs_dir, audio_seg_dir) -> List:
+    audio_seg_dir = (
+        audio_seg_dir + f"/{os.path.dirname(transcript_segs_dir).split('/')[-1]}"
+    )
     text_files = sorted(glob.glob(transcript_segs_dir + "/*"))
-    npy_files = [p.split(".")[0] + ".npy" for p in text_files]
+    npy_files = [
+        p.replace(transcript_segs_dir, audio_seg_dir).split(".")[0] + ".npy"
+        for p in text_files
+    ]
     text_npy_samples = list(zip(text_files, npy_files))
     smpl_dicts = [
         {"transcript": text_fp, "audio": npy_fp} for text_fp, npy_fp in text_npy_samples
@@ -47,11 +53,16 @@ def gen_smpl_dict_jsonl(transcript_segs_dir) -> List:
     return smpl_dicts
 
 
+def parallel_gen_smpl_dict_jsonl(args):
+    return gen_smpl_dict_jsonl(*args)
+
+
 def main(
     samples_dicts_dir: str,
     batch_size: int,
     shard_metadata: Optional[str] = None,
     jsonl_seg_dir: Optional[str] = None,
+    audio_seg_dir: Optional[str] = None,
 ):
     batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
     samples_dicts_dir = samples_dicts_dir + f"/{batch_idx:03}"
@@ -91,7 +102,10 @@ def main(
         with multiprocessing.Pool() as pool:
             smpl_dicts = list(
                 tqdm(
-                    pool.imap_unordered(gen_smpl_dict_jsonl, data_dirs),
+                    pool.imap_unordered(
+                        parallel_gen_smpl_dict_jsonl,
+                        zip(data_dirs, repeat(audio_seg_dir)),
+                    ),
                     total=len(data_dirs),
                 )
             )
