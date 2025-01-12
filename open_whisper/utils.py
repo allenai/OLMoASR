@@ -341,7 +341,7 @@ def calculate_wer(pair: Tuple[str, str]) -> float:
         The Word Error Rate (WER) between the two strings
     """
     # truth, predicted
-    if pair[0] == "":
+    if pair[0].strip() == "":
         return 0.0
     else:
         return jiwer.wer(pair[0], pair[1]) * 100.0
