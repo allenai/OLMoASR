@@ -199,9 +199,12 @@ def main(
     # shuffling data
     with open(output_file, "r") as f:
         positive_examples = [line for line in f]
+    print(f"{positive_examples[:5]=}")
     negative_examples = [f"__label__negative {text}\n" for text in subsampled_train_text]
+    print(f"{negative_examples[:5]=}")
     all_data = positive_examples + negative_examples
     print(f"{len(all_data)=}")
+    print(f"{all_data[:5]=}")
     np.random.shuffle(all_data)
 
     print("Generating text from subsampled training data... (negative examples)")
