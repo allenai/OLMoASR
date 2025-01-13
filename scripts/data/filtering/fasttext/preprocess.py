@@ -195,12 +195,20 @@ def main(
                         total=len(subsampled_train_data),
                     )
                 )
+                
+    # shuffling data
+    with open(output_file, "r") as f:
+        positive_examples = [line for line in f]
+    negative_examples = [f"__label__negative {text}\n" for text in subsampled_train_text]
+    all_data = positive_examples + negative_examples
+    print(f"{len(all_data)=}")
+    np.random.shuffle(all_data)
 
     print("Generating text from subsampled training data... (negative examples)")
     # generate text file w/ labels from negative training data
     with open(output_file, "a") as file:
-        for text in subsampled_train_text:
-            file.write("__label__negative " + text + "\n")
+        for text in all_data:
+            file.write(text)
 
 
 if __name__ == "__main__":
