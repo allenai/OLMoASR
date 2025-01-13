@@ -77,7 +77,7 @@ def main(
         samples_dicts_dirs = glob.glob(f"{train_dir}/*")
         sample_dicts_dir = np.random.choice(samples_dicts_dirs, 1)[0]
         print(f"{sample_dicts_dir=}")
-        with open(f"{samples_dicts_dir}/samples_dicts.jsonl", "r") as f:
+        with open(f"{sample_dicts_dir}/samples_dicts.jsonl", "r") as f:
             sample_dicts = list(
                 chain(*[json.loads(line.strip())["sample_dicts"] for line in f])
             )
