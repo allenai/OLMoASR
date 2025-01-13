@@ -17,7 +17,7 @@ def main(eval_set: str, eval_train_dir: str, train_dir: str, segment_filter: boo
             get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir)
             
         # Initialize the dataset
-        self.dataset = TEDLIUM(
+        dataset = TEDLIUM(
             root=f"{eval_train_dir}", release="release3", subset="train"
         )
 
@@ -26,9 +26,9 @@ def main(eval_set: str, eval_train_dir: str, train_dir: str, segment_filter: boo
 
         # Open the file for writing
         with open(output_file, "w", encoding="utf-8") as file:
-            for index in range(len(self.dataset)):
+            for index in range(len(dataset)):
                 # Get the data for the current index
-                _, _, text_y, *_ = self.dataset[index]
+                _, _, text_y, *_ = dataset[index]
                 
                 # Write the transcript to the file
                 file.write(text_y + "\n")
@@ -36,7 +36,7 @@ def main(eval_set: str, eval_train_dir: str, train_dir: str, segment_filter: boo
         print(f"Transcripts have been written to {output_file}.")
         
         # get count of documents in eval train data
-        negative_subsample_count = len(self.dataset)
+        negative_subsample_count = len(dataset)
         print(f"Number of documents in eval train data: {negative_subsample_count}")
     
     # subsample negative training data (from training pool) and match num. of docs w/ positive training data (from samples dict)
