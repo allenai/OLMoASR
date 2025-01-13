@@ -30,7 +30,7 @@ def gen_text(
     text = text.lower()
     punctuation_to_remove = string.punctuation.replace("'", "")
     text = text.translate(str.maketrans("", "", punctuation_to_remove))
-    text = text.replace("\n", " ")
+    text = re.sub(r'\s*\n\s*', ' ', text)
     return text
 
 
@@ -63,6 +63,7 @@ def main(
                 _, _, text_y, *_ = dataset[index]
 
                 text_y = re.sub(r"<unk>\s*", "", text_y)
+                text_y = text_y.replace(" '", "'")
                 text_y = text_y.strip()
                 text_y += "\n"
                 # Write the transcript to the file
