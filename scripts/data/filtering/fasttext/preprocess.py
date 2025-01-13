@@ -210,7 +210,7 @@ def main(
 
     print("Generating text from subsampled training data... (negative examples)")
     # generate text file w/ labels from negative training data
-    with open(output_file, "a") as file:
+    with open(output_file, "w") as file:
         for text in all_data:
             file.write(text)
 
