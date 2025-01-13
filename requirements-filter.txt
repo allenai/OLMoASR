@@ -12,3 +12,4 @@ pandas
 pyarrow
 fasttext-langdetect
 pycld2
+fasttext
