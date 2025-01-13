@@ -62,6 +62,8 @@ def main(
                 _, _, text_y, *_ = dataset[index]
 
                 text_y = re.sub(r"<unk>\s*", "", text_y)
+                text_y = text_y.strip()
+                text_y += "\n"
                 # Write the transcript to the file
                 file.write("__label__positive " + text_y)
 
@@ -193,11 +195,11 @@ def main(
                     )
                 )
 
-        print("Generating text from subsampled training data... (negative examples)")
-        # generate text file w/ labels from negative training data
-        with open(output_file, "a") as file:
-            for text in subsampled_train_text:
-                file.write("__label__negative " + text + "\n")
+    print("Generating text from subsampled training data... (negative examples)")
+    # generate text file w/ labels from negative training data
+    with open(output_file, "a") as file:
+        for text in subsampled_train_text:
+            file.write("__label__negative " + text + "\n")
 
 
 if __name__ == "__main__":
