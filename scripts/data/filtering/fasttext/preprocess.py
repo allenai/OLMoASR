@@ -30,6 +30,7 @@ def gen_text(
     text = text.lower()
     punctuation_to_remove = string.punctuation.replace("'", "")
     text = text.translate(str.maketrans("", "", punctuation_to_remove))
+    text = text.replace("\n", " ")
     return text
 
 
