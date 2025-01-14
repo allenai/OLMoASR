@@ -115,6 +115,7 @@ def main(
             for index in range(len(dataset)):
                 text_y = dataset[index]["sentence"]
                 text_y = text_y.strip()
+                text_y = text_y.lower()
                 text_y += "\n"
                 file.write("__label__positive " + text_y)
         
