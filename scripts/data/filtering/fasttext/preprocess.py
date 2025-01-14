@@ -43,6 +43,7 @@ def gen_text(
     )
     t_dict, *_ = reader.read()
     text = reader.extract_text(t_dict)
+    text = text.strip()
     text = text.lower()
     punctuation_to_remove = string.punctuation.replace("'", "")
     text = text.translate(str.maketrans("", "", punctuation_to_remove))
@@ -134,6 +135,7 @@ def main(
         with open(output_file, "w", encoding="utf-8") as file:
             for _, transcript_text in zip(*dataset.load()):
                 transcript_text = transcript_text.strip()
+                transcript_text = transcript_text.lower()
                 transcript_text += "\n"
                 file.write("__label__positive " + transcript_text)
                 count += 1
