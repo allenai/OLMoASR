@@ -12,9 +12,25 @@ import multiprocessing
 from tqdm import tqdm
 from typing import Optional
 from itertools import repeat, chain
+from datasets import load_dataset
 
 # preprocess both positive and negative training data to ensure they are in the same format (no transcript specific format remains)
 # generate text file w/ labels from these 2 sets of data
+
+class AMI:
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+
+    def load(self):
+        with open(f"{self.root_dir}/text", "r") as f:
+            file_text = [line.split(" ", 1) for line in f]
+            audio_files, transcript_texts = zip(*file_text)
+            audio_files = [
+                f"{self.root_dir}/{f.split('_')[1]}/eval_{f.lower()}.wav"
+                for f in audio_files
+            ]
+
+        return audio_files, transcript_texts
 
 
 def gen_text(
@@ -44,6 +60,7 @@ def main(
     train_dir: str,
     segment_filter: bool,
     jsonl_input: bool,
+    hf_token: Optional[str] = None,
 ):
     # collect all positive training data (data from eval set)
     if eval_set == "tedlium":
@@ -51,7 +68,7 @@ def main(
             get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir)
 
         # Initialize the dataset
-        dataset = TEDLIUM(root=f"{eval_train_dir}", release="release3", subset="train")
+        dataset = TEDLIUM(root=eval_train_dir, release="release3", subset="train")
 
         # Specify the output text file
         output_file = f"{eval_train_dir}/tedlium_train.txt"
@@ -73,6 +90,55 @@ def main(
 
         # get count of documents in eval train data
         negative_subsample_count = len(dataset)
+        print(f"Number of documents in eval train data: {negative_subsample_count}")
+    elif eval_set == "common_voice":
+        if not os.path.exists(f"{eval_train_dir}/mozilla-foundation___common_voice_5_1"):
+            get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir, hf_token=hf_token)
+        
+        dataset = load_dataset(
+            path="mozilla-foundation/common_voice_5_1",
+            name="en",
+            split="train",
+            token=hf_token,
+            cache_dir=eval_train_dir,
+            trust_remote_code=True,
+            num_proc=15,
+            save_infos=True,
+        )
+        
+        output_file = f"{eval_train_dir}/common_voice_train.txt"
+        
+        with open(output_file, "w", encoding="utf-8") as file:
+            for index in range(len(dataset)):
+                text_y = dataset[index]["sentence"]
+                text_y = text_y.strip()
+                text_y += "\n"
+                file.write("__label__positive " + text_y)
+        
+        print(f"Transcripts have been written to {output_file}.")
+        
+        negative_subsample_count = len(dataset)
+        print(f"Number of documents in eval train data: {negative_subsample_count}")
+    elif eval_set == "ami_ihm":
+        root_dir = f"{eval_train_dir}/ami/sdm"
+        if not os.path.exists(root_dir):
+            get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir)
+            
+        dataset = AMI(root_dir=root_dir)
+        
+        output_file = f"{eval_train_dir}/ami_ihm_train.txt"
+        
+        count = 0
+        with open(output_file, "w", encoding="utf-8") as file:
+            for _, transcript_text in zip(*dataset.load()):
+                transcript_text = transcript_text.strip()
+                transcript_text += "\n"
+                file.write("__label__positive " + transcript_text)
+                count += 1
+        
+        print(f"Transcripts have been written to {output_file}.")
+        
+        negative_subsample_count = count
         print(f"Number of documents in eval train data: {negative_subsample_count}")
 
     # subsample negative training data (from training pool) and match num. of docs w/ positive training data (from samples dict)
