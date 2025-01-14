@@ -156,20 +156,20 @@ def get_eval_train(
         # removing the tar file
         os.remove(f"{eval_dir}/train_1.tar.gz")
         # renaming the folder
-        os.makedirs(f"{eval_dir}/TEDLIUM_release-3/legacy", exist_ok=True)
-        os.rename(f"{eval_dir}/train", f"{eval_dir}/TEDLIUM_release-3/legacy/train")
-        os.makedirs(f"{eval_dir}/TEDLIUM_release-3/legacy/train/sph", exist_ok=True)
-        os.makedirs(f"{eval_dir}/TEDLIUM_release-3/legacy/train/stm", exist_ok=True)
-        for f in os.listdir(f"{eval_dir}/TEDLIUM_release-3/legacy/train"):
+        os.makedirs(f"{eval_dir}/TEDLIUM_release-3/data", exist_ok=True)
+        os.rename(f"{eval_dir}/train", f"{eval_dir}/TEDLIUM_release-3/data")
+        os.makedirs(f"{eval_dir}/TEDLIUM_release-3/data/sph", exist_ok=True)
+        os.makedirs(f"{eval_dir}/TEDLIUM_release-3/data/stm", exist_ok=True)
+        for f in os.listdir(f"{eval_dir}/TEDLIUM_release-3/data"):
             if f.endswith(".stm"):
                 os.rename(
-                    f"{eval_dir}/TEDLIUM_release-3/legacy/train/{f}",
-                    f"{eval_dir}/TEDLIUM_release-3/legacy/train/stm/{f}",
+                    f"{eval_dir}/TEDLIUM_release-3/data/{f}",
+                    f"{eval_dir}/TEDLIUM_release-3/data/stm/{f}",
                 )
             elif f.endswith(".sph"):
                 os.rename(
-                    f"{eval_dir}/TEDLIUM_release-3/legacy/train/{f}",
-                    f"{eval_dir}/TEDLIUM_release-3/legacy/train/sph/{f}",
+                    f"{eval_dir}/TEDLIUM_release-3/data/{f}",
+                    f"{eval_dir}/TEDLIUM_release-3/data/sph/{f}",
                 )
     elif eval_set == "voxpopuli":
         dataset = load_dataset(
