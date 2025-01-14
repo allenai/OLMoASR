@@ -63,6 +63,8 @@ def main(
     hf_token: Optional[str] = None,
 ):
     # collect all positive training data (data from eval set)
+    if hf_token is None:
+        hf_token = os.getenv("HF_TOKEN")
     if eval_set == "tedlium":
         if not os.path.exists(f"{eval_train_dir}/TEDLIUM_release-3"):
             get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir)
