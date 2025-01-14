@@ -120,7 +120,7 @@ def main(
         negative_subsample_count = len(dataset)
         print(f"Number of documents in eval train data: {negative_subsample_count}")
     elif eval_set == "ami_ihm":
-        root_dir = f"{eval_train_dir}/ami/sdm"
+        root_dir = f"{eval_train_dir}/ami/ihm"
         if not os.path.exists(root_dir):
             get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir)
             
