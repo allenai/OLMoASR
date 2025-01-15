@@ -53,7 +53,7 @@ def modify_text(content):
 
 
 def gen_text(
-    transcript_file: Optional[str] = None, transcript_string: Optional[str] = None, max_char_len = Optional[int] = None
+    transcript_file: Optional[str] = None, transcript_string: Optional[str] = None, max_char_len: Optional[int] = None
 ):
     reader = TranscriptReader(
         file_path=transcript_file if transcript_file else None,
