@@ -205,7 +205,7 @@ def main(
 ):
     os.makedirs(output_dir, exist_ok=True)
     shard_dirs = sorted(glob.glob(data_dir + "/*"))[start_shard_idx : end_shard_idx + 1]
-    batch_idx = os.getenv("BEAKER_REPLICA_RANK")
+    batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
     shard_dirs = shard_dirs[batch_idx * batch_size : (batch_idx + 1) * batch_size]
     print(f"{len(shard_dirs)=}")
     print(f"{shard_dirs[:5]=}")
