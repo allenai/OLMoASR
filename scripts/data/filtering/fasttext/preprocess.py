@@ -116,6 +116,7 @@ def main(
                     max_char_len = len(text_y)
 
         print(f"Transcripts have been written to {output_file}.")
+        print(f"{max_char_len=}")
 
         # get count of documents in eval train data
         negative_subsample_count = len(dataset)
@@ -151,8 +152,11 @@ def main(
                 text_y = text_y.translate(str.maketrans("", "", punctuation_to_remove))
                 text_y += "\n"
                 file.write("__label__positive " + text_y)
+                if len(text_y) > max_char_len:
+                    max_char_len = len(text_y)
 
         print(f"Transcripts have been written to {output_file}.")
+        print(f"{max_char_len=}")
 
         negative_subsample_count = len(dataset)
         print(f"Number of documents in eval train data: {negative_subsample_count}")
