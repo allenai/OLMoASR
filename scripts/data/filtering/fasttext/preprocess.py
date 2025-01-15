@@ -40,7 +40,7 @@ def modify_text(content):
     )
     pattern_parentheses = r"[ ]*\(.*?\)[ ]*"
     pattern_colon = r"[ ]*(?:[A-Z][a-zA-Z]*[ ])+:[ ]*"
-    specific_strings = r"[ ]*(?:&nbsp;|&gt;|=|\.{3})+[ ]*"
+    specific_strings = r"[ ]*(?:&nbsp;|&amp;|&lt;|&gt;|=|\.{3})+[ ]*"
     primary_pattern = (
         f"{pattern_brackets}|{pattern_parentheses}|{pattern_colon}|{specific_strings}"
     )
@@ -53,7 +53,7 @@ def modify_text(content):
 
 
 def gen_text(
-    transcript_file: Optional[str] = None, transcript_string: Optional[str] = None
+    transcript_file: Optional[str] = None, transcript_string: Optional[str] = None, max_char_len = Optional[int] = None
 ):
     reader = TranscriptReader(
         file_path=transcript_file if transcript_file else None,
@@ -68,6 +68,7 @@ def gen_text(
     punctuation_to_remove = string.punctuation.replace("'", "") + "“" + "”"
     text = text.translate(str.maketrans("", "", punctuation_to_remove))
     text = re.sub(r"\s*\n\s*", " ", text)
+    text = text[:max_char_len] if max_char_len else text
     return text
 
 
@@ -86,6 +87,9 @@ def main(
     # collect all positive training data (data from eval set)
     if hf_token is None:
         hf_token = os.getenv("HF_TOKEN")
+
+    max_char_len = 0
+
     if eval_set == "tedlium":
         if not os.path.exists(f"{eval_train_dir}/TEDLIUM_release-3"):
             get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir)
@@ -108,6 +112,8 @@ def main(
                 text_y += "\n"
                 # Write the transcript to the file
                 file.write("__label__positive " + text_y)
+                if len(text_y) > max_char_len:
+                    max_char_len = len(text_y)
 
         print(f"Transcripts have been written to {output_file}.")
 
@@ -204,7 +210,7 @@ def main(
             subsampled_train_text = list(
                 tqdm(
                     pool.imap_unordered(
-                        parallel_gen_text, zip(subsampled_train_data, repeat(None))
+                        parallel_gen_text, zip(subsampled_train_data, repeat(None), repeat(max_char_len))
                     ),
                     total=len(subsampled_train_data),
                 )
