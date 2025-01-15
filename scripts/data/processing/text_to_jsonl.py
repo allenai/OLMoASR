@@ -183,7 +183,13 @@ def to_dicts(file_path: str):
 
 
 def upload_to_s3(file_path: str, bucket: str, bucket_prefix: str):
-    cmd = ["aws", "s3", "cp", file_path, f"s3://{bucket}/{bucket_prefix}/"]
+    cmd = [
+        "aws",
+        "s3",
+        "cp",
+        file_path,
+        f"s3://{bucket}/{bucket_prefix}/{os.path.basename(file_path)}",
+    ]
     res = subprocess.run(cmd, capture_output=True, text=True)
     print(res.stdout)
 
