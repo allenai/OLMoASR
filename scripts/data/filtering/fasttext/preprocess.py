@@ -323,6 +323,22 @@ def main(
         for text in all_data:
             file.write(text)
 
+    print("Splitting data into training and testing")
+    train_split = 0.8
+    split_index = int(len(all_data) * train_split)
+    print(f"{split_index=}")
+    train_data = all_data[:split_index]
+    test_data = all_data[split_index:]
+
+    with open(f"{eval_train_dir}/{eval_set}.train", "w") as file:
+        for text in train_data:
+            file.write(text)
+    
+    with open(f"{eval_train_dir}/{eval_set}.test", "w") as file:
+        for text in test_data:
+            file.write(text)
+    
+
 
 if __name__ == "__main__":
     Fire(main)
