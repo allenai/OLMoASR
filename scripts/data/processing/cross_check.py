@@ -25,6 +25,8 @@ def check_files(full_shard_dir, seg_shard_dir, spill_dir, dry_run):
                 shutil.move(os.path.join(full_shard_dir, video_id), spill_dir)
         else:
             print(f"Extra ids in {shard}: {extra_ids}")
+            with open("seg_full_extra_ids.txt", "a") as f:
+                f.write(f"{shard}: {extra_ids}\n")
 
 
 def parallel_check_files(args):
