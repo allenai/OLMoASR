@@ -220,6 +220,7 @@ def main(
         print(f"{len(transcript_files)=}")
         print(f"{transcript_files[:5]=}")
 
+        shard_idx = shard_dir.split('/')[-1]
         with multiprocessing.Pool() as pool:
             text_dicts = list(
                 tqdm(
@@ -231,12 +232,12 @@ def main(
         print(f"{len(text_dicts)=}")
         print(f"{text_dicts[:5]=}")
 
-        with open(f"{output_dir}/shard_{shard_dir}.jsonl.gz", "wt") as f:
+        with open(f"{output_dir}/shard_{shard_idx}.jsonl.gz", "wt") as f:
             for d in text_dicts:
                 f.write(json.dumps(d) + "\n")
 
-        upload_to_s3(f"{output_dir}/shard_{shard_dir}.jsonl.gz", bucket, bucket_prefix)
-        os.remove(f"{output_dir}/shard_{shard_dir}.jsonl.gz")
+        upload_to_s3(f"{output_dir}/shard_{shard_idx}.jsonl.gz", bucket, bucket_prefix)
+        os.remove(f"{output_dir}/shard_{shard_idx}.jsonl.gz")
 
 
 if __name__ == "__main__":
