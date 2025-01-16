@@ -7,6 +7,7 @@ from fire import Fire
 from typing import Optional, Tuple, Union, Dict
 import webvtt
 import pysrt
+import gzip
 
 os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 os.environ["AWS_ACCESS_KEY_ID"] = "AKIASHLPW4FE63DTIAPD"
@@ -237,7 +238,9 @@ def main(
         print(f"{text_dicts[0]=}")
         
         print(f"Writing to {output_dir}/shard_{shard_idx}.jsonl.gz")
-        with open(f"{output_dir}/shard_{shard_idx}.jsonl.gz", "wt") as f:
+
+        # Writing to a compressed JSONL file
+        with gzip.open(f"{output_dir}/shard_{shard_idx}.jsonl.gz", "wt", encoding="utf-8") as f:
             for d in text_dicts:
                 f.write(json.dumps(d) + "\n")
 
