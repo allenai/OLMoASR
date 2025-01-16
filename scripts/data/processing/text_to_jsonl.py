@@ -8,7 +8,7 @@ from typing import Optional, Tuple, Union, Dict
 import webvtt
 import pysrt
 
-os.environ["AWS_DEFAULT_REGION"] = "us-west-1"
+os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 os.environ["AWS_ACCESS_KEY_ID"] = "AKIASHLPW4FE63DTIAPD"
 os.environ["AWS_SECRET_ACCESS_KEY"] = "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"
 import subprocess
@@ -172,13 +172,16 @@ def to_dicts(file_path: str):
     if len(transcript) == 0:
         length = 0
     else:
-        length = calculate_difference(transcript_start, transcript_end) / 1000
+        try:
+            length = calculate_difference(transcript_start, transcript_end) / 1000
+        except ValueError:
+            length = 0
 
     return {
         "subtitle_file": file_path,
         "content": content,
         "length": length,
-        "audio_file": file_path.replace(f".{ext}", ".m4a"),
+        "audio_file": file_path.split(".")[0] + ".m4a",
     }
 
 
@@ -190,9 +193,10 @@ def upload_to_s3(file_path: str, bucket: str, bucket_prefix: str):
         file_path,
         f"s3://{bucket}/{bucket_prefix}/{os.path.basename(file_path)}",
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    print(res.stdout)
-
+    res = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    if res.returncode != 0:
+        print(res.stderr)
+        raise ValueError("Failed to upload to S3")
 
 def main(
     data_dir: str,
@@ -230,12 +234,14 @@ def main(
             )
 
         print(f"{len(text_dicts)=}")
-        print(f"{text_dicts[:5]=}")
-
+        print(f"{text_dicts[0]=}")
+        
+        print(f"Writing to {output_dir}/shard_{shard_idx}.jsonl.gz")
         with open(f"{output_dir}/shard_{shard_idx}.jsonl.gz", "wt") as f:
             for d in text_dicts:
                 f.write(json.dumps(d) + "\n")
 
+        print(f"Uploading to S3")
         upload_to_s3(f"{output_dir}/shard_{shard_idx}.jsonl.gz", bucket, bucket_prefix)
         os.remove(f"{output_dir}/shard_{shard_idx}.jsonl.gz")
 
