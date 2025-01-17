@@ -1,297 +1,361 @@
-import ray
-from ray.data.datasource import FilenameProvider
 import glob
 import os
 from typing import Tuple, Union, Dict, Any, Literal, Optional
-from open_whisper.utils import TranscriptReader
-from fire import Fire
 import numpy as np
 import io
 from collections import defaultdict
+import json
+import gzip
+from tqdm import tqdm
+from multiprocessing import Pool
+from functools import partial
+import yaml
+import time
+import argparse
+import pysrt
+import webvtt
+from io import StringIO
+import re
+
+"""
+Single node ec2 data filtering pipeline. 
+Just works local2local for now.
+
+Usage will be like:
+python jsonl_filter_single_node.py --config filter_config.yaml --input-dir <path/to/local/inputs> --output-dir <path/to/local/outputs>
+
+Example filter config:
+'''
+name: <name here>
+pipeline:
+ - fxn: fxn1
+   kwarg1: val1
+ - fxn: fxn2
+   kwarg2: val_a
+   kwarg3: val_b
+'''
 
 
-class FilenameProviders:
-    def __init__(self):
-        pass
 
-    @staticmethod
-    class LabelsDictsFilenameProvider(FilenameProvider):
-        def __init__(self, file_format: str):
-            self.file_format = file_format
+Will take a folder  of jsonl.gz's in and make a folder of jsonl.gz's out
+Each line in a jsonl.gz is a json-dict like: 
 
-        def get_filename_for_block(self, block, task_index, block_index):
-            return f"labels_dicts.{self.file_format}"
-
-    @staticmethod
-    class SamplesDictsFilenameProvider(FilenameProvider):
-        def __init__(self, file_format: str):
-            self.file_format = file_format
-
-        def get_filename_for_block(self, block, task_index, block_index):
-            return f"samples_dicts.{self.file_format}"
+{'audio_file': '/weka/oe-data-default/huongn/ow_full/00000548/uVC2h48KRos/uVC2h48KRos.m4a',
+ 'content': 'DUMMY SHORT CONTENT',
+ 'length': 303.6649375,
+ 'subtitle_file': '/weka/oe-data-default/huongn/ow_full/00000548/uVC2h48KRos/uVC2h48KRos.en-nP7-2PuUl7o.srt'}
 
 
-class DataReader:
-    def __init__(self):
-        pass
-
-    @staticmethod
-    def bytes_to_text(data_dict: Dict[str, Any]) -> Dict[str, Any]:
-        transcript_string = data_dict["bytes"].decode("utf-8")
-        reader = TranscriptReader(
-            file_path=None,
-            transcript_string=transcript_string,
-            ext=data_dict["path"].split(".")[-1],
-        )
-        t_dict, *_ = reader.read()
-        data_dict["text"] = reader.extract_text(t_dict)
-        data_dict["transcript"] = transcript_string
-        del data_dict["bytes"]
-        return data_dict
-
-    @staticmethod
-    def bytes_to_array(data_dict: Dict[str, Any]) -> Dict[str, Any]:
-        data_dict["array"] = np.load(io.BytesIO(data_dict["bytes"]))
-        del data_dict["bytes"]
-        return data_dict
+[and only the 'content' key will be modified, but some lines may be deleted!]
+-------------------
 
 
-class FilterFunc:
-    def __init__(self):
-        pass
-
-    @staticmethod
-    def not_lower(row: Dict[str, Any]) -> bool:
-        return not row["text"].islower()
-
-    @staticmethod
-    def not_upper(row: Dict[str, Any]) -> bool:
-        return not row["text"].isupper()
-
-    @staticmethod
-    def only_mixed(row: Dict[str, Any]) -> bool:
-        if not (
-            row["text"].islower() or row["text"].isupper() or row["text"].strip() == ""
-        ):
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def min_comma_period(row: Dict[str, Any]) -> bool:
-        if "," in row["text"] and "." in row["text"]:
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def no_repeat(row: Dict[str, Any]):
-        reader = TranscriptReader(
-            file_path=None,
-            transcript_string=row["transcript"],
-            ext=row["path"].split(".")[-1],
-        )
-        t_dict, *_ = reader.read()
-        transcript_text_list = list(t_dict.values())
-        unique_text = set(transcript_text_list)
-
-        if len(transcript_text_list) != len(unique_text):
-            return False
-        else:
-            return True
-
-    @staticmethod
-    def no_upper_no_repeat(row: Dict[str, Any]):
-        if not row["text"].isupper() and FilterFunc.no_repeat(row):
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def no_lower_no_repeat(row: Dict[str, Any]):
-        if not row["text"].islower() and FilterFunc.no_repeat(row):
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def min_comma_period_no_repeat(row: Dict[str, Any]):
-        if FilterFunc.min_comma_period(row) and FilterFunc.no_repeat(row):
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def mixed_no_repeat(row: Dict[str, Any]):
-        if FilterFunc.only_mixed(row) and FilterFunc.no_repeat(row):
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def min_comma_period_mixed_no_repeat(row: Dict[str, Any]):
-        if (
-            FilterFunc.min_comma_period(row)
-            and FilterFunc.only_mixed(row)
-            and FilterFunc.no_repeat(row)
-        ):
-            return True
-        else:
-            return False
+"""
 
 
-def gen_smpl_dict(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    segs_dir = os.path.dirname(row["path"]).replace("ow_full", "ow_seg")
-
-    text_files = sorted(glob.glob(segs_dir + f"/*.{row['path'].split('.')[-1]}"))
-
-    npy_files = sorted(glob.glob(segs_dir + "/*.npy"))
-    text_npy_samples = list(zip(text_files, npy_files))
-    smpl_dicts = []
-
-    for text_fp, npy_fp in text_npy_samples:
-        smpl_dict = {"key": segs_dir, "transcript": text_fp, "audio": npy_fp}
-        smpl_dicts.append(smpl_dict)
-
-    row["sample_dicts"] = smpl_dicts
-    del row["path"]
-    del row["text"]
-    del row["transcript"]
-
-    return row
+# =============================================================
+# =                          UTILITIES                        =
+# =============================================================
 
 
-class DataFilter:
-    def __init__(
-        self,
-        data_dir: str,
-        samples_dicts_dir: str,
-        batch_size: int,
-        start_shard_idx: int,
-        end_shard_idx: int,
-        filter_mode: bool,
-        metadata_path: str,
+def run_imap_multiprocessing(func, argument_list, num_processes):
+    # Stolen from https://leimao.github.io/blog/Python-tqdm-Multiprocessing/
+    pool = Pool(processes=num_processes)
+
+    result_list_tqdm = []
+    for result in tqdm(
+        pool.imap(func=func, iterable=argument_list), total=len(argument_list)
     ):
-        self.data_dir = data_dir
-        self.samples_dicts_dir = (
-            samples_dicts_dir + f"/{int(os.getenv("BEAKER_REPLICA_RANK")):03}"
+        result_list_tqdm.append(result)
+
+    return result_list_tqdm
+
+
+def parse_config(config_path):
+    config_dict = yaml.safe_load(open(config_path, "r"))
+    return config_dict
+
+
+def parse_into_iter(content, subtitle_file_name):
+    """Parses either the contents of an srt or vtt into an iterable string of things with a .text field"""
+    ext = os.path.splitext(subtitle_file_name)[-1]
+    if ext == ".srt":
+        return pysrt.from_string(content)
+    elif ext == ".vtt":
+        return webvtt.from_string(content)
+    else:
+        raise Exception("Unsupported subtitle file type: %s" % subtitle_file_name)
+
+
+def parse_iter_to_string(iter_contents):
+    """Parses the iterable back into the content form it came from (might throw away some vtt metadata)"""
+    if isinstance(iter_contents, pysrt.srtfile.SubRipFile):
+        sio = StringIO()
+        iter_contents.write_into(sio)
+        sio.seek(0)
+        return sio.read()
+    elif isinstance(iter_contents, webvtt.webvtt.WebVTT):
+        return iter_contents.content
+    else:
+        raise Exception("Unknown content type %s" % iter_contents.__class__)
+
+
+def process_hitlist(hitlist, pipeline):
+    """Processes hitlist in a nice way and prints it out
+    Each line looks like:
+    Step (int) | Killed %s of total | Killed % of remainder
+    """
+    total_lines = sum(hitlist.values())
+    remainder = total_lines
+    max_fxn_len = max(len(_["fxn"]) for _ in pipeline)
+
+    for i, d in enumerate(pipeline, start=1):
+        fxn = d["fxn"]
+        pad = " " * max(0, max_fxn_len - len(d["fxn"]))
+        this_hit = hitlist.get(fxn, 0)
+
+        print(
+            "Step %02d (%s) %s | Killed %05.02f%% of total | Killed %05.02f%% of remainder"
+            % (i, fxn, pad, 100 * this_hit / total_lines, 100 * this_hit / remainder)
         )
-        self.batch_size = batch_size
-        self.job_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
-        self.start_shard_idx = start_shard_idx
-        self.end_shard_idx = end_shard_idx
-        self.filter_mode = filter_mode
-        self.metadata_path = metadata_path
-        os.makedirs(os.path.dirname(self.metadata_path), exist_ok=True)
+        remainder -= this_hit
 
-    def base_filter(self, filter_func: FilterFunc):
-        ray.init()
-        # data_dirs = [
-        #     f"{self.data_dir}/{((self.batch_idx * self.batch_size) + i):05}"
-        #     for i in range(self.batch_size)
-        #     if (self.batch_idx * self.batch_size) + i <= 8448
-        # ]
-        data_dirs = sorted(glob.glob(self.data_dir + "/*"))[
-            self.start_shard_idx : self.end_shard_idx + 1
-        ][self.job_idx * self.batch_size : (self.job_idx + 1) * self.batch_size]
-        print(data_dirs[:5])
 
-        print("Start reading binary files")
-        ds = ray.data.read_binary_files(
-            paths=data_dirs, file_extensions=["srt", "vtt"], include_paths=True
-        ).map(DataReader.bytes_to_text)
+# =============================================================
+# =                         FILTERING ATOMS                   =
+# =============================================================
+# Some constants
+CONST_a2z = set([chr(ord("a") + i) for i in range(26)])
+CONST_A2Z = set(_.upper() for _ in CONST_a2z)
 
-        print("Finish reading binary files")
-        total = ds.count()
 
-        if not self.filter_mode:
-            ds = ds.filter(filter_func)
-            filtered = ds.count()
-            removed = total - filtered
+def _filter_stub(content, **kwargs):
+    """Basic filtering stub. Always takes in a content and some kwargs
+    Content is of type SubRipFile or WebVTT. Both have iterables that have .text fields
 
-            return (removed, total)
+    Will either return:
+        None (kill the whole line)
+    OR
+        the new content (of the same type, but potentially different text)
+    """
+    if content == None:
+        return None
 
-        ds = ds.filter(filter_func).map(gen_smpl_dict)
-        filtered = ds.count()
-        removed = total - filtered
-        ds.repartition(num_blocks=1).write_json(
-            self.samples_dicts_dir,
-            filename_provider=FilenameProviders.SamplesDictsFilenameProvider("jsonl"),
-        )
-        return (removed, total)
 
-    def not_lower(self):
-        removed_count, total_count = self.base_filter(filter_func=FilterFunc.not_lower)
+def identity_filter(content):
+    # Just a dummy identity map, aw
+    return content
 
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
 
-    def not_upper(self):
-        removed_count, total_count = self.base_filter(filter_func=FilterFunc.not_upper)
+def has_comma_period(content):
+    # Returns full content if both a ',' and '.' are contained in the content
+    seen_period = seen_comma = False
+    for caption in content:
+        if not seen_period and "." in caption.text:
+            seen_period = True
+        if not seen_comma and "," in caption.text:
+            seen_comma = True
+        if seen_period and seen_comma:
+            return content
 
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+    return None
 
-    def only_mixed(self):
-        removed_count, total_count = self.base_filter(filter_func=FilterFunc.only_mixed)
 
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+def has_mixed_case(content):
+    # Returns full content if both an uppercase and lowercase character are present
+    seen_upper = seen_lower = False
 
-    def min_comma_period(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.min_comma_period
-        )
+    for caption in content:
+        capset = set(caption.text)
+        if not seen_upper and CONST_A2Z.intersection(capset):
+            seen_upper = True
+        if not seen_lower and CONST_a2z.intersection(capset):
+            seen_lower = True
+        if seen_upper and seen_lower:
+            return content
 
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+    return None
 
-    def no_repeat(self):
-        removed_count, total_count = self.base_filter(filter_func=FilterFunc.no_repeat)
 
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+def has_no_repeats(content):
+    textset = set()
+    for caption in content:
+        if caption.text in textset:
+            return None
+        textset.add(caption.text)
 
-    def no_upper_no_repeat(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.no_upper_no_repeat
-        )
+    return content
 
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
 
-    def no_lower_no_repeat(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.no_lower_no_repeat
-        )
+def modify_text(content):
+    # Pattern to match brackets containing capitalized words, excluding the word "Music"
+    pattern_brackets = r"[ ]*\[(?![Mm][Uu][Ss][Ii][Cc]\])([A-Z][a-zA-Z]*(?: [A-Z][a-zA-Z]*)*)\][ ]*"
+    
+    # Pattern to match parentheses containing any characters
+    pattern_parentheses = r"[ ]*\(.*?\)[ ]*"
+    
+    # Pattern to match capitalized words followed by a colon
+    pattern_colon = r"[ ]*(?:[A-Z][a-zA-Z]*[ ])+:[ ]*"
+    
+    # Pattern to match specific strings like &nbsp;, &gt;, =, and ...
+    specific_strings = r"[ ]*(?:&nbsp;|&amp;|&lt;|&gt;|=|\.{3})+[ ]*"
+    
+    # Combined primary pattern using the above patterns
+    primary_pattern = (
+        f"{pattern_brackets}|{pattern_parentheses}|{pattern_colon}|{specific_strings}"
+    )
+    
+    # Pattern to capture lowercase words inside brackets
+    # brackets_pattern_capture = r"\[([a-z]+(?: [a-z]+)*)\]"
 
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+    for caption in content:
+        caption.text = re.sub(primary_pattern, " ", caption.text)
+        # caption.text = re.sub(brackets_pattern_capture, r"\1", caption.text)
+        
+    return content
 
-    def min_comma_period_no_repeat(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.min_comma_period_no_repeat
-        )
 
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+FILTER_DICT = {
+    "identity": identity_filter,
+    "has_comma_period": has_comma_period,
+    "has_mixed_case": has_mixed_case,
+    "has_no_repeats": has_no_repeats,
+    "modify_text": modify_text,
+}
 
-    def mixed_no_repeat(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.mixed_no_repeat
-        )
 
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+# ============================================================
+# =                        LOGIC BLOCK                       =
+# ============================================================
 
-    def min_comma_period_mixed_no_repeat(self):
-        removed_count, total_count = self.base_filter(
-            filter_func=FilterFunc.min_comma_period_mixed_no_repeat
-        )
 
-        with open(self.metadata_path, "a") as f:
-            f.write(f"Removed {removed_count} out of {total_count} samples\n")
+def process_jsonl(jsonl_path, config_dict, output_dir):
+    """Processes a full jsonl file and writes the output processed jsonl file
+    (or if the filtering kills all the lines, will output nothing)
+    """
+    # Read file
+    lines = [
+        json.loads(_)
+        for _ in gzip.decompress(open(jsonl_path, "rb").read()).splitlines()
+    ]
+    lines_seen = lines_kept = 0
+    chars_seen = chars_kept = 0
+
+    # Process all lines
+    output_lines = []
+    total_hitlist = defaultdict(int)
+    for line in lines:
+        lines_seen += 1
+        parsed_content = parse_into_iter(line["content"], line["subtitle_file"])
+        chars_seen += len(line["content"])  # TODO: Be more precise here
+        output_content, hitlist = process_content(parsed_content, config_dict)
+        for k, v in hitlist.items():
+            total_hitlist[k] += v
+
+        if output_content != None:
+            output_content_str = parse_iter_to_string(output_content)
+            lines_kept += 1
+            chars_kept += len(output_content_str)  # TODO: Be more precise here
+            line["content"] = output_content_str
+            output_lines.append(line)
+        else:
+            continue
+
+    # Save to output
+    if len(output_lines) > 0:
+        output_file = os.path.join(output_dir, os.path.basename(jsonl_path))
+        with open(output_file, "wb") as f:
+            f.write(
+                gzip.compress(
+                    b"\n".join([json.dumps(_).encode("utf-8") for _ in output_lines])
+                )
+            )
+
+    return (lines_seen, lines_kept, chars_seen, chars_kept, dict(total_hitlist))
+
+
+def process_content(content, config):
+    hitlist = defaultdict(int)
+    for filter_dict in config["pipeline"]:
+        filter_fxn = FILTER_DICT[filter_dict["fxn"]]
+        kwargs = {k: v for k, v in filter_dict.items() if k != "fxn"}
+        content = filter_fxn(content, **kwargs)
+        if content == None:
+            hitlist[filter_dict["fxn"]] += 1
+            return None, hitlist
+
+    hitlist["pass"] += 1
+    return content, hitlist
+
+
+# =============================================================
+# =                        MAIN BLOCK                         =
+# =============================================================
+
+
+def main(config_path, input_dir, output_dir, num_cpus=None):
+    start_time = time.time()
+    if num_cpus == None:
+        num_cpus = os.cpu_count()
+
+    files = glob.glob(os.path.join(input_dir, "**/*.jsonl.gz"), recursive=True)
+
+    os.makedirs(output_dir, exist_ok=True)
+    config_dict = parse_config(config_path)
+    print("CONFIG IS ", config_dict)
+    partial_fxn = partial(process_jsonl, config_dict=config_dict, output_dir=output_dir)
+    output_numbers = run_imap_multiprocessing(partial_fxn, files, num_cpus)
+
+    lines_seen = lines_kept = chars_seen = chars_kept = 0
+    total_hitlist = defaultdict(int)
+    for ls, lk, cs, ck, hitlist in output_numbers:
+        lines_seen += ls
+        lines_kept += lk
+        chars_seen += cs
+        chars_kept += ck
+        for k, v in hitlist.items():
+            total_hitlist[k] += v
+
+    print(
+        "Processed %s files in %.02f seconds" % (len(files), time.time() - start_time)
+    )
+    print(
+        "Kept %s/%s Lines | %.04f survival rate"
+        % (lines_kept, lines_seen, lines_kept / lines_seen)
+    )
+    print(
+        "Kept %s/%s Chars | %.04f survival rate"
+        % (chars_kept, chars_seen, chars_kept / chars_seen)
+    )
+
+    process_hitlist(dict(total_hitlist), config_dict["pipeline"])
 
 
 if __name__ == "__main__":
-    Fire(DataFilter)
+    parser = argparse.ArgumentParser(description="Process some integers.")
+
+    # Add arguments
+    parser.add_argument(
+        "--config", type=str, required=True, help="location of the config.yaml"
+    )
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        required=True,
+        help="location of the input jsonl.gz files",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        required=True,
+        help="location of where the output jsonl.gz files will go",
+    )
+    parser.add_argument(
+        "--num-cpus",
+        type=int,
+        required=False,
+        help="How many cpus to process using. Defaults to number of cpus on this machine",
+    )
+    args = parser.parse_args()
+
+    main(args.config, args.input_dir, args.output_dir, num_cpus=args.num_cpus)
