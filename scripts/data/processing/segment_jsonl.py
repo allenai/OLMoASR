@@ -12,7 +12,7 @@ import json
 import gzip
 
 sys.path.append(os.getcwd())
-import scripts.data.processing.segment_jsonl_utils as utils
+import segment_jsonl_utils as utils
 import logging
 
 logging.basicConfig(
