@@ -11,4 +11,3 @@ pandas
 pydub
 numpy
 fire
-pycaptio
