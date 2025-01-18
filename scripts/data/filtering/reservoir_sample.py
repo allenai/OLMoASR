@@ -16,6 +16,8 @@ import time
 import argparse
 import tabulate
 import random
+import tempfile
+
 
 """
 Does some hacky parallel reservoir sampling thing.
@@ -65,6 +67,8 @@ class SharedCounter:
 
 
 def process_chunk(chunk, key, chunk_reservoir_size, counter, result_queue):
+
+    temp = tempfile.NamedTemporaryFile(delete=False)
     docs_seen = 0
     mini_reservoir = []
     for file in chunk:
@@ -83,7 +87,12 @@ def process_chunk(chunk, key, chunk_reservoir_size, counter, result_queue):
             docs_seen += 1
         counter.increment()
 
-    result_queue.put(mini_reservoir)
+
+    temp.write(json.dumps(mini_reservoir).encode('utf-8'))
+    temp.flush()
+    temp.close()
+    print("FINISHED CHUNK")
+    result_queue.put(temp.name)
 
 
 # ======================================================
@@ -101,6 +110,8 @@ def main(input_dir, key, output_loc, reservoir_size=1_000_000, num_cpus=None):
     chunks = [[] for _ in range(num_cpus)]
     for i, el in enumerate(files):
         chunks[i % num_cpus].append(el)
+
+
     chunk_reservoir_size = round(reservoir_size / num_cpus)
     counter = SharedCounter()
 
@@ -109,6 +120,7 @@ def main(input_dir, key, output_loc, reservoir_size=1_000_000, num_cpus=None):
     # Claude's multiprocessing incantations
     pbar = tqdm(total=len(files), position=0, leave=True)
     processes = []
+
     result_queue = Queue()
     for _ in range(num_cpus):
         p = Process(target=process_chunk, args=(chunks[_], key, chunk_reservoir_size, counter, result_queue))
@@ -116,6 +128,8 @@ def main(input_dir, key, output_loc, reservoir_size=1_000_000, num_cpus=None):
         p.start()
 
     last_count = 0
+
+
     while any(p.is_alive() for p in processes):
         current_count = counter.val.value
         if current_count > last_count:
@@ -130,8 +144,14 @@ def main(input_dir, key, output_loc, reservoir_size=1_000_000, num_cpus=None):
 
     # Collect results from processes 
     reservoir = []
+
+
     while not result_queue.empty():
-        reservoir.extend(result_queue.get())
+        temp_name = result_queue.get()
+        with open(temp_name, 'rb') as f:
+            reservoir.extend(json.loads(f.read()))
+        os.unlink(temp_name)
+
 
     reservoir.sort()
     percentiles = [reservoir[round(i * len(reservoir) / 100)] for i in range(100)] + [reservoir[-1]]
