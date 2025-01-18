@@ -1,0 +1,13 @@
+fire
+pysrt
+regex
+torch
+torchaudio
+tqdm
+webvtt_py
+openai-whisper
+ray
+pandas
+pyarrow
+fasttext-langdetect
+pycld2
