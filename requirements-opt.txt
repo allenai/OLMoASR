@@ -9,3 +9,6 @@ pytest
 librosa
 pandas
 pydub
+numpy
+fire
+pycaptio
