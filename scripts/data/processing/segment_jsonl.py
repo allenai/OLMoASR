@@ -370,6 +370,8 @@ def main(
             in_memory=in_memory,
         )
         logger.info(f"Segmented {segment_count} samples")
+        logger.info(f"Output saved to {output_path}")
+        logger.info(f"Log saved to {log_dir}")
         segment_count += 0
 
     logger.info(f"Total segment count: {segment_count}")
