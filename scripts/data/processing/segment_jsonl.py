@@ -1,6 +1,4 @@
 import os
-import tarfile
-import shutil
 from tqdm import tqdm
 from typing import List, Tuple, Optional, Dict
 import time
@@ -8,17 +6,13 @@ import multiprocessing
 from fire import Fire
 from itertools import repeat, chain
 import numpy as np
-from io import BytesIO
-from google.cloud import storage
 import sys
 import glob
 import json
 import gzip
-
 sys.path.append(os.getcwd())
-import utils
+import scripts.data.processing.segment_jsonl_utils as utils
 import logging
-import subprocess
 
 logging.basicConfig(
     level=logging.INFO,
