@@ -10,6 +10,7 @@ import sys
 import glob
 import json
 import gzip
+
 sys.path.append(os.getcwd())
 import scripts.data.processing.segment_jsonl_utils as utils
 import logging
@@ -339,10 +340,19 @@ def preprocess_jsonl(
     return output_path, log_dir, len(segments_list)
 
 
-def main(source_dir: str, manifest_dir: str, log_dir: str, output_dir: str):
+def main(
+    source_dir: str,
+    manifest_dir: str,
+    log_dir: str,
+    output_dir: str,
+    subsample: bool = False,
+    subsample_size: int = 0,
+    subsample_seed: int = 42,
+    in_memory: bool = True,
+):
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
-    
+
     shard_jsonls = glob.glob(f"{source_dir}/*.jsonl.gz")
     get_shard = lambda shard_jsonl: shard_jsonl.split("_")[-1].split(".")[0]
     segment_count = 0
@@ -354,12 +364,15 @@ def main(source_dir: str, manifest_dir: str, log_dir: str, output_dir: str):
             transcript_manifest_file=f"{manifest_dir}/{get_shard(shard_jsonl)}.txt",
             log_dir=log_dir,
             output_dir=output_dir,
+            subsample=subsample,
+            subsample_size=subsample_size,
+            subsample_seed=subsample_seed,
+            in_memory=in_memory,
         )
         logger.info(f"Segmented {segment_count} samples")
         segment_count += 0
-        
+
     logger.info(f"Total segment count: {segment_count}")
-        
 
 
 if __name__ == "__main__":
