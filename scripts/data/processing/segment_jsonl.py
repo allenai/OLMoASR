@@ -18,7 +18,7 @@ import logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(funcName)s - line %(lineno)d - %(message)s",
-    handlers=[logging.FileHandler("preprocess_gcs.log"), logging.StreamHandler()],
+    handlers=[logging.FileHandler("main.log"), logging.StreamHandler()],
 )
 
 logger = logging.getLogger(__name__)
@@ -69,12 +69,10 @@ def chunk_transcript(
     try:
         transcript_string = transcript_data["content"]
         transcript_file = transcript_data["subtitle_file"]
-        print(f"{transcript_file=}")
         if transcript_file.startswith("/weka"):
             video_id = transcript_file.split("/")[5]
         else:
             video_id = transcript_file.split("/")[1]
-        print(f"{video_id=}")
 
         output_dir = os.path.dirname(transcript_file)
         transcript_ext = transcript_file.split(".")[-1]
@@ -192,6 +190,9 @@ def chunk_transcript(
                         )
 
                     if not utils.too_short_audio_text(start=start, end=end):
+                        timestamp = t_output_file.split("/")[-1].split(
+                            f".{transcript_ext}"
+                        )[0]
                         segments_list.append(
                             {
                                 "subtitle_file": t_output_file,
@@ -222,6 +223,9 @@ def chunk_transcript(
                     if not utils.too_short_audio_text(
                         start=timestamps[a][0], end=timestamps[b - 1][1]
                     ):
+                        timestamp = t_output_file.split("/")[-1].split(
+                            f".{transcript_ext}"
+                        )[0]
                         segments_list.append(
                             {
                                 "subtitle_file": t_output_file,
@@ -280,8 +284,8 @@ def preprocess_jsonl(
     subsample_seed: int = 42,
     in_memory: bool = True,
 ):
-    log_dir = os.path.join(log_dir, shard)
-    os.makedirs(log_dir, exist_ok=True)
+    shard_log_dir = os.path.join(log_dir, shard)
+    os.makedirs(shard_log_dir, exist_ok=True)
 
     if json_file.endswith(".gz"):
         transcript_data = unarchive_jsonl_gz(json_file)
@@ -292,7 +296,6 @@ def preprocess_jsonl(
     with open(transcript_manifest_file, "r") as f:
         transcript_manifest = [line.strip() for line in f]
 
-    logger.info("Chunking audio and transcript files")
     start = time.time()
     with multiprocessing.Pool() as pool:
         segments_group = list(
@@ -302,7 +305,7 @@ def preprocess_jsonl(
                     zip(
                         transcript_data,
                         repeat(transcript_manifest),
-                        repeat(log_dir),
+                        repeat(shard_log_dir),
                         repeat(in_memory),
                     ),
                 ),
@@ -310,16 +313,11 @@ def preprocess_jsonl(
             )
         )
 
-    logger.info(segments_group[:5])
     segments_group = [group for group in segments_group if group is not None]
-    logger.info(f"{segments_group[:5]=}")
-    logger.info(f"Time taken to segment: {(time.time() - start) / 60} minutes")
 
     # Write the data to tar files
-    logger.info("Writing data to tar files")
     start = time.time()
     segments_list = list(chain(*segments_group))
-    logger.info(f"{segments_list[:5]=}")
 
     output_path = f"{output_dir}/shard_seg_{shard}.jsonl.gz"
     if subsample:
@@ -337,7 +335,7 @@ def preprocess_jsonl(
             for segment in segments_list:
                 f.write(json.dumps(segment) + "\n")
 
-    return output_path, log_dir, len(segments_list)
+    return output_path, shard_log_dir, len(segments_list)
 
 
 def main(
@@ -358,7 +356,7 @@ def main(
     segment_count = 0
     for shard_jsonl in shard_jsonls:
         logger.info(f"Processing {shard_jsonl}")
-        output_path, log_dir, segment_count = preprocess_jsonl(
+        output_path, shard_log_dir, segment_count = preprocess_jsonl(
             json_file=shard_jsonl,
             shard=get_shard(shard_jsonl),
             transcript_manifest_file=f"{manifest_dir}/{get_shard(shard_jsonl)}.txt",
@@ -371,7 +369,7 @@ def main(
         )
         logger.info(f"Segmented {segment_count} samples")
         logger.info(f"Output saved to {output_path}")
-        logger.info(f"Log saved to {log_dir}")
+        logger.info(f"Log saved to {shard_log_dir}")
         segment_count += 0
 
     logger.info(f"Total segment count: {segment_count}")
