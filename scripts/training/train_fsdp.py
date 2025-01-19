@@ -180,8 +180,8 @@ class AudioTextDataset(Dataset):
             torch.empty(self.n_text_ctx, self.n_text_ctx).fill_(-np.inf).triu_(1)
         )
         padding_mask = padding_mask + causal_mask
-        padding_mask = padding_mask.unsqueeze(dim=1).repeat(1, self.n_head, 1, 1)[
-            :, :, : self.n_text_ctx, : self.n_text_ctx
+        padding_mask = padding_mask.unsqueeze(dim=0).repeat(self.n_head, 1, 1)[
+            :, : self.n_text_ctx, : self.n_text_ctx
         ]
 
         text_input = np.pad(
