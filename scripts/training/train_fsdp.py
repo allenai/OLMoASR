@@ -2217,7 +2217,7 @@ def main(
     tokenizer = get_tokenizer(multilingual=False)
     normalizer = EnglishTextNormalizer()
     n_text_ctx = model_dims.n_text_ctx
-    n_head = model_dims.n_head
+    n_head = model_dims.n_text_head
 
     # load samples dicts
     samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*/samples_dicts.jsonl")
