@@ -1115,11 +1115,10 @@ def train(
 
                 start_fwd = time.time()
                 with profiler.profile(
-                    enabled=False,
+                    enabled=True,
                     record_shapes=True,
                     with_flops=True,
                     profile_memory=True,
-                    with_stack=True,
                     use_cuda=True,
                 ) as prof:
                     with profiler.record_function("model_forward_pass"):
@@ -1152,17 +1151,14 @@ def train(
                     train_loss / accumulation_steps
                 )  # normalization of loss (gradient accumulation)
 
-            # with open(f"{log_dir}/fwd_profiling_summary.txt", "w") as f:
-            #     f.write(prof.key_averages().table(sort_by="cuda_time_total"))
+            with open(f"{log_dir}/fwd_profiling_summary.txt", "w") as f:
+                f.write(prof.key_averages().table(sort_by="cuda_time"))
             
-            # prof.export_chrome_trace(f"{log_dir}/fwd_profiling_trace.json")
-
             with profiler.profile(
                 enabled=True,
                 record_shapes=True,
                 with_flops=True,
                 profile_memory=True,
-                with_stack=True,
                 use_cuda=True,
             ) as prof:
                 with profiler.record_function("model_backward_pass"):
@@ -1176,10 +1172,8 @@ def train(
                                 train_loss.backward()
             
             with open(f"{log_dir}/bwd_profiling_summary.txt", "w") as f:
-                f.write(prof.key_averages().table(sort_by="cuda_time_total"))
+                f.write(prof.key_averages().table(sort_by="cuda_time"))
             
-            prof.export_chrome_trace(f"{log_dir}/bwd_profiling_trace.json")
-
             if use_orig_params:
                 with FSDP.summon_full_params(module=model, with_grads=True):
                     for i, (name, param) in enumerate(model.named_parameters()):
