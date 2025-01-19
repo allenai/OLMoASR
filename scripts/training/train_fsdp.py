@@ -106,7 +106,7 @@ class AudioTextDataset(Dataset):
         # not sure if putting it here is bad...
         global tokenizer
         sample_dict = self.samples[index]
-        audio_file = sample_dict["audio_file"]
+        audio_file = sample_dict["audio_file"].replace("ow_full", "ow_seg")
         # transcript_file = sample_dict["transcript"]
         transcript_file = sample_dict["subtitle_file"]
         transcript_string = sample_dict["seg_content"]
