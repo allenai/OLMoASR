@@ -215,15 +215,16 @@ class MultiHeadAttention(nn.Module):
             print(f"{torch.min(qk, dim=-1).values=}")
             print(f"{qk=}")
         if mask is not None:
-            if len(mask.shape) == 2:
-                qk = qk + mask
-            else:
-                qk = (
-                    qk
-                    + mask.unsqueeze(dim=1).repeat(1, self.n_head, 1, 1)[
-                        :, :, :n_ctx, :n_ctx
-                    ]
-                )
+            qk = qk + mask
+            # if len(mask.shape) == 2:
+            #     qk = qk + mask
+            # else:
+            #     qk = (
+            #         qk
+            #         + mask.unsqueeze(dim=1).repeat(1, self.n_head, 1, 1)[
+            #             :, :, :n_ctx, :n_ctx
+            #         ]
+            #     )
         if verbose:
             if mask is not None:
                 print("After adding mask")
@@ -432,13 +433,14 @@ class TextDecoder(nn.Module):
 
         n_ctx = x.shape[1]
         if padding_mask is not None:
-            mask = (
-                torch.empty(n_ctx, n_ctx)
-                .fill_(-np.inf)
-                .triu_(1)
-                .to(device=padding_mask.device)
-            )
-            self.mask = padding_mask + mask
+            # mask = (
+            #     torch.empty(n_ctx, n_ctx)
+            #     .fill_(-np.inf)
+            #     .triu_(1)
+            #     .to(device=padding_mask.device)
+            # )
+            # self.mask = padding_mask + mask
+            self.mask = padding_mask
         else:
             self.mask = (
                 torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1).to(device=x.device)
