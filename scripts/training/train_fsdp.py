@@ -230,13 +230,7 @@ def setup(rank: int) -> None:
 def open_dicts_file(samples_dicts_file) -> List[Dict]:
     if samples_dicts_file.endswith(".gz"):
         with gzip.open(samples_dicts_file, "rt") as f:
-            samples_dicts = list(
-                chain.from_iterable(
-                    json_line.get("sample_dicts")
-                    for json_line in map(json.loads, f)
-                    if json_line.get("sample_dicts") is not None
-                )
-            )
+            samples_dicts = [json.loads(line.strip()) for line in f]
     else:
         with open(samples_dicts_file, "r") as f:
             samples_dicts = list(
