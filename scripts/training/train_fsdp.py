@@ -1115,7 +1115,7 @@ def train(
 
                 start_fwd = time.time()
                 with profiler.profile(
-                    enabled=True,
+                    enabled=False,
                     record_shapes=True,
                     with_flops=True,
                     profile_memory=True,
