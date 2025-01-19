@@ -90,9 +90,11 @@ class AudioTextDataset(Dataset):
         self,
         samples: List[Dict],
         n_text_ctx: int,
+        n_head: int,
     ):
         self.samples = samples
         self.n_text_ctx = n_text_ctx
+        self.n_head = n_head
 
     def __len__(self):
         return len(self.samples)
@@ -173,7 +175,14 @@ class AudioTextDataset(Dataset):
         text_y = text_tokens[1:]
 
         padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
-        padding_mask[:, len(text_input) :] = -float("inf")
+        padding_mask[:, len(text_input) :] = -np.inf
+        causal_mask = (
+            torch.empty(self.n_text_ctx, self.n_text_ctx).fill_(-np.inf).triu_(1)
+        )
+        padding_mask = padding_mask + causal_mask
+        padding_mask = padding_mask.unsqueeze(dim=1).repeat(1, self.n_head, 1, 1)[
+            :, :, : self.n_text_ctx, : self.n_text_ctx
+        ]
 
         text_input = np.pad(
             text_input,
@@ -275,6 +284,7 @@ def prepare_data(
     train_batch_size: int,
     val_batch_size: int,
     n_text_ctx: int,
+    n_head: int,
     pin_memory: bool = True,
     shuffle: bool = True,
     num_workers: int = 0,
@@ -315,6 +325,7 @@ def prepare_data(
             else samples_dicts[start_idx : start_idx + subset]
         ),
         n_text_ctx=n_text_ctx,
+        n_head=n_head,
     )
 
     if train_val_split == 1.0:
@@ -1153,7 +1164,7 @@ def train(
 
             with open(f"{log_dir}/fwd_profiling_summary.txt", "w") as f:
                 f.write(prof.key_averages().table(sort_by="cuda_time"))
-            
+
             with profiler.profile(
                 enabled=True,
                 record_shapes=True,
@@ -1170,10 +1181,10 @@ def train(
                         else:
                             with model.no_sync():
                                 train_loss.backward()
-            
+
             with open(f"{log_dir}/bwd_profiling_summary.txt", "w") as f:
                 f.write(prof.key_averages().table(sort_by="cuda_time"))
-            
+
             if use_orig_params:
                 with FSDP.summon_full_params(module=model, with_grads=True):
                     for i, (name, param) in enumerate(model.named_parameters()):
@@ -2206,6 +2217,7 @@ def main(
     tokenizer = get_tokenizer(multilingual=False)
     normalizer = EnglishTextNormalizer()
     n_text_ctx = model_dims.n_text_ctx
+    n_head = model_dims.n_head
 
     # load samples dicts
     samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*/samples_dicts.jsonl")
@@ -2230,6 +2242,7 @@ def main(
         train_batch_size=train_batch_size,
         val_batch_size=val_batch_size,
         n_text_ctx=n_text_ctx,
+        n_head=n_head,
         pin_memory=pin_memory,
         shuffle=shuffle,
         num_workers=num_workers,
