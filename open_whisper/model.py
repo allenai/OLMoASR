@@ -379,7 +379,7 @@ class TextDecoder(nn.Module):
     ):
         super().__init__()
 
-        self.token_embedding = nn.Embedding(n_vocab + 1, n_state, padding_idx=51864)
+        self.token_embedding = nn.Embedding(n_vocab + 1, n_state, padding_idx=51864 if n_vocab == 51864 else 51865)
         nn.init.kaiming_normal_(
             self.token_embedding.weight, mode="fan_in", nonlinearity="relu"
         )
