@@ -13,6 +13,7 @@ from itertools import chain
 from collections import defaultdict
 import functools
 import subprocess
+import gzip
 
 import torch
 import torch.nn.functional as F
@@ -106,10 +107,12 @@ class AudioTextDataset(Dataset):
         global tokenizer
         sample_dict = self.samples[index]
         audio_file = sample_dict["audio"]
-        transcript_file = sample_dict["transcript"]
+        # transcript_file = sample_dict["transcript"]
+        transcript_file = sample_dict["subtitle_file"]
+        transcript_string = sample_dict["seg_content"]
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
         text_input, text_y, padding_mask = self.preprocess_text(
-            transcript_file, tokenizer
+            transcript_string, transcript_file, tokenizer
         )
 
         return (
@@ -140,7 +143,10 @@ class AudioTextDataset(Dataset):
         return mel_spec, audio_arr
 
     def preprocess_text(
-        self, transcript_file: str, tokenizer: whisper.tokenizer.Tokenizer
+        self,
+        transcript_string: str,
+        transcript_file: str,
+        tokenizer: whisper.tokenizer.Tokenizer,
     ) -> Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Preprocesses the text data for the model.
 
@@ -155,7 +161,9 @@ class AudioTextDataset(Dataset):
         """
         # transcript -> text
         reader = ow.utils.TranscriptReader(
-            file_path=transcript_file, ext=transcript_file.split(".")[-1]
+            transcript_string=transcript_string,
+            file_path=None,
+            ext=transcript_file.split(".")[-1],
         )
         transcript, *_ = reader.read()
 
@@ -220,14 +228,24 @@ def setup(rank: int) -> None:
 
 
 def open_dicts_file(samples_dicts_file) -> List[Dict]:
-    with open(samples_dicts_file, "r") as f:
-        samples_dicts = list(
-            chain.from_iterable(
-                json_line.get("sample_dicts")
-                for json_line in map(json.loads, f)
-                if json_line.get("sample_dicts") is not None
+    if samples_dicts_file.endswith(".gz"):
+        with gzip.open(samples_dicts_file, "rt") as f:
+            samples_dicts = list(
+                chain.from_iterable(
+                    json_line.get("sample_dicts")
+                    for json_line in map(json.loads, f)
+                    if json_line.get("sample_dicts") is not None
+                )
             )
-        )
+    else:
+        with open(samples_dicts_file, "r") as f:
+            samples_dicts = list(
+                chain.from_iterable(
+                    json_line.get("sample_dicts")
+                    for json_line in map(json.loads, f)
+                    if json_line.get("sample_dicts") is not None
+                )
+            )
     return samples_dicts
 
 
@@ -1136,10 +1154,12 @@ def train(
                         use_cuda=True,
                     ) as prof:
                         with profiler.record_function("model_forward_pass"):
-                            logits = model(audio_input, text_input, padding_mask, verbose)
+                            logits = model(
+                                audio_input, text_input, padding_mask, verbose
+                            )
                 else:
                     logits = model(audio_input, text_input, padding_mask, verbose)
-                    
+
                 end_fwd = time.time()
 
                 time_fwd = end_fwd - start_fwd
@@ -1198,7 +1218,7 @@ def train(
                     else:
                         with model.no_sync():
                             train_loss.backward()
-                
+
             if profile:
                 with open(f"{log_dir}/bwd_profiling_summary.txt", "w") as f:
                     f.write(prof.key_averages().table(sort_by="cuda_time"))
@@ -2239,7 +2259,7 @@ def main(
     n_head = model_dims.n_text_head
 
     # load samples dicts
-    samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*/samples_dicts.jsonl")
+    samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*.jsonl.gz")
 
     with multiprocessing.Pool() as pool:
         samples_dicts = list(
