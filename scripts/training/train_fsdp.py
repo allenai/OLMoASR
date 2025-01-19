@@ -1152,10 +1152,10 @@ def train(
                     train_loss / accumulation_steps
                 )  # normalization of loss (gradient accumulation)
 
-            with open(f"{log_dir}/fwd_profiling_summary.txt", "w") as f:
-                f.write(prof.key_averages().table(sort_by="cuda_time_total"))
+            # with open(f"{log_dir}/fwd_profiling_summary.txt", "w") as f:
+            #     f.write(prof.key_averages().table(sort_by="cuda_time_total"))
             
-            prof.export_chrome_trace(f"{log_dir}/fwd_profiling_trace.json")
+            # prof.export_chrome_trace(f"{log_dir}/fwd_profiling_trace.json")
 
             with profiler.profile(
                 enabled=True,
