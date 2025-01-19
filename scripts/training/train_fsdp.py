@@ -21,6 +21,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
 from torch.autograd import set_detect_anomaly
+import torch.autograd.profiler as profiler
 
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
@@ -57,7 +58,12 @@ from whisper.tokenizer import get_tokenizer
 import whisper.tokenizer
 from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
 import open_whisper as ow
-from whisper.model import ResidualAttentionBlock, AudioEncoder, TextDecoder, MultiHeadAttention
+from whisper.model import (
+    ResidualAttentionBlock,
+    AudioEncoder,
+    TextDecoder,
+    MultiHeadAttention,
+)
 
 from scripts.eval.eval import EvalDataset
 from scripts.training import for_logging
@@ -794,12 +800,12 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank):
     batch_tgt_text_full = [
         norm_batch_tgt_text[i]
         for i in range(len(norm_batch_tgt_text))
-        if len(norm_batch_tgt_text[i]) > 0
+        if len(norm_batch_tgt_text[i].strip()) > 0
     ]
     batch_pred_text_full = [
         norm_batch_pred_text[i]
         for i in range(len(norm_batch_pred_text))
-        if len(norm_batch_tgt_text[i]) > 0
+        if len(norm_batch_tgt_text[i].strip()) > 0
     ]
 
     if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
@@ -1090,7 +1096,7 @@ def train(
                             "custom_step": current_step,
                         }
                     )
-            
+
             with autocast(device_type="cuda", dtype=precision):
                 (
                     audio_files,
@@ -1108,13 +1114,23 @@ def train(
                 padding_mask = padding_mask.to(local_rank)
 
                 start_fwd = time.time()
-                logits = model(audio_input, text_input, padding_mask, verbose)
+                with profiler.profile(
+                    enabled=True,
+                    record_shapes=True,
+                    with_flops=True,
+                    profile_memory=True,
+                    with_stack=True,
+                    use_cuda=True,
+                ) as prof:
+                    with profiler.record_function("model_forward_pass"):
+                        logits = model(audio_input, text_input, padding_mask, verbose)
                 end_fwd = time.time()
-                
+
                 time_fwd = end_fwd - start_fwd
                 time_fwd_tensor = torch.tensor(time_fwd, device=local_rank)
                 gathered_fwd_time = [
-                    torch.zeros_like(time_fwd_tensor) for _ in range(dist.get_world_size())
+                    torch.zeros_like(time_fwd_tensor)
+                    for _ in range(dist.get_world_size())
                 ]
                 dist.all_gather(gathered_fwd_time, time_fwd_tensor)
                 if rank == 0:
@@ -1136,15 +1152,34 @@ def train(
                     train_loss / accumulation_steps
                 )  # normalization of loss (gradient accumulation)
 
-            if scaler is not None:
-                scaler.scale(train_loss).backward()  # accumulate gradients
-            else:
-                if ((batch_idx + 1) % accumulation_steps) == 0:
-                    train_loss.backward()
-                else:
-                    with model.no_sync():
-                        train_loss.backward()
-                    
+            with open(f"{log_dir}/fwd_profiling_summary.txt", "w") as f:
+                f.write(prof.key_averages().table(sort_by="cuda_time_total"))
+            
+            prof.export_chrome_trace(f"{log_dir}/fwd_profiling_trace.json")
+
+            with profiler.profile(
+                enabled=True,
+                record_shapes=True,
+                with_flops=True,
+                profile_memory=True,
+                with_stack=True,
+                use_cuda=True,
+            ) as prof:
+                with profiler.record_function("model_forward_pass"):
+                    if scaler is not None:
+                        scaler.scale(train_loss).backward()  # accumulate gradients
+                    else:
+                        if ((batch_idx + 1) % accumulation_steps) == 0:
+                            train_loss.backward()
+                        else:
+                            with model.no_sync():
+                                train_loss.backward()
+            
+            with open(f"{log_dir}/bwd_profiling_summary.txt", "w") as f:
+                f.write(prof.key_averages().table(sort_by="cuda_time_total"))
+            
+            prof.export_chrome_trace(f"{log_dir}/bwd_profiling_trace.json")
+
             if use_orig_params:
                 with FSDP.summon_full_params(module=model, with_grads=True):
                     for i, (name, param) in enumerate(model.named_parameters()):
@@ -1483,10 +1518,9 @@ def train(
             batch_audio_files = []
             batch_text_files = []
             batch_audio_arr = []
-            
+
             # logging dataloading time
             start_dl = time.time()
-            
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
@@ -2284,7 +2318,12 @@ def main(
 
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
-            transformer_layer_cls={ResidualAttentionBlock, AudioEncoder, TextDecoder, MultiHeadAttention},
+            transformer_layer_cls={
+                ResidualAttentionBlock,
+                AudioEncoder,
+                TextDecoder,
+                MultiHeadAttention,
+            },
         )
         model = FSDP(
             model,
@@ -2299,7 +2338,12 @@ def main(
 
         # optimizer and scheduler instantiation
         optimizer = prepare_optim(
-            model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, cpu_offload=cpu_offload
+            model=model,
+            lr=lr,
+            betas=betas,
+            eps=eps,
+            weight_decay=weight_decay,
+            cpu_offload=cpu_offload,
         )
 
         scheduler, accumulation_steps, warmup_steps, train_steps = prepare_sched(
@@ -2318,7 +2362,7 @@ def main(
             # scaler = GradScaler(init_scale=2**16)
             scaler = None
 
-        if run_val: 
+        if run_val:
             best_val_loss = float("inf")
         else:
             best_val_loss = None
@@ -2337,7 +2381,9 @@ def main(
         offload_to_cpu=False,
         checkpoint_impl=CheckpointImpl.NO_REENTRANT,
     )
-    check_fn = lambda submodule: isinstance(submodule, (ResidualAttentionBlock, MultiHeadAttention))
+    check_fn = lambda submodule: isinstance(
+        submodule, (ResidualAttentionBlock, MultiHeadAttention)
+    )
     apply_activation_checkpointing(
         model, checkpoint_wrapper_fn=non_reentrant_wrapper, check_fn=check_fn
     )
