@@ -72,10 +72,6 @@ from scripts.training import for_logging
 WANDB_EXAMPLES = 8
 DEBUG_HOOK_DIR = ""
 os.environ["WANDB__SERVICE_WAIT"] = "300"
-os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
-os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
-os.environ["NCCL_DEBUG"] = "INFO"
-os.environ["TORCH_DISTRIBUTED_DETAIL"] = "DEBUG"
 
 
 class AudioTextDataset(Dataset):
