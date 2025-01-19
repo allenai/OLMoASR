@@ -2266,7 +2266,6 @@ def main(
         )
 
     print(f"{len(samples_dicts)=}")
-    print(f"{samples_dicts_files=}")
 
     # prepare dataset
     train_dataloader, train_sampler, val_dataloader, val_sampler = prepare_data(
