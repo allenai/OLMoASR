@@ -1165,7 +1165,7 @@ def train(
                 with_stack=True,
                 use_cuda=True,
             ) as prof:
-                with profiler.record_function("model_forward_pass"):
+                with profiler.record_function("model_backward_pass"):
                     if scaler is not None:
                         scaler.scale(train_loss).backward()  # accumulate gradients
                     else:
