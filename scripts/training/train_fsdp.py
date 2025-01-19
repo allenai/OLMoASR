@@ -1036,6 +1036,7 @@ def train(
     detect_anomaly: bool,
     precision: torch.dtype,
     use_orig_params: bool,
+    profile: bool,
 ) -> Tuple[
     int,
     float,
@@ -1125,15 +1126,20 @@ def train(
                 padding_mask = padding_mask.to(local_rank)
 
                 start_fwd = time.time()
-                with profiler.profile(
-                    enabled=True,
-                    record_shapes=True,
-                    with_flops=True,
-                    profile_memory=True,
-                    use_cuda=True,
-                ) as prof:
-                    with profiler.record_function("model_forward_pass"):
-                        logits = model(audio_input, text_input, padding_mask, verbose)
+
+                if profile:
+                    with profiler.profile(
+                        enabled=True,
+                        record_shapes=True,
+                        with_flops=True,
+                        profile_memory=True,
+                        use_cuda=True,
+                    ) as prof:
+                        with profiler.record_function("model_forward_pass"):
+                            logits = model(audio_input, text_input, padding_mask, verbose)
+                else:
+                    logits = model(audio_input, text_input, padding_mask, verbose)
+                    
                 end_fwd = time.time()
 
                 time_fwd = end_fwd - start_fwd
@@ -1162,28 +1168,40 @@ def train(
                     train_loss / accumulation_steps
                 )  # normalization of loss (gradient accumulation)
 
-            with open(f"{log_dir}/fwd_profiling_summary.txt", "w") as f:
-                f.write(prof.key_averages().table(sort_by="cuda_time"))
+            if profile:
+                with open(f"{log_dir}/fwd_profiling_summary.txt", "w") as f:
+                    f.write(prof.key_averages().table(sort_by="cuda_time"))
 
-            with profiler.profile(
-                enabled=True,
-                record_shapes=True,
-                with_flops=True,
-                profile_memory=True,
-                use_cuda=True,
-            ) as prof:
-                with profiler.record_function("model_backward_pass"):
-                    if scaler is not None:
-                        scaler.scale(train_loss).backward()  # accumulate gradients
-                    else:
-                        if ((batch_idx + 1) % accumulation_steps) == 0:
-                            train_loss.backward()
+            if profile:
+                with profiler.profile(
+                    enabled=True,
+                    record_shapes=True,
+                    with_flops=True,
+                    profile_memory=True,
+                    use_cuda=True,
+                ) as prof:
+                    with profiler.record_function("model_backward_pass"):
+                        if scaler is not None:
+                            scaler.scale(train_loss).backward()  # accumulate gradients
                         else:
-                            with model.no_sync():
+                            if ((batch_idx + 1) % accumulation_steps) == 0:
                                 train_loss.backward()
-
-            with open(f"{log_dir}/bwd_profiling_summary.txt", "w") as f:
-                f.write(prof.key_averages().table(sort_by="cuda_time"))
+                            else:
+                                with model.no_sync():
+                                    train_loss.backward()
+            else:
+                if scaler is not None:
+                    scaler.scale(train_loss).backward()  # accumulate gradients
+                else:
+                    if ((batch_idx + 1) % accumulation_steps) == 0:
+                        train_loss.backward()
+                    else:
+                        with model.no_sync():
+                            train_loss.backward()
+                
+            if profile:
+                with open(f"{log_dir}/bwd_profiling_summary.txt", "w") as f:
+                    f.write(prof.key_averages().table(sort_by="cuda_time"))
 
             if use_orig_params:
                 with FSDP.summon_full_params(module=model, with_grads=True):
@@ -2141,6 +2159,7 @@ def main(
         "FULL_SHARD", "SHARD_GRAD_OP", "HYBRID_SHARD", "_HYBRID_SHARD_ZERO2"
     ] = "FULL_SHARD",
     cpu_offload: bool = False,
+    profile: bool = False,
 ) -> None:
     """Main function for training
 
@@ -2498,6 +2517,7 @@ def main(
             detect_anomaly=detect_anomaly,
             precision=autocast_precision,
             use_orig_params=use_orig_params,
+            profile=profile,
         )
 
         epoch += 1
