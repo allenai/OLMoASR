@@ -54,7 +54,7 @@ def process_jsonl(segments: List, shard: str, output_dir: str):
     with tarfile.open(tar_path, "w:gz") as tar:
         for segment in tqdm(segments, total=len(segments)):
             t_output_file = segment["subtitle_file"]
-            a_output_file = segment["audio_file"]
+            a_output_file = segment["audio_file"].replace("ow_full", "ow_seg")
             transcript_string = segment["seg_content"]
 
             # Adding transcript to tar
