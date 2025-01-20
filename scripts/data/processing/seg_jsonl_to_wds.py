@@ -3,7 +3,7 @@ from tqdm import tqdm
 import tarfile
 import os
 from io import BytesIO
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import numpy as np
 import glob
 import json
@@ -52,7 +52,7 @@ def process_jsonl(segments: List, shard: str, output_dir: str):
     tar_path = os.path.join(output_dir, tar_name)
 
     with tarfile.open(tar_path, "w:gz") as tar:
-        for segment in tqdm(segments, total=len(segments)):
+        for segment in segments:
             t_output_file = segment["subtitle_file"]
             a_output_file = segment["audio_file"].replace("ow_full", "ow_seg")
             transcript_string = segment["seg_content"]
@@ -126,8 +126,14 @@ def main(
     subsampled_size: int,
     log_dir: str,
     split_factor: int,
+    batch_size: Optional[int] = None,
 ):
-    seg_jsonls = glob.glob(f"{input_dir}/*.jsonl.gz")
+    if batch_size:
+        batch_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
+        seg_jsonls = sorted(glob.glob(f"{input_dir}/*.jsonl.gz"))[batch_idx * batch_size : (batch_idx + 1) * batch_size]
+    else:
+        seg_jsonls = glob.glob(f"{input_dir}/*.jsonl.gz")
+    logger.info(f"Processing {len(seg_jsonls)} jsonl files")
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
     logger.addHandler(logging.StreamHandler())
