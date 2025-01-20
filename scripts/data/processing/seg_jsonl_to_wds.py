@@ -95,7 +95,7 @@ def write_to_tar(
             f"{seg_jsonl} has less than {subsampled_size}: {len(segments)} segments"
         )
 
-    shard = seg_jsonl.split("/")[-1].split(".").split("_")[-1]
+    shard = seg_jsonl.split("/")[-1].split(".")[0].split("_")[-1]
 
     if split_factor > 1:
         segments_shards, uneven_shards = split_list(shard, segments, split_factor)
