@@ -9,4 +9,4 @@ openai-whisper
 ray
 pandas
 pyarrow
-pycld2
+numpy
