@@ -55,7 +55,7 @@ def process_jsonl(segments: List, shard: str, output_dir: str):
         for segment in tqdm(segments, total=len(segments)):
             t_output_file = segment["subtitle_file"]
             a_output_file = segment["audio_file"]
-            transcript_string = segment["content"]
+            transcript_string = segment["seg_content"]
 
             # Adding transcript to tar
             if t_output_file.endswith(".npy"):
