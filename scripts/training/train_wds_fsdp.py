@@ -162,6 +162,7 @@ def preprocess_text(
     transcript_string: str,
     tokenizer: whisper.tokenizer.Tokenizer,
     n_text_ctx: int,
+    n_head: int,
     ext: str,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -195,7 +196,14 @@ def preprocess_text(
     text_y = text_tokens[1:]
 
     padding_mask = torch.zeros((n_text_ctx, n_text_ctx))
-    padding_mask[:, len(text_input) :] = -float("inf")
+    padding_mask[:, len(text_input) :] = -np.inf
+    causal_mask = (
+        torch.empty(n_text_ctx, n_text_ctx).fill_(-np.inf).triu_(1)
+    )
+    padding_mask = padding_mask + causal_mask
+    padding_mask = padding_mask.unsqueeze(dim=0).repeat(n_head, 1, 1)[
+        :, : n_text_ctx, : n_text_ctx
+    ]
 
     text_input = np.pad(
         text_input,
@@ -216,7 +224,7 @@ def preprocess_text(
     return text_input, text_y, padding_mask
 
 
-def preprocess(sample, tokenizer, n_text_ctx):
+def preprocess(sample, tokenizer, n_text_ctx, n_head):
     """
     Preprocesses the given sample by performing audio and text preprocessing.
 
@@ -243,7 +251,7 @@ def preprocess(sample, tokenizer, n_text_ctx):
     audio_path, audio_arr, text_path, transcript_str, ext = sample
     audio_input, padded_audio_arr = preprocess_audio(audio_arr)
     text_input, text_y, padding_mask = preprocess_text(
-        transcript_str, tokenizer, n_text_ctx, ext
+        transcript_str, tokenizer, n_text_ctx, n_head, ext
     )
 
     return (
@@ -261,6 +269,7 @@ def wds_pipeline(
     shards,
     batch_size,
     n_text_ctx,
+    n_head,
     tokenizer,
 ):
     """
@@ -285,7 +294,7 @@ def wds_pipeline(
         # this shuffles the samples in memory
         wds.shuffle(bufsize=1000, initial=100),
         wds.map(decode_sample),
-        wds.map(lambda sample: preprocess(sample, tokenizer, n_text_ctx)),
+        wds.map(lambda sample: preprocess(sample, tokenizer, n_text_ctx, n_head)),
         wds.shuffle(bufsize=1000, initial=100),
         wds.batched(batch_size),
     )
@@ -348,6 +357,7 @@ def prepare_data(
     train_batch_size: int,
     epoch_steps: int,
     n_text_ctx: int,
+    n_head: int,
     tokenizer: whisper.tokenizer.Tokenizer,
     pin_memory: bool = True,
     num_workers: int = 1,
@@ -375,6 +385,7 @@ def prepare_data(
         shards=train_shards,
         batch_size=train_batch_size,
         n_text_ctx=n_text_ctx,
+        n_head=n_head,
         tokenizer=tokenizer,
     )
 
@@ -2259,6 +2270,7 @@ def main(
     tokenizer = get_tokenizer(multilingual=False)
     normalizer = EnglishTextNormalizer()
     n_text_ctx = model_dims.n_text_ctx
+    n_head = model_dims.n_text_head
 
     # prepare train and val dataset
     print(f"Preparing train set on rank {rank}")
@@ -2267,6 +2279,7 @@ def main(
         train_batch_size=train_batch_size,
         epoch_steps=epoch_steps,
         n_text_ctx=n_text_ctx,
+        n_head=n_head,
         tokenizer=tokenizer,
         pin_memory=pin_memory,
         num_workers=num_workers,
