@@ -126,8 +126,8 @@ def decode_sample(sample: Dict[str, bytes]) -> Tuple[str, np.ndarray, str, str]:
     file_path = os.path.join(sample["__url__"].split(".")[0], sample["__key__"])
     shard = file_path.split("/")[-3]
 
-    ext = "vtt" if int(shard) > 4898 else "srt"
-    # ext = sample.keys() - {"__url__", "__key__", "npy"}  # get the extension of the text file
+    # ext = "vtt" if int(shard) > 4898 else "srt"
+    ext = (set(sample.keys()) - {"__url__", "__key__", "npy"}).pop()  # get the extension of the text file
 
     audio_path = file_path + ".npy"
     text_path = file_path + f".{ext}"
