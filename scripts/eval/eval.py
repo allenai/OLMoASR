@@ -11,13 +11,19 @@ from whisper.normalizers import EnglishTextNormalizer, BasicTextNormalizer
 from open_whisper import load_model
 from fire import Fire
 from tqdm import tqdm
-from torchaudio.datasets import TEDLIUM
 from scripts.eval.get_eval_set import get_eval_set
 from scripts.eval.gen_inf_ckpt import gen_inf_ckpt
 import wandb
 from tqdm import tqdm
+from torchaudio.datasets import TEDLIUM
+import torchaudio
+from typing import Union
+from pathlib import Path
+from torchaudio.datasets.tedlium import _RELEASE_CONFIGS
+from torchaudio._internal import download_url_to_file
+from torchaudio.datasets.utils import _extract_tar
 
-EVAL_SETS = [
+SHORT_FORM_EVAL_SETS = [
     "librispeech_clean",
     "librispeech_other",
     "artie_bias_corpus",
@@ -29,7 +35,10 @@ EVAL_SETS = [
     "ami_sdm",
 ]
 
+LONG_FORM_EVAL_SETS = ["tedlium_long"]
 
+
+# short-form
 class Librispeech:
     def __init__(self, root_dir):
         self.root_dir = root_dir
@@ -141,6 +150,156 @@ class AMI:
             ]
 
         return audio_files, transcript_texts
+
+
+# long-form
+class TEDLIUM_long(TEDLIUM):
+    def __init__(
+        self,
+        root: Union[str, Path],
+        release: str = "release1",
+        subset: str = "train",
+        download: bool = False,
+        audio_ext: str = ".sph",
+    ) -> None:
+        self._ext_audio = audio_ext
+        if release in _RELEASE_CONFIGS.keys():
+            folder_in_archive = _RELEASE_CONFIGS[release]["folder_in_archive"]
+            url = _RELEASE_CONFIGS[release]["url"]
+            subset = subset if subset else _RELEASE_CONFIGS[release]["subset"]
+        else:
+            # Raise warning
+            raise RuntimeError(
+                "The release {} does not match any of the supported tedlium releases{} ".format(
+                    release,
+                    _RELEASE_CONFIGS.keys(),
+                )
+            )
+        if subset not in _RELEASE_CONFIGS[release]["supported_subsets"]:
+            # Raise warning
+            raise RuntimeError(
+                "The subset {} does not match any of the supported tedlium subsets{} ".format(
+                    subset,
+                    _RELEASE_CONFIGS[release]["supported_subsets"],
+                )
+            )
+
+        # Get string representation of 'root' in case Path object is passed
+        root = os.fspath(root)
+
+        basename = os.path.basename(url)
+        archive = os.path.join(root, basename)
+
+        basename = basename.split(".")[0]
+
+        if release == "release3":
+            if subset == "train":
+                self._path = os.path.join(
+                    root, folder_in_archive, _RELEASE_CONFIGS[release]["data_path"]
+                )
+            else:
+                self._path = os.path.join(root, folder_in_archive, "legacy", subset)
+        else:
+            self._path = os.path.join(
+                root, folder_in_archive, _RELEASE_CONFIGS[release]["data_path"], subset
+            )
+
+        if download:
+            if not os.path.isdir(self._path):
+                if not os.path.isfile(archive):
+                    checksum = _RELEASE_CONFIGS[release]["checksum"]
+                    download_url_to_file(url, archive, hash_prefix=checksum)
+                _extract_tar(archive)
+        else:
+            if not os.path.exists(self._path):
+                raise RuntimeError(
+                    f"The path {self._path} doesn't exist. "
+                    "Please check the ``root`` path or set `download=True` to download it"
+                )
+
+        # Create list for all samples
+        self._filelist = []
+        stm_path = os.path.join(self._path, "stm")
+        for file in sorted(os.listdir(stm_path)):
+            if file.endswith(".stm"):
+                # stm_path = os.path.join(self._path, "stm", file)
+                # with open(stm_path) as f:
+                #     l = len(f.readlines())
+                #     file = file.replace(".stm", "")
+                #     self._filelist.extend((file, line) for line in range(l))
+                file = file.replace(".stm", "")
+                self._filelist.append(file)
+        # Create dict path for later read
+        self._dict_path = os.path.join(
+            root, folder_in_archive, _RELEASE_CONFIGS[release]["dict"]
+        )
+        self._phoneme_dict = None
+
+    def _load_tedlium_item(self, fileid, path):
+        transcript_path = os.path.join(path, "stm", fileid)
+        transcript_segs = []
+        init_start_time = None
+        final_end_time = None
+        init_talk_id = None
+        init_speaker_id = None
+        init_identifier = None
+
+        with open(transcript_path + ".stm") as f:
+            lines = f.readlines()
+        l = len(lines)
+
+        for i, line in enumerate(lines):
+            talk_id, _, speaker_id, start_time, end_time, identifier, transcript_seg = (
+                line.split(" ", 6)
+            )
+
+            if i == 0:
+                init_start_time = start_time
+
+            if i == 1:
+                init_talk_id = talk_id
+                init_speaker_id = speaker_id
+                init_identifier = identifier
+
+            if i == l - 1:
+                final_end_time = end_time
+
+            # transcript_segs.append(transcript_seg.strip())
+
+            if transcript_seg.strip() != "ignore_time_segment_in_scoring":
+                transcript_segs.append(transcript_seg.strip())
+            # transcript = f.readlines()[line]
+            # talk_id, _, speaker_id, start_time, end_time, identifier, transcript = transcript.split(" ", 6)
+
+        start_time = init_start_time
+        end_time = final_end_time
+        talk_id = init_talk_id
+        speaker_id = init_speaker_id
+        identifier = init_identifier
+
+        transcript = " ".join(transcript_segs)
+
+        wave_path = os.path.join(path, "sph", fileid)
+        waveform, sample_rate = self._load_audio(
+            wave_path + self._ext_audio, start_time=start_time, end_time=end_time
+        )
+
+        return (waveform, sample_rate, transcript, talk_id, speaker_id, identifier)
+
+    def _load_audio(self, path, start_time, end_time, sample_rate=16000):
+        start_time = int(float(start_time) * sample_rate)
+        end_time = int(float(end_time) * sample_rate)
+
+        kwargs = {"frame_offset": start_time, "num_frames": end_time - start_time}
+
+        return torchaudio.load(path, **kwargs)
+
+    def __getitem__(self, n):
+        fileid = self._filelist[n]
+        return self._load_tedlium_item(fileid, self._path)
+
+
+# multilingual
 
 
 class EvalDataset(Dataset):
