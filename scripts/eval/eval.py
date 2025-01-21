@@ -312,6 +312,7 @@ class EvalDataset(Dataset):
             "artie_bias_corpus",
             "fleurs",
             "tedlium",
+            "tedlium_long",
             "voxpopuli",
             "common_voice",
             "ami_ihm",
@@ -365,6 +366,13 @@ class EvalDataset(Dataset):
             self.dataset = TEDLIUM(
                 root=f"{eval_dir}", release="release3", subset="test"
             )
+        elif eval_set == "tedlium_long":
+            if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+            self.dataset = TEDLIUM_long(
+                root=f"{eval_dir}", release="release3", subset="test"
+            )
         elif eval_set == "voxpopuli":
             if not os.path.exists(f"{eval_dir}/facebook___voxpopuli"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
@@ -409,6 +417,7 @@ class EvalDataset(Dataset):
 
         if self.eval_set not in [
             "tedlium",
+            "tedlium_long",
             "common_voice",
             "fleurs",
             "voxpopuli",
@@ -420,6 +429,7 @@ class EvalDataset(Dataset):
     def __len__(self):
         if self.eval_set in [
             "tedlium",
+            "tedlium_long",
             "common_voice",
             "fleurs",
             "voxpopuli",
@@ -435,6 +445,9 @@ class EvalDataset(Dataset):
             waveform, _, text_y, *_ = self.dataset[index]
             audio_arr = audio.pad_or_trim(waveform[0])
             audio_input = audio.log_mel_spectrogram(audio_arr)
+        elif self.eval_set == "tedlium_long":
+            audio_arr, _, text_y, *_ = self.dataset[index]
+            audio_input = None
         elif self.eval_set == "common_voice":
             waveform = self.dataset[index]["audio"]["array"]
             sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
