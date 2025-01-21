@@ -699,6 +699,184 @@ def main(
     )
 
 
+def long_form_eval(
+    batch_size: int,
+    num_workers: int,
+    ckpt: str,
+    eval_set: Literal["tedlium_long",],
+    log_dir: str,
+    lang: Optional[str] = None,
+    current_step: Optional[int] = None,
+    exp_name: Optional[str] = None,
+    wandb_log: bool = False,
+    wandb_run_id: Optional[str] = None,
+    wandb_log_dir: str = "wandb",
+    eval_dir: str = "data/eval",
+    hf_token: Optional[str] = None,
+) -> None:
+    if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
+        ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
+
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(wandb_log_dir, exist_ok=True)
+    os.makedirs(eval_dir, exist_ok=True)
+
+    device = torch.device("cuda")
+
+    dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=num_workers,
+    )
+
+    model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
+    model.eval()
+
+    normalizer = EnglishTextNormalizer()
+
+    hypotheses = []
+    references = []
+
+    if wandb_log:
+        wandb_table_cols = [
+            "eval_set",
+            "audio",
+            "prediction",
+            "target",
+            "subs",
+            "dels",
+            "ins",
+            "wer",
+        ]
+        if wandb_run_id:
+            wandb_table_cols.append("run_id")
+            wandb.init(
+                id=wandb_run_id,
+                resume="allow",
+                project="open_whisper",
+                entity="dogml",
+                save_code=True,
+                settings=wandb.Settings(init_timeout=300, _service_wait=300),
+            )
+        else:
+            run_id = wandb.util.generate_id()
+            ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
+            exp_name = (
+                f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
+            )
+            model_sizes = ["tiny", "small", "base", "medium", "large"]
+            model_size = [
+                model_size for model_size in model_sizes if model_size in ckpt
+            ][0]
+            config = {
+                "ckpt": "/".join(ckpt.split("/")[-2:]),
+                "model": ow_or_w,
+                "model_size": model_size,
+            }
+            wandb.init(
+                id=run_id,
+                resume="allow",
+                project="open_whisper",
+                entity="dogml",
+                job_type="evals",
+                name=exp_name,
+                dir=wandb_log_dir,
+                config=config,
+                tags=["eval", eval_set, ow_or_w, model_size],
+            )
+        eval_table = wandb.Table(columns=wandb_table_cols)
+        table_iter = 0
+        
+    with torch.no_grad():
+        for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
+            _, audio_input, _, text_y = batch
+            
+            norm_tgt_text = [normalizer(text) for text in text_y]
+            audio_input = audio_input.to(device)
+            
+            options = dict(
+                task="transcribe",
+                language="en",
+                without_timestamps=False,
+                beam_size=5,
+                best_of=5,
+            )
+            results = model.transcribe(audio_input[0], **options)
+            
+            norm_pred_text = [
+                normalizer(results["text"])
+                for i in range(len(norm_tgt_text))
+                if norm_tgt_text[i] != ""
+            ]
+            if wandb_log:
+                audio_arr = [
+                    audio_arr.numpy()[i]
+                    for i in range(len(norm_tgt_text))
+                    if norm_tgt_text[i] != ""
+                ]
+            norm_tgt_text = [
+                norm_tgt_text[i]
+                for i in range(len(norm_tgt_text))
+                if norm_tgt_text[i] != ""
+            ]
+
+            references.extend(norm_tgt_text)
+            hypotheses.extend(norm_pred_text)
+            
+    avg_wer = jiwer.wer(references, hypotheses) * 100
+    avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
+    avg_subs = avg_measures["substitutions"]
+    avg_ins = avg_measures["insertions"]
+    avg_dels = avg_measures["deletions"]
+
+    if wandb_log:
+        if wandb_run_id:
+            wandb.log(
+                {
+                    f"eval/{eval_set}_{lang}_wer": avg_wer,
+                    "custom_step": current_step,
+                }
+            )
+            wandb.log(
+                {
+                    f"eval/{eval_set}_{lang}_subs": avg_subs,
+                    "custom_step": current_step,
+                }
+            )
+            wandb.log(
+                {
+                    f"eval/{eval_set}_{lang}_ins": avg_ins,
+                    "custom_step": current_step,
+                }
+            )
+            wandb.log(
+                {
+                    f"eval/{eval_set}_{lang}_dels": avg_dels,
+                    "custom_step": current_step,
+                }
+            )
+        else:
+            wandb.run.summary[f"avg_{lang}_wer"] = avg_wer
+            wandb.run.summary[f"avg_{lang}_subs"] = avg_subs
+            wandb.run.summary[f"avg_{lang}_ins"] = avg_ins
+            wandb.run.summary[f"avg_{lang}_dels"] = avg_dels
+    else:
+        if exp_name is not None and wandb_run_id is not None:
+            path = f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt"
+        else:
+            path = f"{log_dir}/eval_results.txt"
+        with open(path, "a") as f:
+            f.write(
+                f"{eval_set} {lang} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
+            )
+
+    print(
+        f"Language: {lang}, Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+    )
+
 def ml_eval(
     batch_size: int,
     num_workers: int,
