@@ -53,6 +53,7 @@ def chunk_transcript(
     transcript_data: Dict,
     transcript_manifest: List[str],
     log_dir: str,
+    keep_tokens: bool = False,
     in_memory: bool = True,
 ) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
     """Segment audio and transcript files into <= 30-second chunks
@@ -118,7 +119,7 @@ def chunk_transcript(
 
                     continue
 
-                over_ctx_len, err = utils.over_ctx_len(
+                over_ctx_len, res = utils.over_ctx_len(
                     timestamps=timestamps[a:b], transcript=transcript, language=None
                 )
                 if not over_ctx_len:
@@ -136,23 +137,24 @@ def chunk_transcript(
                         timestamp = t_output_file.split("/")[-1].split(
                             f".{transcript_ext}"
                         )[0]
-                        segments_list.append(
-                            {
-                                "subtitle_file": t_output_file,
-                                "seg_content": transcript_string,
-                                "timestamp": timestamp,
-                                "id": video_id,
-                                "audio_file": t_output_file.replace(
-                                    f".{transcript_ext}", ".npy"
-                                ),
-                            }
-                        )
+                        segment = {
+                            "subtitle_file": t_output_file,
+                            "seg_content": transcript_string,
+                            "timestamp": timestamp,
+                            "id": video_id,
+                            "audio_file": t_output_file.replace(
+                                f".{transcript_ext}", ".npy"
+                            ).replace("ow_full", "ow_seg"),
+                        }
+                        if keep_tokens and res is not None:
+                            segment["tokens"] = res
+                        segments_list.append(segment)
                         segment_count += 1
                 else:
-                    if err is not None:
+                    if type(res) is not List or res is not None:
                         with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
                             f.write(f"{video_id}\tindex: {b}\n")
-                    else:
+                    elif res is None:
                         with open(f"{log_dir}/over_ctx_len.txt", "a") as f:
                             f.write(f"{video_id}\tindex: {b}\n")
 
@@ -193,22 +195,28 @@ def chunk_transcript(
                         timestamp = t_output_file.split("/")[-1].split(
                             f".{transcript_ext}"
                         )[0]
-                        segments_list.append(
-                            {
-                                "subtitle_file": t_output_file,
-                                "seg_content": transcript_string,
-                                "timestamp": timestamp,
-                                "id": video_id,
-                                "audio_file": t_output_file.replace(
-                                    f".{transcript_ext}", ".npy"
-                                ),
-                            }
-                        )
+                        segment = {
+                            "subtitle_file": t_output_file,
+                            "seg_content": transcript_string,
+                            "timestamp": timestamp,
+                            "id": video_id,
+                            "audio_file": t_output_file.replace(
+                                f".{transcript_ext}", ".npy"
+                            ).replace("ow_full", "ow_seg"),
+                        }
+                        if keep_tokens:
+                            segment["tokens"] = [
+                                50257,
+                                50362,
+                                50361,
+                                50256,
+                            ]  # tokenizer.sot_sequence_including_notimestamps + tokenizer.no_speech + tokenizer.eot
+                        segments_list.append(segment)
                         segment_count += 1
                 a = b
 
             if b == len(transcript) and diff < 30000:
-                over_ctx_len, err = utils.over_ctx_len(
+                over_ctx_len, res = utils.over_ctx_len(
                     timestamps=timestamps[a:b], transcript=transcript, language=None
                 )
                 if not over_ctx_len:
@@ -226,23 +234,24 @@ def chunk_transcript(
                         timestamp = t_output_file.split("/")[-1].split(
                             f".{transcript_ext}"
                         )[0]
-                        segments_list.append(
-                            {
-                                "subtitle_file": t_output_file,
-                                "seg_content": transcript_string,
-                                "timestamp": timestamp,
-                                "id": video_id,
-                                "audio_file": t_output_file.replace(
-                                    f".{transcript_ext}", ".npy"
-                                ),
-                            }
-                        )
+                        segment = {
+                            "subtitle_file": t_output_file,
+                            "seg_content": transcript_string,
+                            "timestamp": timestamp,
+                            "id": video_id,
+                            "audio_file": t_output_file.replace(
+                                f".{transcript_ext}", ".npy"
+                            ).replace("ow_full", "ow_seg"),
+                        }
+                        if keep_tokens and res is not None:
+                            segment["tokens"] = res
+                        segments_list.append(segment)
                         segment_count += 1
                 else:
-                    if err is not None:
+                    if type(res) is not List or res is not None:
                         with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
                             f.write(f"{video_id}\tindex: {b}\n")
-                    else:
+                    elif res is None:
                         with open(f"{log_dir}/over_ctx_len.txt", "a") as f:
                             f.write(f"{video_id}\tindex: {b}\n")
 
@@ -282,60 +291,66 @@ def preprocess_jsonl(
     subsample: bool = False,
     subsample_size: int = 0,
     subsample_seed: int = 42,
+    keep_tokens: bool = False,
     in_memory: bool = True,
 ):
-    shard_log_dir = os.path.join(log_dir, shard)
-    os.makedirs(shard_log_dir, exist_ok=True)
-
-    if json_file.endswith(".gz"):
-        transcript_data = unarchive_jsonl_gz(json_file)
-    else:
-        with open(json_file, "r") as f:
-            transcript_data = [json.loads(line.strip()) for line in f]
-
-    with open(transcript_manifest_file, "r") as f:
-        transcript_manifest = [line.strip() for line in f]
-
-    start = time.time()
-    with multiprocessing.Pool() as pool:
-        segments_group = list(
-            tqdm(
-                pool.imap_unordered(
-                    parallel_chunk_transcript,
-                    zip(
-                        transcript_data,
-                        repeat(transcript_manifest),
-                        repeat(shard_log_dir),
-                        repeat(in_memory),
-                    ),
-                ),
-                total=len(transcript_data),
-            )
-        )
-
-    segments_group = [group for group in segments_group if group is not None]
-
-    # Write the data to tar files
-    start = time.time()
-    segments_list = list(chain(*segments_group))
-
     output_path = f"{output_dir}/shard_seg_{shard}.jsonl.gz"
-    if subsample:
-        rng = np.random.default_rng(subsample_seed)
-        subsampled_segments_list = rng.choice(
-            segments_list, size=subsample_size, replace=False
-        )
-        segments_list = subsampled_segments_list
-
-        with gzip.open(output_path, "wt", encoding="utf-8") as f:
-            for segment in segments_list:
-                f.write(json.dumps(segment) + "\n")
+    if os.path.exists(output_path):
+        return output_path, None, 0
     else:
-        with gzip.open(output_path, "wt", encoding="utf-8") as f:
-            for segment in segments_list:
-                f.write(json.dumps(segment) + "\n")
+        shard_log_dir = os.path.join(log_dir, shard)
+        os.makedirs(shard_log_dir, exist_ok=True)
 
-    return output_path, shard_log_dir, len(segments_list)
+        if json_file.endswith(".gz"):
+            transcript_data = unarchive_jsonl_gz(json_file)
+        else:
+            with open(json_file, "r") as f:
+                transcript_data = [json.loads(line.strip()) for line in f]
+
+        with open(transcript_manifest_file, "r") as f:
+            transcript_manifest = [line.strip() for line in f]
+
+        segments_group = [
+            chunk_transcript(
+                transcript, transcript_manifest, shard_log_dir, keep_tokens, in_memory
+            )
+            for transcript in transcript_data
+        ]
+
+        segments_group = [group for group in segments_group if group is not None]
+
+        # Write the data to tar files
+        segments_list = list(chain(*segments_group))
+
+        if subsample:
+            if len(segments_list) > subsample_size:
+                rng = np.random.default_rng(subsample_seed)
+                subsampled_segments_list = rng.choice(
+                    segments_list, size=subsample_size, replace=False
+                )
+                segments_list = subsampled_segments_list
+            else:
+                with open(
+                    f"{log_dir}/less_than_subsample_size_{subsample_size}.txt", "a"
+                ) as f:
+                    f.write(
+                        f"{shard} has less segments ({len(segments_list)}) than subsample size {subsample_size}"
+                    )
+
+            with gzip.open(output_path, "wt", encoding="utf-8") as f:
+                for segment in segments_list:
+                    f.write(json.dumps(segment) + "\n")
+        else:
+            with gzip.open(output_path, "wt", encoding="utf-8") as f:
+                for segment in segments_list:
+                    f.write(json.dumps(segment) + "\n")
+
+        # return output_path, shard_log_dir, len(segments_list)
+        return len(segments_list)
+
+
+def parallel_preprocess_jsonl(args):
+    return preprocess_jsonl(*args)
 
 
 def main(
@@ -346,6 +361,7 @@ def main(
     subsample: bool = False,
     subsample_size: int = 0,
     subsample_seed: int = 42,
+    keep_tokens: bool = False,
     in_memory: bool = True,
 ):
     os.makedirs(log_dir, exist_ok=True)
@@ -353,26 +369,36 @@ def main(
 
     shard_jsonls = glob.glob(f"{source_dir}/*.jsonl.gz")
     get_shard = lambda shard_jsonl: shard_jsonl.split("_")[-1].split(".")[0]
-    segment_count = 0
-    for shard_jsonl in shard_jsonls:
-        logger.info(f"Processing {shard_jsonl}")
-        output_path, shard_log_dir, segment_count = preprocess_jsonl(
-            json_file=shard_jsonl,
-            shard=get_shard(shard_jsonl),
-            transcript_manifest_file=f"{manifest_dir}/{get_shard(shard_jsonl)}.txt",
-            log_dir=log_dir,
-            output_dir=output_dir,
-            subsample=subsample,
-            subsample_size=subsample_size,
-            subsample_seed=subsample_seed,
-            in_memory=in_memory,
-        )
-        logger.info(f"Segmented {segment_count} samples")
-        logger.info(f"Output saved to {output_path}")
-        logger.info(f"Log saved to {shard_log_dir}")
-        segment_count += 0
 
-    logger.info(f"Total segment count: {segment_count}")
+    shards = [get_shard(shard_jsonl) for shard_jsonl in shard_jsonls]
+    logger.info(f"{len(shards)} shards found")
+    logger.info(f"{shards[:5]=}")
+    manifest_files = [f"{manifest_dir}/{shard}.txt" for shard in shards]
+    logger.info(f"{manifest_files[:5]=}")
+    with multiprocessing.Pool() as pool:
+        segment_counts = list(
+            tqdm(
+                pool.imap_unordered(
+                    parallel_preprocess_jsonl,
+                    zip(
+                        shard_jsonls,
+                        shards,
+                        manifest_files,
+                        repeat(log_dir),
+                        repeat(output_dir),
+                        repeat(subsample),
+                        repeat(subsample_size),
+                        repeat(subsample_seed),
+                        repeat(keep_tokens),
+                        repeat(in_memory),
+                    ),
+                ),
+                total=len(shard_jsonls),
+            )
+        )
+
+    # logger.info(f"Total segment count: {segment_count}")
+    logger.info(f"Total segment count: {sum(segment_counts)}")
 
 
 if __name__ == "__main__":
