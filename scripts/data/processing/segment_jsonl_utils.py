@@ -277,7 +277,7 @@ def over_ctx_len(
         if len(text_tokens) > 448:
             return True, None
         else:
-            return False, None
+            return False, text_tokens
     except RuntimeError:
         logger.info(f"Error processing text:{e}")
         return True, "error"
