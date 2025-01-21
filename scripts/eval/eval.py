@@ -979,7 +979,14 @@ def ml_eval(
                 name=exp_name,
                 dir=wandb_log_dir,
                 config=config,
-                tags=["eval", "multilingual", eval_set, ow_or_w, model_size],
+                tags=[
+                    "eval",
+                    "multilingual",
+                    "all_langs" if lang is None else lang,
+                    eval_set,
+                    ow_or_w,
+                    model_size,
+                ],
             )
         eval_table = wandb.Table(columns=wandb_table_cols)
         table_iter = 0
@@ -1035,57 +1042,6 @@ def ml_eval(
                 references.extend(norm_tgt_text)
                 hypotheses.extend(norm_pred_text)
 
-                if wandb_log:
-                    table_iter += 1
-                    for i in tqdm(
-                        range(0, len(norm_pred_text)), total=len(norm_pred_text)
-                    ):
-                        wer = (
-                            np.round(
-                                jiwer.wer(
-                                    reference=norm_tgt_text[i],
-                                    hypothesis=norm_pred_text[i],
-                                ),
-                                2,
-                            )
-                            * 100
-                        )
-                        measures = jiwer.compute_measures(
-                            truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
-                        )
-                        subs = measures["substitutions"]
-                        dels = measures["deletions"]
-                        ins = measures["insertions"]
-
-                        if wandb_run_id:
-                            eval_table.add_data(
-                                eval_set,
-                                lang,
-                                wandb.Audio(audio_arr[i], sample_rate=16000),
-                                norm_pred_text[i],
-                                norm_tgt_text[i],
-                                subs,
-                                dels,
-                                ins,
-                                wer,
-                                wandb_run_id,
-                            )
-                        else:
-                            eval_table.add_data(
-                                eval_set,
-                                lang,
-                                wandb.Audio(audio_arr[i], sample_rate=16000),
-                                norm_pred_text[i],
-                                norm_tgt_text[i],
-                                subs,
-                                dels,
-                                ins,
-                                wer,
-                            )
-
-                    wandb.log({f"eval_table_{table_iter}": eval_table})
-                    eval_table = wandb.Table(columns=wandb_table_cols)
-
         avg_wer = jiwer.wer(references, hypotheses) * 100
         avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
         avg_subs = avg_measures["substitutions"]
@@ -1139,4 +1095,4 @@ def ml_eval(
 
 
 if __name__ == "__main__":
-    Fire({"main": main, "ml_eval": ml_eval})
+    Fire({"main": main, "ml_eval": ml_eval, "long_form_eval": long_form_eval})
