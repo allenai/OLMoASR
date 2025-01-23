@@ -1016,8 +1016,10 @@ def train(
     for batch_idx, batch in enumerate(train_dataloader):
         start_loading = time.time()
         model.train()
-        start_step = time.time()
 
+        if current_step % accumulation_steps == 0 or accumulation_steps == 1:
+            start_step = time.time()
+            
         with autocast():
             (
                 audio_files,
