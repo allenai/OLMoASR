@@ -1008,13 +1008,31 @@ def train(
         train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
         start_time = time.time()
 
+    start_dl = time.time()
     for batch_idx, batch in enumerate(train_dataloader):
-        start_loading = time.time()
         model.train()
 
         if current_step % accumulation_steps == 0 or accumulation_steps == 1:
             start_step = time.time()
             
+        # logging dataloading time
+        end_dl = time.time()
+        time_dl = end_dl - start_dl
+        time_dl_tensor = torch.tensor(time_dl, device=rank)
+        gathered_dl_time = [
+            torch.zeros_like(time_dl_tensor) for _ in range(dist.get_world_size())
+        ]
+        dist.all_gather(gathered_dl_time, time_dl_tensor)
+        if rank == 0:
+            gathered_dl_time = [t.item() for t in gathered_dl_time]
+            for i, dl_time in enumerate(gathered_dl_time):
+                wandb.log(
+                    {
+                        f"efficiency/dl_time_gpu={i}": dl_time,
+                        "custom_step": current_step,
+                    }
+                )
+
         with autocast():
             (
                 audio_files,
@@ -1037,10 +1055,27 @@ def train(
             padding_mask = padding_mask.to(rank)
 
             # forward pass
-            start_forward = time.time()
+            start_fwd = time.time()
             logits = model(audio_input, text_input, padding_mask)
-            end_forward = time.time()
+            end_fwd = time.time()
 
+            time_fwd = end_fwd - start_fwd
+            time_fwd_tensor = torch.tensor(time_fwd, device=rank)
+            gathered_fwd_time = [
+                torch.zeros_like(time_fwd_tensor)
+                for _ in range(dist.get_world_size())
+            ]
+            dist.all_gather(gathered_fwd_time, time_fwd_tensor)
+            if rank == 0:
+                gathered_fwd_time = [t.item() for t in gathered_fwd_time]
+                for i, fwd_time in enumerate(gathered_fwd_time):
+                    wandb.log(
+                        {
+                            f"efficiency/fwd_time_gpu={i}": fwd_time,
+                            "custom_step": current_step,
+                        }
+                    )
+                    
             # calculate loss
             train_loss = F.cross_entropy(
                 logits.view(-1, logits.shape[-1]),
@@ -1150,12 +1185,10 @@ def train(
 
             # logging throughput
             end_step = time.time()
-            time_per_step = (end_step - start_step) / 60
+            time_per_step = (end_step - start_step)
             throughput = (
-                ((train_batch_size * accumulation_steps) / (end_step - start_step))
-                * 30
-                / 60
-            )
+                    (train_batch_size * accumulation_steps * 30) / 60
+                ) / time_per_step
 
             # putting throughput on GPU
             throughput_tensor = torch.tensor(throughput, device=rank)
@@ -1183,7 +1216,7 @@ def train(
                 for i, throughput in enumerate(gathered_throughput):
                     wandb.log(
                         {
-                            f"train/audio_min_per_GPU_second_gpu={i}": throughput,
+                            f"efficiency/audio_min_per_GPU_second_gpu={i}": throughput,
                             "custom_step": current_step,
                         }
                     )
@@ -1191,7 +1224,7 @@ def train(
                 for i, time_per_step in enumerate(gathered_time):
                     wandb.log(
                         {
-                            f"train/time_per_step_gpu={i}": time_per_step,
+                            f"efficiency/time_per_step_gpu={i}": time_per_step,
                             "custom_step": current_step,
                         }
                     )
@@ -1353,36 +1386,7 @@ def train(
         batch_text_files = []
         batch_audio_arr = []
 
-        end_loading = time.time()
-        dl_time = (end_loading - start_loading) / 60
-        forward_time = (end_forward - start_forward) / 60
-        dl_time_tensor = torch.tensor(dl_time, device=rank)
-        forward_time_tensor = torch.tensor(forward_time, device=rank)
-        # prepare list to gather throughput from all processes
-        if rank == 0:
-            gathered_dl_time = [
-                torch.zeros_like(dl_time_tensor).to(rank)
-                for _ in range(dist.get_world_size())
-            ]
-            gathered_forward_time = [
-                torch.zeros_like(forward_time_tensor).to(rank)
-                for _ in range(dist.get_world_size())
-            ]
-        else:
-            gathered_dl_time = None
-            gathered_forward_time = None
-
-        dist.gather(dl_time_tensor, gather_list=gathered_dl_time, dst=0)
-        dist.gather(forward_time_tensor, gather_list=gathered_forward_time, dst=0)
-
-        if rank == 0:
-            gathered_dl_time = [t.item() for t in gathered_dl_time]
-            gathered_forward_time = [t.item() for t in gathered_forward_time]
-            for i, dl_time in enumerate(gathered_dl_time):
-                wandb.log({f"train/dataloading_time_per_iter_gpu={i}": dl_time})
-
-            for i, forward_time in enumerate(gathered_forward_time):
-                wandb.log({f"train/forward_time_per_iter_gpu={i}": forward_time})
+        start_dl = time.time()
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
