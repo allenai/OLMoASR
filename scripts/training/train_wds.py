@@ -34,6 +34,7 @@ import open_whisper as ow
 
 from scripts.eval.eval import EvalDataset
 from scripts.training import for_logging
+
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"
 os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
@@ -120,7 +121,10 @@ def preprocess_audio(audio_arr: np.ndarray) -> Tuple[torch.Tensor, np.ndarray]:
 
 
 def preprocess_text(
-    transcript_string: str, tokenizer: whisper.tokenizer.Tokenizer, n_text_ctx: int
+    transcript_string: str,
+    tokenizer: whisper.tokenizer.Tokenizer,
+    n_text_ctx: int,
+    n_head: int,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Preprocesses the transcript text by tokenizing it, adding special tokens,
@@ -153,7 +157,12 @@ def preprocess_text(
     text_y = text_tokens[1:]
 
     padding_mask = torch.zeros((n_text_ctx, n_text_ctx))
-    padding_mask[:, len(text_input) :] = -float("inf")
+    padding_mask[:, len(text_input) :] = -np.inf
+    causal_mask = torch.empty(n_text_ctx, n_text_ctx).fill_(-np.inf).triu_(1)
+    padding_mask = padding_mask + causal_mask
+    padding_mask = padding_mask.unsqueeze(dim=0).repeat(n_head, 1, 1)[
+        :, :n_text_ctx, :n_text_ctx
+    ]
 
     text_input = np.pad(
         text_input,
@@ -174,7 +183,7 @@ def preprocess_text(
     return text_input, text_y, padding_mask
 
 
-def preprocess(sample, tokenizer, n_text_ctx):
+def preprocess(sample, tokenizer, n_text_ctx, n_head):
     """
     Preprocesses the given sample by performing audio and text preprocessing.
 
@@ -201,7 +210,7 @@ def preprocess(sample, tokenizer, n_text_ctx):
     audio_path, audio_arr, text_path, transcript_str = sample
     audio_input, padded_audio_arr = preprocess_audio(audio_arr)
     text_input, text_y, padding_mask = preprocess_text(
-        transcript_str, tokenizer, n_text_ctx
+        transcript_str, tokenizer, n_text_ctx, n_head
     )
 
     return (
@@ -219,6 +228,7 @@ def wds_pipeline(
     shards,
     batch_size,
     n_text_ctx,
+    n_head,
     tokenizer,
     val_flag,
 ):
@@ -245,7 +255,7 @@ def wds_pipeline(
             # this shuffles the samples in memory
             wds.shuffle(bufsize=1000, initial=100),
             wds.map(decode_sample),
-            wds.map(lambda sample: preprocess(sample, tokenizer, n_text_ctx)),
+            wds.map(lambda sample: preprocess(sample, tokenizer, n_text_ctx, n_head)),
             wds.shuffle(bufsize=1000, initial=100),
             wds.batched(batch_size),
         )
@@ -256,7 +266,7 @@ def wds_pipeline(
             # at this point, we have an iterator over the shards assigned to each worker
             wds.tarfile_to_samples(),
             wds.map(decode_sample),
-            wds.map(lambda sample: preprocess(sample, tokenizer, n_text_ctx)),
+            wds.map(lambda sample: preprocess(sample, tokenizer, n_text_ctx, n_head)),
             wds.batched(batch_size),
         )
 
@@ -340,6 +350,7 @@ def prepare_data(
     val_batch_size: int,
     train_samples: int,
     n_text_ctx: int,
+    n_head: int,
     tokenizer: whisper.tokenizer.Tokenizer,
     pin_memory: bool = True,
     num_workers: int = 1,
@@ -368,6 +379,7 @@ def prepare_data(
         batch_size=train_batch_size,
         n_text_ctx=n_text_ctx,
         tokenizer=tokenizer,
+        n_head=n_head,
         val_flag=False,
     )
 
@@ -387,6 +399,7 @@ def prepare_data(
             batch_size=val_batch_size,
             n_text_ctx=n_text_ctx,
             tokenizer=tokenizer,
+            n_head=n_head,
             val_flag=True,
         )
 
@@ -1193,7 +1206,7 @@ def train(
                 )
             optimizer.zero_grad()  # Reset gradients only after updating weights
             total_loss = 0.0
-            
+
             # logging
             if rank == 0:
                 train_metrics = defaultdict(float)
@@ -1262,7 +1275,6 @@ def train(
                         norm_tgt_pred_pairs=norm_tgt_pred_pairs,
                     )
                     train_table = wandb.Table(columns=for_logging.TRAIN_TABLE_COLS)
-
 
             # validation
             if run_val:
@@ -1342,7 +1354,7 @@ def train(
         batch_audio_files = []
         batch_text_files = []
         batch_audio_arr = []
-        
+
         end_loading = time.time()
         dl_time = (end_loading - start_loading) / 60
         forward_time = (end_forward - start_forward) / 60
@@ -1355,7 +1367,7 @@ def train(
                 for _ in range(dist.get_world_size())
             ]
             gathered_forward_time = [
-                torch.zeros_like(forward_time_tensor).to(rank) 
+                torch.zeros_like(forward_time_tensor).to(rank)
                 for _ in range(dist.get_world_size())
             ]
         else:
@@ -1370,9 +1382,9 @@ def train(
             gathered_forward_time = [t.item() for t in gathered_forward_time]
             for i, dl_time in enumerate(gathered_dl_time):
                 wandb.log({f"train/dataloading_time_per_iter_gpu={i}": dl_time})
-            
+
             for i, forward_time in enumerate(gathered_forward_time):
-                wandb.log({f"train/forward_time_per_iter_gpu={i}": forward_time}) 
+                wandb.log({f"train/forward_time_per_iter_gpu={i}": forward_time})
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
@@ -1922,30 +1934,35 @@ def main(
     """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
-        
+
     model_dims = VARIANT_TO_DIMS[model_variant]
 
     if rank is None and world_size is None:
         rank = int(os.getenv("RANK", "0"))
         world_size = int(os.getenv("WORLD_SIZE", "1"))
-    
+
     # setup the process groups
     print(f"Setting up process groups on rank {rank}")
     setup(rank, world_size)
-    
+
     # setup the tokenizer and normalizer
     print(f"Setting up tokenizer and normalizer on rank {rank}")
     tokenizer = get_tokenizer(multilingual=False)
     normalizer = EnglishTextNormalizer()
     n_text_ctx = model_dims.n_text_ctx
+    n_head = model_dims.n_text_head
 
     with open("logs/data/preprocess/shard_to_sample_count.json", "r") as f:
         shard_to_sample_count = json.load(f)
 
-    start_shard, end_shard = train_shards.split("/")[-1].split(".tar")[0][1:-1].split("..")
+    start_shard, end_shard = (
+        train_shards.split("/")[-1].split(".tar")[0][1:-1].split("..")
+    )
     train_shard_idx_list = list(range(int(start_shard), int(end_shard) + 1))
-    train_samples = sum([shard_to_sample_count[str(shard_idx)] for shard_idx in train_shard_idx_list])
-    
+    train_samples = sum(
+        [shard_to_sample_count[str(shard_idx)] for shard_idx in train_shard_idx_list]
+    )
+
     if rank == 0:
         print(f"Training on {train_samples} samples")
 
@@ -1959,6 +1976,7 @@ def main(
         val_batch_size=val_batch_size,
         train_samples=train_samples,
         n_text_ctx=n_text_ctx,
+        n_head=n_head,
         tokenizer=tokenizer,
         pin_memory=pin_memory,
         num_workers=num_workers,
@@ -1982,7 +2000,6 @@ def main(
             pin_memory=pin_memory,
         )
         eval_loaders.append((eval_set, eval_dataloader))
-
 
     # model instantiation
     if run_id is not None:
@@ -2100,7 +2117,9 @@ def main(
             val_freq=val_freq,
             eval_freq=eval_freq,
         )
-        print(f"Ending epoch at {current_step=} on rank {rank} w/ best val loss {best_val_loss}")
+        print(
+            f"Ending epoch at {current_step=} on rank {rank} w/ best val loss {best_val_loss}"
+        )
 
         if rank == 0:
             print(f"Saving latest checkpoint w/ best val loss {best_val_loss}")
@@ -2121,7 +2140,9 @@ def main(
             )
 
         if run_val:
-            print(f"Validation after epoch on rank {rank} at {current_step=} w/ best val loss {best_val_loss}")
+            print(
+                f"Validation after epoch on rank {rank} at {current_step=} w/ best val loss {best_val_loss}"
+            )
             best_val_loss, val_res_added = validate(
                 rank=rank,
                 current_step=current_step,
