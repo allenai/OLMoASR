@@ -280,6 +280,7 @@ def setup(rank: int, world_size: int) -> None:
         rank: The rank of the current process
         world_size: The total number of processes
     """
+    torch.cuda.set_device(rank)
     dist.init_process_group(
         "nccl", timeout=timedelta(seconds=3600), rank=rank, world_size=world_size
     )
