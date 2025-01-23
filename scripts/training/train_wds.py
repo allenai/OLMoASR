@@ -596,6 +596,7 @@ def setup_wandb(
     wandb.define_metric("train/*", step_metric="custom_step")
     wandb.define_metric("val/*", step_metric="custom_step")
     wandb.define_metric("eval/*", step_metric="custom_step")
+    wandb.define_metric("efficiency/*", step_metric="custom_step")
 
     train_res = wandb.Artifact("train_res", type="results")
     train_res_added = False
