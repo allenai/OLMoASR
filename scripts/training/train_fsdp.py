@@ -1095,7 +1095,7 @@ def train(
     for batch_idx, batch in enumerate(train_dataloader):
         model.train()
 
-        if (batch_idx + 1) % accumulation_steps != 0 or accumulation_steps == 1:
+        if current_step % accumulation_steps == 0 or accumulation_steps == 1:
             start_step = time.time()
 
         with set_detect_anomaly(mode=detect_anomaly):
