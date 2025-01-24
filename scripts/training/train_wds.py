@@ -288,6 +288,7 @@ def prepare_dataloader(
     pin_memory: bool,
     num_workers: int,
     persistent_workers: bool,
+    prefetch_factor: int,
     val_flag: bool,
     batch_size: Optional[int] = None,
 ) -> wds.WebLoader:
@@ -321,6 +322,7 @@ def prepare_dataloader(
                 num_workers=num_workers,
                 drop_last=False,
                 persistent_workers=persistent_workers,
+                prefetch_factor=prefetch_factor,
             )
             .repeat(2)
             .with_epoch(epoch_steps)
@@ -352,6 +354,7 @@ def prepare_data(
     pin_memory: bool = True,
     num_workers: int = 1,
     persistent_workers: bool = True,
+    prefetch_factor: int = 2,
 ) -> Tuple[wds.WebLoader, Optional[wds.WebLoader]]:
     """Prepares the data for training
 
@@ -388,6 +391,7 @@ def prepare_data(
         persistent_workers=persistent_workers,
         val_flag=False,
         batch_size=train_batch_size,
+        prefetch_factor=prefetch_factor
     )
 
     if val_shards is not None:
@@ -407,6 +411,7 @@ def prepare_data(
             num_workers=num_workers,
             persistent_workers=persistent_workers,
             val_flag=True,
+            prefetch_factor=prefetch_factor,
         )
 
         return train_dataloader, val_dataloader
@@ -1897,6 +1902,7 @@ def main(
     num_workers: int = 10,
     pin_memory: bool = True,
     persistent_workers: bool = True,
+    prefetch_factor: int = 2,
     run_val: bool = True,
     run_eval: bool = False,
     train_log_freq: int = 100,
@@ -1983,6 +1989,7 @@ def main(
         pin_memory=pin_memory,
         num_workers=num_workers,
         persistent_workers=persistent_workers,
+        prefetch_factor=prefetch_factor,
     )
 
     # prepare eval dataset
