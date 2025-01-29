@@ -102,8 +102,7 @@ class AudioTextDataset(Dataset):
         # not sure if putting it here is bad...
         global tokenizer
         sample_dict = self.samples[index]
-        audio_file = sample_dict["audio_file"].replace("ow_full", "ow_seg")
-        # transcript_file = sample_dict["transcript"]
+        audio_file = sample_dict["audio_file"]
         transcript_file = sample_dict["subtitle_file"]
         transcript_string = sample_dict["seg_content"]
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
@@ -227,15 +226,6 @@ def open_dicts_file(samples_dicts_file) -> List[Dict]:
     if samples_dicts_file.endswith(".gz"):
         with gzip.open(samples_dicts_file, "rt") as f:
             samples_dicts = [json.loads(line.strip()) for line in f]
-    else:
-        with open(samples_dicts_file, "r") as f:
-            samples_dicts = list(
-                chain.from_iterable(
-                    json_line.get("sample_dicts")
-                    for json_line in map(json.loads, f)
-                    if json_line.get("sample_dicts") is not None
-                )
-            )
     return samples_dicts
 
 
@@ -553,7 +543,8 @@ def setup_wandb(
     wandb.define_metric("train/*", step_metric="custom_step")
     wandb.define_metric("val/*", step_metric="custom_step")
     wandb.define_metric("eval/*", step_metric="custom_step")
-    wandb.define_metric("efficiency/*", step_metric="custom_step")
+    wandb.define_metric("efficiency/time_per_step=*", step_metric="custom_step")
+    wandb.define_metric("efficiency/audio_min_per_GPU_second_gpu=*", step_metric="custom_step")
 
     return run_id
 
@@ -1095,7 +1086,7 @@ def train(
     for batch_idx, batch in enumerate(train_dataloader):
         model.train()
 
-        if current_step % accumulation_steps == 0 or accumulation_steps == 1:
+        if batch_idx % accumulation_steps == 0 or accumulation_steps == 1:
             start_step = time.time()
 
         with set_detect_anomaly(mode=detect_anomaly):
@@ -1113,7 +1104,6 @@ def train(
                     wandb.log(
                         {
                             f"efficiency/dl_time_gpu={i}": dl_time,
-                            "custom_step": current_step,
                         }
                     )
 
@@ -1164,8 +1154,7 @@ def train(
                     for i, fwd_time in enumerate(gathered_fwd_time):
                         wandb.log(
                             {
-                                f"efficiency/fwd_time_gpu={i}": fwd_time,
-                                "custom_step": current_step,
+                                f"efficiency/fwd_time_gpu={i}": fwd_time
                             }
                         )
 
