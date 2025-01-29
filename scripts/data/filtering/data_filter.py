@@ -189,30 +189,45 @@ def has_no_repeats(content):
 
 def modify_text(content):
     # Pattern to match brackets containing capitalized words, excluding the word "Music"
-    pattern_brackets = r"[ ]*\[(?![Mm][Uu][Ss][Ii][Cc]\])([A-Z][a-zA-Z]*(?: [A-Z][a-zA-Z]*)*)\][ ]*"
-    
+    pattern_brackets = (
+        r"[ ]*\[(?![Mm][Uu][Ss][Ii][Cc]\])([A-Z][a-zA-Z]*(?: [A-Z][a-zA-Z]*)*)\][ ]*"
+    )
+
     # Pattern to match parentheses containing any characters
     pattern_parentheses = r"[ ]*\(.*?\)[ ]*"
-    
+
     # Pattern to match capitalized words followed by a colon
     pattern_colon = r"[ ]*(?:[A-Z][a-zA-Z]*[ ])+:[ ]*"
-    
+
     # Pattern to match specific strings like &nbsp;, &gt;, =, and ...
-    specific_strings = r"[ ]*(?:&nbsp;|&amp;|&lt;|&gt;|=|\.{3})+[ ]*"
-    
+    specific_strings = r"[ ]*(?:&nbsp;|&amp;|&lt;|&gt;|=|\.{3}|\\h)+[ ]*"
+
     # Combined primary pattern using the above patterns
     primary_pattern = (
         f"{pattern_brackets}|{pattern_parentheses}|{pattern_colon}|{specific_strings}"
     )
-    
+
     # Pattern to capture lowercase words inside brackets
     # brackets_pattern_capture = r"\[([a-z]+(?: [a-z]+)*)\]"
 
     for caption in content:
         caption.text = re.sub(primary_pattern, " ", caption.text)
         # caption.text = re.sub(brackets_pattern_capture, r"\1", caption.text)
-        
+
     return content
+
+
+def filter_unrelated(scores_dict: Dict, threshold: int, comparison: str):
+    score = scores_dict["man_mach_score"]
+
+    if comparison is "ge":
+        return score >= threshold
+    elif comparison is "g":
+        return score > threshold
+    elif comparison is "le":
+        return score <= threshold
+    elif comparison is "l":
+        return score < threshold
 
 
 FILTER_DICT = {
@@ -221,6 +236,7 @@ FILTER_DICT = {
     "has_mixed_case": has_mixed_case,
     "has_no_repeats": has_no_repeats,
     "modify_text": modify_text,
+    "filter_unrelated": filter_unrelated,
 }
 
 
@@ -247,8 +263,11 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     for line in lines:
         lines_seen += 1
         parsed_content = parse_into_iter(line["content"], line["subtitle_file"])
+        scores_dict = {k: v for k, v in line.items() if k.endswith("_score")}
         chars_seen += len(line["content"])  # TODO: Be more precise here
-        output_content, hitlist = process_content(parsed_content, config_dict)
+        output_content, hitlist = process_content(
+            parsed_content, scores_dict, config_dict
+        )
         for k, v in hitlist.items():
             total_hitlist[k] += v
 
@@ -274,12 +293,19 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     return (lines_seen, lines_kept, chars_seen, chars_kept, dict(total_hitlist))
 
 
-def process_content(content, config):
+def process_content(content, scores_dict, config):
     hitlist = defaultdict(int)
     for filter_dict in config["pipeline"]:
         filter_fxn = FILTER_DICT[filter_dict["fxn"]]
         kwargs = {k: v for k, v in filter_dict.items() if k != "fxn"}
-        content = filter_fxn(content, **kwargs)
+
+        if filter_dict["fxn"] == "remove_unrelated":
+            keep = filter_fxn(scores_dict, **kwargs)
+            if not keep:
+                content = None
+        else:
+            content = filter_fxn(content, **kwargs)
+
         if content == None:
             hitlist[filter_dict["fxn"]] += 1
             return None, hitlist
