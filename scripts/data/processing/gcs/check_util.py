@@ -6,8 +6,8 @@ from fire import Fire
 
 # Set your project ID, zone, and other parameters
 PROJECT_ID = "oe-training"
-CPU_THRESHOLD = 4  # CPU utilization threshold in percentage
-MONITORING_INTERVAL = 240  # Check interval in seconds
+CPU_THRESHOLD = 1  # CPU utilization threshold in percentage
+MONITORING_INTERVAL = 120  # Check interval in seconds
 
 def get_cpu_utilization(project_id, instance_id, zone):
     """Retrieve the CPU utilization of a specified VM instance."""
@@ -75,11 +75,11 @@ def get_instances_by_base_name(project_id, zone, base_name):
     return [instance for instance in instances if re.match(f"^{base_name}", instance.name)]
 
 def main(zone, base_name):
-    instances = get_instances_by_base_name(PROJECT_ID, zone, base_name)
-    print(f"Found {len(instances)} instances with base name '{base_name}'.")
-
     while True:
         print("Starting monitoring loop...")
+        instances = get_instances_by_base_name(PROJECT_ID, zone, base_name)
+        print(f"Found {len(instances)} instances with base name '{base_name}'.")
+
         for instance in instances:
             cpu_utilization = get_cpu_utilization(PROJECT_ID, instance.id, zone)
             print(f"Instance {instance.name} - Current CPU utilization: {cpu_utilization:.2f}%")

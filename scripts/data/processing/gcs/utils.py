@@ -415,7 +415,9 @@ def calculate_wer(pair: Tuple[str, str]) -> float:
         return jiwer.wer(pair[0], pair[1]) * 100.0
 
 
-def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> Tuple[bool, Optional[str]]:
+def over_ctx_len(
+    timestamps: List, transcript: Optional[Dict], language: Optional[str]
+) -> Tuple[bool, Optional[str]]:
     """Check if transcript text exceeds model context length
 
     Check if the total number of tokens in the transcript text exceeds the model context length
@@ -430,8 +432,11 @@ def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> Tuple[bool, Op
     try:
         text_lines = [transcript[timestamps[i]].strip() for i in range(len(timestamps))]
         text = " ".join(text_lines)
-
-        tokenizer = get_tokenizer(multilingual=False)
+        
+        if language is None:
+            tokenizer = get_tokenizer(multilingual=False)
+        else:
+            tokenizer = get_tokenizer(language=language, multilingual=True)
 
         text_tokens = tokenizer.encode(text)
         text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens
@@ -451,6 +456,13 @@ def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> Tuple[bool, Op
 
 def too_short_audio(audio_arr: np.ndarray, sample_rate: int = 16000) -> bool:
     duration = len(audio_arr) / sample_rate
+    if duration < 0.015:
+        return True
+    return False
+
+
+def too_short_audio_text(start: str, end: str) -> bool:
+    duration = calculate_difference(start, end) / 1000
     if duration < 0.015:
         return True
     return False

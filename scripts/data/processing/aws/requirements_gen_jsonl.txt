@@ -1,0 +1,4 @@
+tqdm
+fire
+git+https://github.com/mattdeitke/moto3.git
+boto3

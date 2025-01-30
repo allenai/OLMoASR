@@ -2,6 +2,7 @@
 import subprocess
 import logging
 import sys
+
 sys.path.append("scripts/data/processing/gcs")
 from vm_utils import bulk_create_spot_instances
 from fire import Fire
@@ -26,9 +27,11 @@ set -x
 # Commands
 echo "This will be logged to the file"
 
-gsutil cp gs://{bucket}/preprocess_gcs.py /home/huongn
+# gsutil cp gs://{bucket}/preprocess_gcs.py /home/huongn
 gsutil cp gs://{bucket}/requirements_seg.txt /home/huongn
-gsutil cp gs://{bucket}/utils.py /home/huongn
+# gsutil cp gs://{bucket}/utils.py /home/huongn
+# gsutil cp gs://{bucket}/merge_man_mach.py /home/huongn
+gsutil cp gs://{bucket}/merge_man_mach_neat.py /home/huongn
 
 apt-get update && apt-get install -y \
     curl \
@@ -106,7 +109,9 @@ output = $AWS_OUTPUT_FORMAT
 EOL
 
 cd /home/huongn
-python3 preprocess_gcs.py --bucket={bucket} --queue_id={queue_id} --tar_prefix={tar_prefix} --log_dir={log_dir} --seg_dir={seg_dir} --audio_dir={audio_dir} >> main.log 2>&1
+# python3 merge_man_mach.py >> main.log 2>&1
+python3 merge_man_mach_neat.py >> main.log 2>&1
+# python3 preprocess_gcs.py --bucket={bucket} --queue_id={queue_id} --log_dir={log_dir} --seg_dir={seg_dir} --transcript_only={transcript_only} --audio_dir={audio_dir} --tar_prefix={tar_prefix} --jsonl_prefix={jsonl_prefix} --manifest_prefix={manifest_prefix}  >> main.log 2>&1
 """
 
 
@@ -121,20 +126,26 @@ def main(
     termination_action: str = "DELETE",
     base_name: str = "ow-download",
     queue_id: str = "ow-download",
-    tar_prefix: str = "ow",
+    tar_prefix: Optional[str] = None,
+    jsonl_prefix: Optional[str] = None,
+    manifest_prefix: Optional[str] = None,
     log_dir: str = "logs",
     seg_dir: str = "segments",
-    audio_dir: str = "audio",
+    audio_dir: Optional[str] = None,
+    transcript_only: bool = False,
     disk_size: int = 100,
 ):
     # Create startup script
     startup_script = STARTUP_SCRIPT.format(
         bucket=bucket,
         queue_id=queue_id,
-        tar_prefix=tar_prefix,
         log_dir=log_dir,
         seg_dir=seg_dir,
+        transcript_only=transcript_only,
         audio_dir=audio_dir,
+        tar_prefix=tar_prefix,
+        jsonl_prefix=jsonl_prefix,
+        manifest_prefix=manifest_prefix,
     )
 
     with open("scripts/data/processing/gcs/startup_script.sh", "w") as f:
@@ -143,15 +154,25 @@ def main(
     logger.info("Startup script created")
 
     # Upload download script and requirements file to GCS bucket
+    # command = [
+    #     "gsutil",
+    #     "cp",
+    #     "scripts/data/processing/gcs/requirements_seg.txt",
+    #     "scripts/data/processing/gcs/utils.py",
+    #     "scripts/data/processing/gcs/preprocess_gcs.py",
+    #     f"gs://{bucket}/",
+    # ]
+
     command = [
         "gsutil",
         "cp",
         "scripts/data/processing/gcs/requirements_seg.txt",
-        "scripts/data/processing/gcs/utils.py",
-        "scripts/data/processing/gcs/preprocess_gcs.py",
+        # "scripts/data/processing/gcs/utils.py",
+        # "scripts/data/processing/gcs/merge_man_mach.py",
+        "scripts/data/processing/gcs/merge_man_mach_neat.py",
         f"gs://{bucket}/",
     ]
-
+    
     result = subprocess.run(command, capture_output=True, text=True)
 
     if result.returncode != 0:

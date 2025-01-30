@@ -300,8 +300,6 @@ class TEDLIUM_long(TEDLIUM):
 
 
 # multilingual
-
-
 class EvalDataset(Dataset):
     def __init__(
         self,
@@ -367,6 +365,7 @@ class EvalDataset(Dataset):
                 root=f"{eval_dir}", release="release3", subset="test"
             )
         elif eval_set == "tedlium_long":
+            eval_set = "tedlium"
             if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
@@ -718,7 +717,6 @@ def long_form_eval(
     ckpt: str,
     eval_set: Literal["tedlium_long",],
     log_dir: str,
-    lang: Optional[str] = None,
     current_step: Optional[int] = None,
     exp_name: Optional[str] = None,
     wandb_log: bool = False,
@@ -802,14 +800,14 @@ def long_form_eval(
             )
         eval_table = wandb.Table(columns=wandb_table_cols)
         table_iter = 0
-        
+
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             _, audio_input, _, text_y = batch
-            
+
             norm_tgt_text = [normalizer(text) for text in text_y]
             audio_input = audio_input.to(device)
-            
+
             options = dict(
                 task="transcribe",
                 language="en",
@@ -818,7 +816,7 @@ def long_form_eval(
                 best_of=5,
             )
             results = model.transcribe(audio_input[0], **options)
-            
+
             norm_pred_text = [
                 normalizer(results["text"])
                 for i in range(len(norm_tgt_text))
@@ -838,7 +836,7 @@ def long_form_eval(
 
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
-            
+
     avg_wer = jiwer.wer(references, hypotheses) * 100
     avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
     avg_subs = avg_measures["substitutions"]
@@ -889,6 +887,7 @@ def long_form_eval(
     print(
         f"Language: {lang}, Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
     )
+
 
 def ml_eval(
     batch_size: int,

@@ -8,9 +8,11 @@ set -x
 # Commands
 echo "This will be logged to the file"
 
-gsutil cp gs://ow-download-4m/preprocess_gcs.py /home/huongn
-gsutil cp gs://ow-download-4m/requirements_seg.txt /home/huongn
-gsutil cp gs://ow-download-4m/utils.py /home/huongn
+# gsutil cp gs://ow-seg/preprocess_gcs.py /home/huongn
+gsutil cp gs://ow-seg/requirements_seg.txt /home/huongn
+# gsutil cp gs://ow-seg/utils.py /home/huongn
+# gsutil cp gs://ow-seg/merge_man_mach.py /home/huongn
+gsutil cp gs://ow-seg/merge_man_mach_neat.py /home/huongn
 
 apt-get update && apt-get install -y     curl     git     ffmpeg     python3     python3-venv     python3-pip     python3-setuptools     unzip     curl
 
@@ -79,4 +81,6 @@ output = $AWS_OUTPUT_FORMAT
 EOL
 
 cd /home/huongn
-python3 preprocess_gcs.py --bucket=ow-download-4m --queue_id=ow-seg --tar_prefix=ow_4M_full --log_dir=seg_logs --seg_dir=segments --audio_dir=audio >> main.log 2>&1
+# python3 merge_man_mach.py >> main.log 2>&1
+python3 merge_man_mach_neat.py >> main.log 2>&1
+# python3 preprocess_gcs.py --bucket=ow-seg --queue_id=ow-seg --log_dir=seg_logs --seg_dir=segments --transcript_only=False --audio_dir=audio --tar_prefix=ow_4M_full --jsonl_prefix=None --manifest_prefix=None  >> main.log 2>&1

@@ -183,6 +183,7 @@ def to_dicts(file_path: str):
         "content": content,
         "length": length,
         "audio_file": file_path.split(".")[0] + ".m4a",
+        "id": file_path.split("/")[-1].split(".")[0],
     }
 
 
