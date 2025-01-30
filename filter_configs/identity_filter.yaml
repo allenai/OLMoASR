@@ -1,3 +1,0 @@
-name: identity_filter_only
-pipeline:
-  - fxn: identity
