@@ -4,6 +4,7 @@ FROM pytorch/pytorch:2.4.0-cuda11.8-cudnn9-runtime
 # Setting environment variables
 ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
+ENV PATH="/usr/local/aws-cli/v2/current/bin:$PATH"
 
 # Set working directory for the project
 WORKDIR /stage/
@@ -14,23 +15,24 @@ RUN apt-get update && apt-get install -y \
     wget \
     unzip \
     curl \
+    tar \
     build-essential \
-    python3-dev
-
-# Install fastText
-RUN wget https://github.com/facebookresearch/fastText/archive/v0.9.2.zip && \
-    unzip v0.9.2.zip && \
-    cd fastText-0.9.2 && \
-    make && \
-    pip install .
+    python3-dev \
+ && curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
+ && unzip awscliv2.zip \
+ && ./aws/install \
+ && rm -rf awscliv2.zip aws
 
 # Copy requirements file
-COPY requirements-filter.txt requirements-filter.txt
+COPY requirements-data-process.txt requirements-data-process.txt
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements-filter.txt
+RUN pip install --no-cache-dir -r requirements-data-process.txt
 
 # Copy necessary files and directories to the container
 COPY open_whisper/ open_whisper/
 COPY logs/ logs/
-COPY scripts/data/filtering/ scripts/data/filtering/
+COPY scripts/data/processing/ scripts/data/processing/
+
+# Verify AWS CLI installation
+RUN aws --version
