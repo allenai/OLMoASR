@@ -1,6 +1,6 @@
 gantry run \
-  --name "gcs_to_weka" \
-  --description "data transfer from gcs to weka" \
+  --name "weka_to_gcs" \
+  --description "data transfer from weka to gcs" \
   --allow-dirty \
   --no-nfs \
   --preemptible \
@@ -12,11 +12,11 @@ gantry run \
   --budget ai2/oe-data \
   --priority normal \
   --weka oe-data-default:/weka \
-  -- /bin/bash -c "python scripts/data/data_transfer/file_transfer_gcs.py download_dir \
-    --local_dir=/weka/huongn/ow_mach_man_eng \
+  -- /bin/bash -c "python scripts/data/data_transfer/file_transfer_gcs.py upload_dir \
+    --local_dir=/weka/huongn/metadata/ow_seg_transcript_manifest \
     --bucket_name=ow-seg \
-    --bucket_prefix=fulldata_2 \
+    --bucket_prefix=local_seg_manifest \
     --service_account=349753783513-compute@developer.gserviceaccount.com \
     --key_file=/gcp_service_key.json \
-    --log_file=/results/huongn/gcs_to_weka.log
+    --log_file=/results/huongn/weka_to_gcs.log
     "

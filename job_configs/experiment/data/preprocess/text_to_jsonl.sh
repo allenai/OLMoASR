@@ -1,16 +1,16 @@
 DATA_DIR="/weka/huongn/ow_full"
-OUTPUT_DIR="weka/huongn/ow_full_jsonl"
+OUTPUT_DIR="/weka/huongn/ow_full_jsonl"
 BATCH_SIZE=25
 INIT_SHARD_IDX=0
 REPLICAS=20
-BUCKET="allennlp-matt"
-BUCKET_PREFIX="openwhisper/jsonl_final_unfiltered"
+BUCKET="allennlp-mattj"
+BUCKET_PREFIX="openwhisper/pretraining_data/jsonl_no_mach"
 WORKSPACE="ai2/open-whisper" #ai2/open-whisper ai2/vida
 HF_TOKEN="HF_TOKEN" #HUONGN_HF_TOKEN HF_TOKEN
 GITHUB_TOKEN="GITHUB_TOKEN" #HUONGN_GITHUB_TOKEN GITHUB_TOKEN
 PRIORITY="high"
 
-for ((i = 0; i < 1; i++))
+for ((i = 29; i < 43; i++))
 do
     START_SHARD_IDX=$((INIT_SHARD_IDX + (BATCH_SIZE * REPLICAS * i)))
     END_SHARD_IDX=$((START_SHARD_IDX + (BATCH_SIZE * REPLICAS)))
@@ -20,7 +20,7 @@ do
         --description "Generate JSONL format training data" \
         --allow-dirty \
         --no-nfs \
-        --preemptible \
+        --beaker-image huongn/ow_gen_jsonl \
         --workspace ${WORKSPACE} \
         --cluster ai2/neptune-cirrascale \
         --cpus 62 \
@@ -40,4 +40,6 @@ do
             --bucket=${BUCKET} \
             --bucket_prefix=${BUCKET_PREFIX}
             "
+    echo "Sleeping for 2 minutes"
+    sleep 120
 done

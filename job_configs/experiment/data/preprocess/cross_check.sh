@@ -6,18 +6,18 @@ gantry run \
   --preemptible \
   --workspace ai2/open-whisper \
   --cluster ai2/neptune-cirrascale \
-  --cpus 20 \
+  --cpus 10 \
   --pip requirements-filter.txt \
   --budget ai2/oe-data \
-  --replicas 10 \
-  --priority normal \
+  --replicas 20 \
+  --priority high \
   --weka oe-data-default:/weka \
   -- /bin/bash -c "python scripts/data/processing/cross_check.py \
     --full_dir_path=/weka/huongn/ow_full \
     --seg_dir_path=/weka/huongn/ow_seg \
-    --spill_dir=/weka/huongn/ow_spill_8M_10K \
-    --batch_size=250 \
-    --start_shard_idx=12449 \
-    --end_shard_idx=14948 \
-    --dry_run=False
+    --spill_dir=/weka/huongn/ow_spill \
+    --batch_size=1060 \
+    --start_shard_idx=0 \
+    --end_shard_idx=21194 \
+    --dry_run=True
     " 
