@@ -1,0 +1,42 @@
+# base image - pytorch
+FROM pytorch/pytorch:2.4.0-cuda11.8-cudnn9-runtime
+
+# setting the environment variables
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+ENV NODE_OPTIONS=--openssl-legacy-provider
+
+# creating a directory for the project
+WORKDIR /stage/
+
+# Install git, curl, wget, Node.js, npm, Yarn, and ImageMagick
+RUN apt-get update && apt-get install -y \
+    git \
+    ffmpeg \
+    build-essential \
+    curl \
+    wget \
+    imagemagick && \
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g yarn && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install http-server
+RUN npm install -g http-server
+
+# Download Helvetica font (TTF format)
+RUN mkdir -p /usr/share/fonts/truetype/helvetica && \
+    wget -q -O /usr/share/fonts/truetype/helvetica/helvetica.ttf \
+    "https://github.com/google/fonts/raw/main/apache/helvetica/Helvetica.ttf" && \
+    fc-cache -fv
+
+# Verify installations (optional)
+RUN node -v && npm -v && yarn -v && convert -version
+
+COPY requirements-data-process.txt requirements-data-process.txt
+RUN pip install -r requirements-data-process.txt
+
+COPY scripts/data/filtering scripts/data/filtering/
+COPY logs logs/
+COPY open_whisper open_whisper/
