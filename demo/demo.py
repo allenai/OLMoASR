@@ -5,10 +5,10 @@ from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from whisper.normalizers import EnglishTextNormalizer
 
 processor = WhisperProcessor.from_pretrained(
-    "openai/whisper-tiny.en", task="transcribe"
+    "openai/whisper-small.en", task="transcribe"
 )
 model = WhisperForConditionalGeneration.from_pretrained(
-    pretrained_model_name_or_path="/home/ubuntu/open_whisper/checkpoints/ckpt_hf_demo"
+    pretrained_model_name_or_path="/home/ubuntu/open_whisper/checkpoints/best_small_hf_demo"
 )
 model.cuda()
 normalizer = EnglishTextNormalizer()
@@ -30,6 +30,7 @@ def transcribe(audio_file):
     # Load audio
     waveform, sample_rate = torchaudio.load(audio_file)
     waveform = stereo_to_mono(waveform)
+    print(waveform.shape)
 
     # Resample to the sample rate required by the model (if necessary)
     if sample_rate != 16000:
