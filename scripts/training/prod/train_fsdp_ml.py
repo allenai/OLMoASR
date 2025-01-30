@@ -13,7 +13,6 @@ from itertools import chain
 from collections import defaultdict
 import functools
 import subprocess
-import gzip
 
 import torch
 import torch.nn.functional as F
@@ -22,7 +21,6 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
 from torch.autograd import set_detect_anomaly
-import torch.autograd.profiler as profiler
 
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
@@ -54,24 +52,23 @@ from torch.distributed.fsdp.wrap import (
 
 import whisper
 from whisper import audio, DecodingOptions
-from whisper.normalizers import EnglishTextNormalizer
+from whisper.normalizers import BasicTextNormalizer
 from whisper.tokenizer import get_tokenizer
 import whisper.tokenizer
 from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
 import open_whisper as ow
-from whisper.model import (
-    ResidualAttentionBlock,
-    AudioEncoder,
-    TextDecoder,
-    MultiHeadAttention,
-)
+from whisper.model import ResidualAttentionBlock, AudioEncoder, TextDecoder, MultiHeadAttention
 
 from scripts.eval.eval import EvalDataset
-from scripts.training import for_logging
+from scripts.training.prod import for_logging
 
 WANDB_EXAMPLES = 8
 DEBUG_HOOK_DIR = ""
 os.environ["WANDB__SERVICE_WAIT"] = "300"
+os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
+os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
+os.environ["NCCL_DEBUG"] = "INFO"
+os.environ["TORCH_DISTRIBUTED_DETAIL"] = "DEBUG"
 
 
 class AudioTextDataset(Dataset):
@@ -87,11 +84,9 @@ class AudioTextDataset(Dataset):
         self,
         samples: List[Dict],
         n_text_ctx: int,
-        n_head: int,
     ):
         self.samples = samples
         self.n_text_ctx = n_text_ctx
-        self.n_head = n_head
 
     def __len__(self):
         return len(self.samples)
@@ -102,17 +97,25 @@ class AudioTextDataset(Dataset):
         # not sure if putting it here is bad...
         global tokenizer
         sample_dict = self.samples[index]
-        audio_file = sample_dict["audio_file"]
-        transcript_file = sample_dict["subtitle_file"]
-        transcript_string = sample_dict["seg_content"]
+        audio_file = sample_dict["audio"]
+        transcript_file = sample_dict["transcript"]
+        if "language" in sample_dict:
+            language = sample_dict["language"]
+        else:
+            language = "en"
+        try:
+            tokenizer_lang = tokenizer(language=language)
+        except:
+            print(f"{language=} not found in tokenizer")
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
         text_input, text_y, padding_mask = self.preprocess_text(
-            transcript_string, transcript_file, tokenizer
-        )
+            transcript_file, tokenizer_lang
+    )
 
         return (
             audio_file,
             transcript_file,
+            language,
             padded_audio_arr,
             audio_input,
             text_input,
@@ -138,10 +141,7 @@ class AudioTextDataset(Dataset):
         return mel_spec, audio_arr
 
     def preprocess_text(
-        self,
-        transcript_string: str,
-        transcript_file: str,
-        tokenizer: whisper.tokenizer.Tokenizer,
+        self, transcript_file: str, tokenizer: whisper.tokenizer.Tokenizer
     ) -> Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Preprocesses the text data for the model.
 
@@ -156,9 +156,7 @@ class AudioTextDataset(Dataset):
         """
         # transcript -> text
         reader = ow.utils.TranscriptReader(
-            transcript_string=transcript_string,
-            file_path=None,
-            ext=transcript_file.split(".")[-1],
+            file_path=transcript_file, ext=transcript_file.split(".")[-1]
         )
         transcript, *_ = reader.read()
 
@@ -178,26 +176,19 @@ class AudioTextDataset(Dataset):
         text_y = text_tokens[1:]
 
         padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
-        padding_mask[:, len(text_input) :] = -np.inf
-        causal_mask = (
-            torch.empty(self.n_text_ctx, self.n_text_ctx).fill_(-np.inf).triu_(1)
-        )
-        padding_mask = padding_mask + causal_mask
-        padding_mask = padding_mask.unsqueeze(dim=0).repeat(self.n_head, 1, 1)[
-            :, : self.n_text_ctx, : self.n_text_ctx
-        ]
+        padding_mask[:, len(text_input) :] = -float("inf")
 
         text_input = np.pad(
             text_input,
             pad_width=(0, self.n_text_ctx - len(text_input)),
             mode="constant",
-            constant_values=51864,
+            constant_values=51865,
         )
         text_y = np.pad(
             text_y,
             pad_width=(0, self.n_text_ctx - len(text_y)),
             mode="constant",
-            constant_values=51864,
+            constant_values=51865,
         )
 
         text_input = torch.tensor(text_input, dtype=torch.long)
@@ -208,7 +199,8 @@ class AudioTextDataset(Dataset):
 
 def init_tokenizer(worker_id: int):
     global tokenizer
-    tokenizer = get_tokenizer(multilingual=False)
+    tokenizer = functools.partial(get_tokenizer, multilingual=True)
+    # tokenizer = get_tokenizer(multilingual=True)
 
 
 def setup(rank: int) -> None:
@@ -223,9 +215,14 @@ def setup(rank: int) -> None:
 
 
 def open_dicts_file(samples_dicts_file) -> List[Dict]:
-    if samples_dicts_file.endswith(".gz"):
-        with gzip.open(samples_dicts_file, "rt") as f:
-            samples_dicts = [json.loads(line.strip()) for line in f]
+    with open(samples_dicts_file, "r") as f:
+        samples_dicts = list(
+            chain.from_iterable(
+                json_line.get("sample_dicts")
+                for json_line in map(json.loads, f)
+                if json_line.get("sample_dicts") is not None
+            )
+        )
     return samples_dicts
 
 
@@ -282,7 +279,6 @@ def prepare_data(
     train_batch_size: int,
     val_batch_size: int,
     n_text_ctx: int,
-    n_head: int,
     pin_memory: bool = True,
     shuffle: bool = True,
     num_workers: int = 0,
@@ -323,7 +319,6 @@ def prepare_data(
             else samples_dicts[start_idx : start_idx + subset]
         ),
         n_text_ctx=n_text_ctx,
-        n_head=n_head,
     )
 
     if train_val_split == 1.0:
@@ -543,8 +538,7 @@ def setup_wandb(
     wandb.define_metric("train/*", step_metric="custom_step")
     wandb.define_metric("val/*", step_metric="custom_step")
     wandb.define_metric("eval/*", step_metric="custom_step")
-    wandb.define_metric("efficiency/time_per_step=*", step_metric="custom_step")
-    wandb.define_metric("efficiency/audio_min_per_GPU_second_gpu=*", step_metric="custom_step")
+    wandb.define_metric("efficiency/*", step_metric="custom_step")
 
     return run_id
 
@@ -779,22 +773,24 @@ def load_ckpt(
     )
 
 
-def gen_pred(logits, text_y, tokenizer):
+def gen_pred(logits, text_y, tokenizer, languages):
     probs = F.softmax(logits, dim=-1)
     pred = torch.argmax(probs, dim=-1)
 
     # collecting data for logging
     microbatch_pred_text = []
     microbatch_unnorm_pred_text = []
-    for pred_instance in pred.cpu().numpy():
-        pred_instance_text = tokenizer.decode(list(pred_instance))
+    for i, pred_instance in enumerate(pred.cpu().numpy()):
+        tokenizer_lang = tokenizer(language=languages[i])
+        pred_instance_text = tokenizer_lang.decode(list(pred_instance))
         microbatch_unnorm_pred_text.append(pred_instance_text)
         pred_instance_text = ow.utils.remove_after_endoftext(pred_instance_text)
         microbatch_pred_text.append(pred_instance_text)
 
     microbatch_tgt_text = []
-    for text_y_instance in text_y.cpu().numpy():
-        tgt_y_instance_text = tokenizer.decode(list(text_y_instance))
+    for i, text_y_instance in enumerate(text_y.cpu().numpy()):
+        tokenizer_lang = tokenizer(language=languages[i])
+        tgt_y_instance_text = tokenizer_lang.decode(list(text_y_instance))
         tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
         tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
         microbatch_tgt_text.append(tgt_y_instance_text)
@@ -824,13 +820,17 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer, rank):
         dels = 0
         ins = 0
     else:
-        train_wer = (
-            jiwer.wer(
-                reference=batch_tgt_text_full,
-                hypothesis=batch_pred_text_full,
+        try:
+            train_wer = (
+                jiwer.wer(
+                    reference=batch_tgt_text_full,
+                    hypothesis=batch_pred_text_full,
+                )
+                * 100
             )
-            * 100
-        )
+        except ValueError:
+            print(f"{batch_tgt_text_full=}")
+            print(f"{batch_pred_text_full=}")
         measures = jiwer.compute_measures(
             truth=batch_tgt_text_full, hypothesis=batch_pred_text_full
         )
@@ -1004,7 +1004,7 @@ def train(
     scaler: Optional[GradScaler],
     model: FSDP,
     tokenizer: whisper.tokenizer.Tokenizer,
-    normalizer: EnglishTextNormalizer,
+    normalizer: BasicTextNormalizer,
     optimizer: torch.optim.Optimizer,
     scheduler: LambdaLR,
     accumulation_steps: int,
@@ -1035,7 +1035,6 @@ def train(
     detect_anomaly: bool,
     precision: torch.dtype,
     use_orig_params: bool,
-    profile: bool,
 ) -> Tuple[
     int,
     float,
@@ -1086,7 +1085,7 @@ def train(
     for batch_idx, batch in enumerate(train_dataloader):
         model.train()
 
-        if batch_idx % accumulation_steps == 0 or accumulation_steps == 1:
+        if (batch_idx + 1) % accumulation_steps != 0 or accumulation_steps == 1:
             start_step = time.time()
 
         with set_detect_anomaly(mode=detect_anomaly):
@@ -1104,13 +1103,15 @@ def train(
                     wandb.log(
                         {
                             f"efficiency/dl_time_gpu={i}": dl_time,
+                            "custom_step": current_step,
                         }
                     )
-
+            
             with autocast(device_type="cuda", dtype=precision):
                 (
                     audio_files,
                     transcript_files,
+                    languages,
                     padded_audio_arr,
                     audio_input,
                     text_input,
@@ -1124,29 +1125,13 @@ def train(
                 padding_mask = padding_mask.to(local_rank)
 
                 start_fwd = time.time()
-
-                if profile:
-                    with profiler.profile(
-                        enabled=True,
-                        record_shapes=True,
-                        with_flops=True,
-                        profile_memory=True,
-                        use_cuda=True,
-                    ) as prof:
-                        with profiler.record_function("model_forward_pass"):
-                            logits = model(
-                                audio_input, text_input, padding_mask, verbose
-                            )
-                else:
-                    logits = model(audio_input, text_input, padding_mask, verbose)
-
+                logits = model(audio_input, text_input, padding_mask, verbose)
                 end_fwd = time.time()
-
+                
                 time_fwd = end_fwd - start_fwd
                 time_fwd_tensor = torch.tensor(time_fwd, device=local_rank)
                 gathered_fwd_time = [
-                    torch.zeros_like(time_fwd_tensor)
-                    for _ in range(dist.get_world_size())
+                    torch.zeros_like(time_fwd_tensor) for _ in range(dist.get_world_size())
                 ]
                 dist.all_gather(gathered_fwd_time, time_fwd_tensor)
                 if rank == 0:
@@ -1154,54 +1139,29 @@ def train(
                     for i, fwd_time in enumerate(gathered_fwd_time):
                         wandb.log(
                             {
-                                f"efficiency/fwd_time_gpu={i}": fwd_time
+                                f"efficiency/fwd_time_gpu={i}": fwd_time,
+                                "custom_step": current_step,
                             }
                         )
 
                 train_loss = F.cross_entropy(
                     logits.view(-1, logits.shape[-1]),
                     text_y.view(-1),
-                    ignore_index=51864,
+                    ignore_index=51865,
                 )
                 train_loss = (
                     train_loss / accumulation_steps
                 )  # normalization of loss (gradient accumulation)
 
-            if profile:
-                with open(f"{log_dir}/fwd_profiling_summary.txt", "w") as f:
-                    f.write(prof.key_averages().table(sort_by="cuda_time"))
-
-            if profile:
-                with profiler.profile(
-                    enabled=True,
-                    record_shapes=True,
-                    with_flops=True,
-                    profile_memory=True,
-                    use_cuda=True,
-                ) as prof:
-                    with profiler.record_function("model_backward_pass"):
-                        if scaler is not None:
-                            scaler.scale(train_loss).backward()  # accumulate gradients
-                        else:
-                            if ((batch_idx + 1) % accumulation_steps) == 0:
-                                train_loss.backward()
-                            else:
-                                with model.no_sync():
-                                    train_loss.backward()
+            if scaler is not None:
+                scaler.scale(train_loss).backward()  # accumulate gradients
             else:
-                if scaler is not None:
-                    scaler.scale(train_loss).backward()  # accumulate gradients
+                if ((batch_idx + 1) % accumulation_steps) == 0:
+                    train_loss.backward()
                 else:
-                    if ((batch_idx + 1) % accumulation_steps) == 0:
+                    with model.no_sync():
                         train_loss.backward()
-                    else:
-                        with model.no_sync():
-                            train_loss.backward()
-
-            if profile:
-                with open(f"{log_dir}/bwd_profiling_summary.txt", "w") as f:
-                    f.write(prof.key_averages().table(sort_by="cuda_time"))
-
+                    
             if use_orig_params:
                 with FSDP.summon_full_params(module=model, with_grads=True):
                     for i, (name, param) in enumerate(model.named_parameters()):
@@ -1260,6 +1220,7 @@ def train(
                     logits,
                     text_y,
                     tokenizer,
+                    languages,
                 )
                 batch_pred_text.extend(microbatch_pred_text)
                 batch_unnorm_pred_text.extend(microbatch_unnorm_pred_text)
@@ -1540,9 +1501,10 @@ def train(
             batch_audio_files = []
             batch_text_files = []
             batch_audio_arr = []
-
+            
             # logging dataloading time
             start_dl = time.time()
+            
 
     # If your dataset size is not a multiple of (batch_size * accumulation_steps)
     # Make sure to account for the last set of batches smaller than accumulation_steps
@@ -1672,7 +1634,7 @@ def validate(
     scaler: Optional[GradScaler],
     model: FSDP,
     tokenizer: whisper.tokenizer.Tokenizer,
-    normalizer: EnglishTextNormalizer,
+    normalizer: BasicTextNormalizer,
     optimizer: torch.optim.Optimizer,
     scheduler: LambdaLR,
     model_dims: ModelDimensions,
@@ -1906,7 +1868,7 @@ def evaluate(
     model_dims: ModelDimensions,
     model_variant: str,
     eval_loaders: List[DataLoader],
-    normalizer: EnglishTextNormalizer,
+    normalizer: BasicTextNormalizer,
     best_val_loss: Optional[float],
     best_eval_wer: Optional[float],
     tags: Optional[List[str]],
@@ -2158,7 +2120,6 @@ def main(
         "FULL_SHARD", "SHARD_GRAD_OP", "HYBRID_SHARD", "_HYBRID_SHARD_ZERO2"
     ] = "FULL_SHARD",
     cpu_offload: bool = False,
-    profile: bool = False,
 ) -> None:
     """Main function for training
 
@@ -2232,13 +2193,13 @@ def main(
     )
 
     # setup the tokenizer and normalizer
-    tokenizer = get_tokenizer(multilingual=False)
-    normalizer = EnglishTextNormalizer()
+    tokenizer = functools.partial(get_tokenizer, multilingual=True)
+    # tokenizer = get_tokenizer(multilingual=False)
+    normalizer = BasicTextNormalizer()
     n_text_ctx = model_dims.n_text_ctx
-    n_head = model_dims.n_text_head
 
     # load samples dicts
-    samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*.jsonl.gz")
+    samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*/samples_dicts.jsonl")
 
     with multiprocessing.Pool() as pool:
         samples_dicts = list(
@@ -2251,6 +2212,7 @@ def main(
         )
 
     print(f"{len(samples_dicts)=}")
+    print(f"{samples_dicts_files=}")
 
     # prepare dataset
     train_dataloader, train_sampler, val_dataloader, val_sampler = prepare_data(
@@ -2259,7 +2221,6 @@ def main(
         train_batch_size=train_batch_size,
         val_batch_size=val_batch_size,
         n_text_ctx=n_text_ctx,
-        n_head=n_head,
         pin_memory=pin_memory,
         shuffle=shuffle,
         num_workers=num_workers,
@@ -2342,12 +2303,7 @@ def main(
 
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
-            transformer_layer_cls={
-                ResidualAttentionBlock,
-                AudioEncoder,
-                TextDecoder,
-                MultiHeadAttention,
-            },
+            transformer_layer_cls={ResidualAttentionBlock, AudioEncoder, TextDecoder, MultiHeadAttention},
         )
         model = FSDP(
             model,
@@ -2362,12 +2318,7 @@ def main(
 
         # optimizer and scheduler instantiation
         optimizer = prepare_optim(
-            model=model,
-            lr=lr,
-            betas=betas,
-            eps=eps,
-            weight_decay=weight_decay,
-            cpu_offload=cpu_offload,
+            model=model, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, cpu_offload=cpu_offload
         )
 
         scheduler, accumulation_steps, warmup_steps, train_steps = prepare_sched(
@@ -2386,7 +2337,7 @@ def main(
             # scaler = GradScaler(init_scale=2**16)
             scaler = None
 
-        if run_val:
+        if run_val: 
             best_val_loss = float("inf")
         else:
             best_val_loss = None
@@ -2405,9 +2356,7 @@ def main(
         offload_to_cpu=False,
         checkpoint_impl=CheckpointImpl.NO_REENTRANT,
     )
-    check_fn = lambda submodule: isinstance(
-        submodule, (ResidualAttentionBlock, MultiHeadAttention)
-    )
+    check_fn = lambda submodule: isinstance(submodule, (ResidualAttentionBlock, MultiHeadAttention))
     apply_activation_checkpointing(
         model, checkpoint_wrapper_fn=non_reentrant_wrapper, check_fn=check_fn
     )
@@ -2515,7 +2464,6 @@ def main(
             detect_anomaly=detect_anomaly,
             precision=autocast_precision,
             use_orig_params=use_orig_params,
-            profile=profile,
         )
 
         epoch += 1

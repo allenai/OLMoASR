@@ -33,7 +33,7 @@ from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
 import open_whisper as ow
 
 from scripts.eval.eval import EvalDataset
-from scripts.training import for_logging
+from scripts.training.prod import for_logging
 
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"

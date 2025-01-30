@@ -218,15 +218,28 @@ def modify_text(content):
 
 
 def filter_unrelated(scores_dict: Dict, threshold: int, comparison: str):
-    score = scores_dict["man_mach_score"]
+    score = scores_dict["score_unrelated"]
 
-    if comparison == "ge":
+    if comparison is "ge":
         return score >= threshold
-    elif comparison == "g":
+    elif comparison is "g":
         return score > threshold
-    elif comparison == "le":
+    elif comparison is "le":
         return score <= threshold
-    elif comparison == "l":
+    elif comparison is "l":
+        return score < threshold
+
+
+def filter_fasttext(scores_dict: Dict, threshold: int, comparison: str, eval_set: str):
+    score = scores_dict[f"score_{eval_set}"]
+
+    if comparison is "ge":
+        return score >= threshold
+    elif comparison is "g":
+        return score > threshold
+    elif comparison is "le":
+        return score <= threshold
+    elif comparison is "l":
         return score < threshold
 
 
@@ -236,7 +249,8 @@ FILTER_DICT = {
     "has_mixed_case": has_mixed_case,
     "has_no_repeats": has_no_repeats,
     "modify_text": modify_text,
-    "filter_unrelated": filter_unrelated,
+    "remove_unrelated": filter_unrelated,
+    "fasttext_filter": filter_fasttext,
 }
 
 
@@ -262,9 +276,9 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     total_hitlist = defaultdict(int)
     for line in lines:
         lines_seen += 1
-        parsed_content = parse_into_iter(line["content"], line["subtitle_file"])
-        scores_dict = {k: v for k, v in line.items() if "score" in k}
-        chars_seen += len(line["content"])  # TODO: Be more precise here
+        parsed_content = parse_into_iter(line["seg_content"], line["subtitle_file"])
+        scores_dict = {k: v for k, v in line.items() if k.endswith("_score")}
+        chars_seen += len(line["seg_content"])  # TODO: Be more precise here
         output_content, hitlist = process_content(
             parsed_content, scores_dict, config_dict
         )
@@ -299,7 +313,10 @@ def process_content(content, scores_dict, config):
         filter_fxn = FILTER_DICT[filter_dict["fxn"]]
         kwargs = {k: v for k, v in filter_dict.items() if k != "fxn"}
 
-        if filter_dict["fxn"] == "filter_unrelated":
+        if (
+            filter_dict["fxn"] == "fasttext_filter"
+            or filter_dict["fxn"] == "remove_unrelated"
+        ):
             keep = filter_fxn(scores_dict, **kwargs)
             if not keep:
                 content = None

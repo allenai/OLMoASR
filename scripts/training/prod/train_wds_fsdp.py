@@ -67,7 +67,7 @@ from whisper.model import (
 )
 
 from scripts.eval.eval import EvalDataset
-from scripts.training import for_logging
+from scripts.training.prod import for_logging
 
 WANDB_EXAMPLES = 8
 DEBUG_HOOK_DIR = ""

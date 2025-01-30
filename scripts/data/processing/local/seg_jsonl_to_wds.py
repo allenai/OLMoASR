@@ -134,6 +134,8 @@ def main(
     else:
         seg_jsonls = glob.glob(f"{input_dir}/*.jsonl.gz")
     logger.info(f"Processing {len(seg_jsonls)} jsonl files")
+    logger.info(f"{seg_jsonls[:5]=}")
+    logger.info(f"{seg_jsonls[-5:]=}")
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
     logger.addHandler(logging.StreamHandler())
