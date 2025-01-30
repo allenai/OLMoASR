@@ -6,20 +6,20 @@ gantry run \
   --preemptible \
   --beaker-image huongn/gcs_to_weka \
   --workspace ai2/open-whisper \
-  --cluster ai2/jupiter-cirrascale-2 \
+  --cluster ai2/neptune-cirrascale \
   --cpus 10 \
   --pip requirements-filter.txt \
   --budget ai2/oe-data \
-  --replicas 50 \
+  --replicas 10 \
   --priority normal \
   --weka oe-data-default:/weka \
   -- /bin/bash -c "python scripts/data/data_transfer/download_gcs.py \
     download_files_batch \
-    --start_dir_idx=0 \
-    --batch_size=320 \
-    --local_dir=/weka/huongn/tars/4M/seg_250 \
+    --start_dir_idx=26000 \
+    --batch_size=80 \
+    --local_dir=/weka/huongn/tars/8M/full_250_24984 \
     --bucket_name=ow-download-4m \
-    --bucket_prefix=segments \
+    --bucket_prefix=ow_4M_full \
     --service_account=349753783513-compute@developer.gserviceaccount.com \
     --key_file=/gcp_service_key.json \
     --log_file=/results/huongn/gcs_to_weka.log \
