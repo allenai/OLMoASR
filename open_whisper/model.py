@@ -176,7 +176,18 @@ class MultiHeadAttention(nn.Module):
             print(f"{k=}")
             print(f"{v=}")
             print("Attention computation")
-        wv, qk = self.qkv_attention(q, k, v, mask, verbose=verbose, block_count=block_count)
+            
+        # wv, qk = self.qkv_attention(q, k, v, mask, verbose=verbose, block_count=block_count)
+        
+        qk = None
+        n_batch, n_ctx, n_state = q.shape
+        scale = (n_state // self.n_head) ** -0.25
+        q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+        k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+        v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+        mask = mask.unsqueeze(dim=1) if mask is not None else None
+        wv = F.scaled_dot_product_attention(query=q, key=k, value=v, attn_mask=mask, scale=scale).permute(0, 2, 1, 3).flatten(start_dim=2)
+        
         if verbose:
             print(f"{wv=}")
         return self.out(wv), qk
@@ -440,18 +451,20 @@ class TextDecoder(nn.Module):
             #     .to(device=padding_mask.device)
             # )
             # self.mask = padding_mask + mask
-            self.mask = padding_mask
+            full_mask = padding_mask + self.mask
         else:
-            self.mask = (
-                torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1).to(device=x.device)
-            )
+            full_mask = self.mask
+            # self.mask = (
+            #     torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1).to(device=x.device)
+            # )
         if verbose:
             print("Starting decoder blocks")
         block_count = 0
         for block in self.blocks:
             if verbose:
                 print(f"Block {block_count}")
-            x = block(x, xa, mask=self.mask, kv_cache=kv_cache, verbose=verbose, block_count=block_count)
+            # x = block(x, xa, mask=self.mask, kv_cache=kv_cache, verbose=verbose, block_count=block_count)
+            x = block(x, xa, mask=full_mask, kv_cache=kv_cache, verbose=verbose, block_count=block_count)
             if verbose:
                 print(f"{x.shape=}")
                 print(f"{x=}")
