@@ -16,3 +16,4 @@ webdataset
 soundfile
 ray
 librosa
+torch-tb-profiler
