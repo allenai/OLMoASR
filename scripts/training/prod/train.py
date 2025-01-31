@@ -623,7 +623,7 @@ def load_ckpt(
         )[0]
         print(f"{ckpt_file=}")
 
-    ckpt = torch.load(ckpt_file, map_location=map_location)
+    ckpt = torch.load(ckpt_file, map_location=map_location, weights_only=False)
 
     model = ow.model.Whisper(dims=ckpt["dims"]).to(rank)
     model = DDP(model, device_ids=[rank], output_device=rank)
@@ -1392,7 +1392,7 @@ def evaluate(
                         f"{eval_set} average WER: {avg_wer}\n at step {current_step}\n"
                     )
                 wandb.log(
-                    {f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step}
+                    {f"eval/{eval_set}_wer": avg_wer, "global_step": current_step}
                 )
 
     if rank == 0:
