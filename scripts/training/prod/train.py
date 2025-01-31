@@ -1516,9 +1516,9 @@ def main(
         ckpt_file_name = ""
 
     tags = [
-        "fsdp-train",
+        "ddp-train",
         "grad-acc",
-        "bfloat16",
+        "fp16",
     ]
 
     model_dims = VARIANT_TO_DIMS[model_variant]
