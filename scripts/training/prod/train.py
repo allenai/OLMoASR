@@ -34,7 +34,7 @@ from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
 import open_whisper as ow
 
 from scripts.eval.eval import EvalDataset
-from scripts.training.prod.for_logging import TRAIN_TABLE_COLS, EVAL_TABLE_COLS
+from for_logging import TRAIN_TABLE_COLS, EVAL_TABLE_COLS
 
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"
@@ -1453,6 +1453,7 @@ def main(
     train_batch_size: int = 8,
     eval_batch_size: Optional[int] = 32,
     num_workers: int = 10,
+    prefetch_factor: int = 2,
     pin_memory: bool = True,
     shuffle: bool = True,
     persistent_workers: bool = True,
@@ -1552,6 +1553,7 @@ def main(
     n_head = model_dims.n_text_head
 
     samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*.jsonl.gz")
+    print(f"{len(samples_dicts_files)=}")
 
     with multiprocessing.Pool() as pool:
         samples_dicts = list(
