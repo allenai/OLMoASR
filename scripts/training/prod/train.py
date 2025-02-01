@@ -924,10 +924,9 @@ def train(
                 {
                     "efficiency/bwd_time": end_bwd - start_bwd,
                     "efficiency/dl_time": end_dl - start_dl,
-                    "efficiency/data_to_gpu_time": end_data_to_gpu,
+                    "efficiency/data_to_gpu_time": end_data_to_gpu - start_data_to_gpu,
                     "efficiency/fwd_time": end_fwd - start_fwd,
-                    "efficiency/avg_preproc_time": sum(preproc_time) / len(preproc_time)
-                    - start_data_to_gpu,
+                    "efficiency/avg_preproc_time": sum(preproc_time) / len(preproc_time),
                     "local_step": local_step,
                 }
             )
