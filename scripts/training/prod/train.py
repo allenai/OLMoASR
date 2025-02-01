@@ -369,12 +369,12 @@ def prepare_sched(
         )  # Number of steps over which to accumulate gradients
     warmup_steps = np.ceil(0.002 * train_steps)
 
-    def lr_lambda(current_step: int) -> float:
-        if current_step < warmup_steps:
-            return float(current_step) / float(max(1, warmup_steps))
+    def lr_lambda(global_step: int) -> float:
+        if global_step < warmup_steps:
+            return float(global_step) / float(max(1, warmup_steps))
         return max(
             0.0,
-            float(train_steps - current_step)
+            float(train_steps - global_step)
             / float(max(1, train_steps - warmup_steps)),
         )
 
@@ -490,7 +490,8 @@ def setup_wandb(
 
 
 def save_ckpt(
-    current_step: int,
+    global_step: int,
+    local_step: int,
     epoch: int,
     best_eval_wer: Optional[float],
     model: torch.nn.Module,
@@ -510,7 +511,7 @@ def save_ckpt(
     Saves non-DDP and DDP model checkpoints to checkpoints/{exp_name}_{run_id} directory in the format of {file_name}_{model_variant}_{tags}_{ddp}.pt
 
     Args:
-        current_step: The current step
+        global_step: The current step
         best_val_loss: The best validation loss
         model: The model to save
         optimizer: The optimizer to save
@@ -525,7 +526,8 @@ def save_ckpt(
         ckpt_dir: Directory where all results are logged
     """
     ddp_checkpoint = {
-        "current_step": current_step,
+        "global_step": global_step,
+        "local_step": local_step,
         "epoch": epoch,
         "best_eval_wer": best_eval_wer,
         "model_state_dict": model.state_dict(),
@@ -538,7 +540,8 @@ def save_ckpt(
     }
 
     non_ddp_checkpoint = {
-        "current_step": current_step,
+        "global_step": global_step,
+        "local_step": local_step,
         "epoch": epoch,
         "best_eval_wer": best_eval_wer,
         "model_state_dict": model.module.state_dict(),
@@ -558,11 +561,11 @@ def save_ckpt(
 
     torch.save(
         ddp_checkpoint,
-        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}_ddp.pt",
+        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{global_step:08}_{model_variant}_{'_'.join(tags)}_ddp.pt",
     )
     torch.save(
         non_ddp_checkpoint,
-        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{current_step:08}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
+        f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_{global_step:08}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
     )
 
 
@@ -629,7 +632,8 @@ def load_ckpt(
     model = DDP(model, device_ids=[rank], output_device=rank)
 
     # if end at training step i, then start at step i+1 when resuming
-    current_step = ckpt["current_step"]
+    global_step = ckpt["global_step"]
+    local_step = ckpt["local_step"]
 
     epoch = ckpt["epoch"]
 
@@ -653,7 +657,8 @@ def load_ckpt(
     scheduler.load_state_dict(ckpt["scheduler_state_dict"])
 
     return (
-        current_step,
+        global_step,
+        local_step,
         epoch,
         best_eval_wer,
         model,
@@ -735,7 +740,7 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer):
 
 
 def log_tbl(
-    current_step,
+    global_step,
     train_table,
     run_id,
     batch_audio_files,
@@ -787,13 +792,14 @@ def log_tbl(
             wer,
         )
 
-    wandb.log({f"train_table_{current_step}": train_table})
+    wandb.log({f"train_table_{global_step}": train_table})
 
 
 def train(
     rank: int,
     local_rank: int,
-    current_step: int,
+    global_step: int,
+    local_step: int,
     train_batch_size: int,
     train_dataloader: DataLoader,
     train_sampler: DistributedSampler,
@@ -872,14 +878,6 @@ def train(
 
     for batch_idx, batch in enumerate(train_dataloader):
         end_dl = time.time()
-        if rank == 0:
-            wandb.log(
-                {
-                    "efficiency/dl_time": end_dl - start_dl,
-                    "local_step": batch_idx + 1,
-                }
-            )
-
         model.train()
         if batch_idx % accumulation_steps == 0 or accumulation_steps == 1:
             start_step = time.time()
@@ -903,33 +901,9 @@ def train(
             padding_mask = padding_mask.to(local_rank)
             end_data_to_gpu = time.time()
 
-            if rank == 0:
-                wandb.log(
-                    {
-                        "efficiency/data_to_gpu_time": end_data_to_gpu
-                        - start_data_to_gpu,
-                        "local_step": batch_idx + 1,
-                    }
-                )
-
             start_fwd = time.time()
             logits = model(audio_input, text_input, padding_mask, verbose)
             end_fwd = time.time()
-
-            if rank == 0:
-                wandb.log(
-                    {
-                        "efficiency/fwd_time": end_fwd - start_fwd,
-                        "local_step": batch_idx + 1,
-                    }
-                )
-                wandb.log(
-                    {
-                        "efficiency/avg_preproc_time": sum(preproc_time)
-                        / len(preproc_time),
-                        "local_step": batch_idx + 1,
-                    }
-                )
 
             train_loss = F.cross_entropy(
                 logits.view(-1, logits.shape[-1]),
@@ -943,12 +917,18 @@ def train(
         start_bwd = time.time()
         scaler.scale(train_loss).backward()
         end_bwd = time.time()
+        local_step += 1
 
         if rank == 0:
             wandb.log(
                 {
                     "efficiency/bwd_time": end_bwd - start_bwd,
-                    "local_step": batch_idx + 1,
+                    "efficiency/dl_time": end_dl - start_dl,
+                    "efficiency/data_to_gpu_time": end_data_to_gpu,
+                    "efficiency/fwd_time": end_fwd - start_fwd,
+                    "efficiency/avg_preproc_time": sum(preproc_time) / len(preproc_time)
+                    - start_data_to_gpu,
+                    "local_step": local_step,
                 }
             )
 
@@ -958,14 +938,14 @@ def train(
         # alerting if loss is nan
         if rank == 0:
             if torch.isnan(train_loss):
-                text = f"Loss is NaN for {audio_files} at step {current_step}!"
+                text = f"Loss is NaN for {audio_files} at step {global_step}!"
                 print(f"{audio_input=}\n")
                 print(f"{text_input=}\n")
                 print(f"{text_y=}\n")
                 print(f"{padding_mask=}\n")
                 wandb.alert(title="NaN Loss", text=text)
 
-        if ((current_step + 1) % train_log_freq) == 0:
+        if ((global_step + 1) % train_log_freq) == 0:
             microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text = (
                 gen_pred(
                     logits,
@@ -982,18 +962,6 @@ def train(
 
         # after accumulation_steps, update weights
         if ((batch_idx + 1) % accumulation_steps) == 0:
-            if ((current_step + 1) % train_log_freq) == 0:
-                train_loss_tensor = total_loss.clone()
-                dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
-                train_loss_all = train_loss_tensor.item() / dist.get_world_size()
-                (
-                    norm_tgt_pred_pairs,
-                    train_wer_all,
-                    train_subs_all,
-                    train_dels_all,
-                    train_ins_all,
-                ) = calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer)
-
             scaler.unscale_(optimizer)
             clip_grad_norm_(model.parameters(), max_grad_norm)
             start_optim_step = time.time()
@@ -1003,11 +971,11 @@ def train(
                 wandb.log(
                     {
                         "efficiency/optim_step_time": end_optim_step - start_optim_step,
-                        "global_step": current_step,
+                        "global_step": global_step,
                     }
                 )
             scaler.update()
-            current_step += 1
+            global_step += 1
             end_step = time.time()
             time_per_step = end_step - start_step
             throughput = (
@@ -1018,13 +986,13 @@ def train(
                 wandb.log(
                     {
                         "efficiency/time_per_step": time_per_step,
-                        "global_step": current_step,
+                        "global_step": global_step,
                     }
                 )
                 wandb.log(
                     {
                         "efficiency/audio_min_per_GPU_second_gpu": throughput,
-                        "global_step": current_step,
+                        "global_step": global_step,
                     }
                 )
 
@@ -1032,19 +1000,33 @@ def train(
             # logging learning rate
             if rank == 0:
                 wandb.log(
-                    {"train/learning_rate": current_lr, "global_step": current_step}
+                    {"train/learning_rate": current_lr, "global_step": global_step}
                 )
             scheduler.step()  # Adjust learning rate based on accumulated steps
 
-            if current_step >= epoch_steps + (epoch_steps * epoch):
-                if rank == 0 and (current_step % train_log_freq) == 0:
+            if (global_step % train_log_freq) == 0 or global_step == 1:
+                train_loss_tensor = total_loss.clone()
+                dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
+                train_loss_all = train_loss_tensor.item() / dist.get_world_size()
+
+                if global_step > 1:
+                    (
+                        norm_tgt_pred_pairs,
+                        train_wer_all,
+                        train_subs_all,
+                        train_dels_all,
+                        train_ins_all,
+                    ) = calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer)
+
+            if global_step >= epoch_steps + (epoch_steps * epoch):
+                if rank == 0 and (global_step % train_log_freq) == 0:
                     print("Logging results at an epoch")
-                    print(f"current_step: {current_step}")
+                    print(f"global_step: {global_step}")
                     print(f"train_loss: {train_loss_all}")
                     print(f"train_wer: {train_wer_all}")
 
                     train_metrics = defaultdict(float)
-                    train_metrics["global_step"] = current_step
+                    train_metrics["global_step"] = global_step
                     train_metrics["train/train_loss"] = train_loss_all
                     train_metrics["train/train_wer"] = train_wer_all
                     train_metrics["train/train_subs"] = train_subs_all
@@ -1054,7 +1036,8 @@ def train(
                     wandb.log(train_metrics)
 
                 return (
-                    current_step,
+                    global_step,
+                    local_step,
                     epoch,
                     best_eval_wer,
                     model,
@@ -1063,15 +1046,15 @@ def train(
                     scheduler,
                 )
 
-            if current_step >= train_steps:
-                if rank == 0 and (current_step % train_log_freq) == 0:
+            if global_step >= train_steps:
+                if rank == 0 and (global_step % train_log_freq) == 0:
                     print("Logging final training results")
-                    print(f"current_step: {current_step}")
+                    print(f"global_step: {global_step}")
                     print(f"train_loss: {train_loss_all}")
                     print(f"train_wer: {train_wer_all}")
 
                     train_metrics = defaultdict(float)
-                    train_metrics["global_step"] = current_step
+                    train_metrics["global_step"] = global_step
                     train_metrics["train/train_loss"] = train_loss_all
                     train_metrics["train/train_wer"] = train_wer_all
                     train_metrics["train/train_subs"] = train_subs_all
@@ -1081,7 +1064,8 @@ def train(
                     wandb.log(train_metrics)
 
                 return (
-                    current_step,
+                    global_step,
+                    local_step,
                     epoch,
                     best_eval_wer,
                     model,
@@ -1094,9 +1078,10 @@ def train(
             total_loss = 0.0
 
             if rank == 0:
-                if current_step % ckpt_freq == 0:
+                if global_step % ckpt_freq == 0:
                     save_ckpt(
-                        current_step=current_step,
+                        global_step=global_step,
+                        local_step=local_step,
                         epoch=epoch,
                         best_eval_wer=best_eval_wer,
                         model=model,
@@ -1112,18 +1097,19 @@ def train(
                         ckpt_dir=ckpt_dir,
                     )
 
-                if current_step % train_log_freq == 0:
-                    print(f"current_step: {current_step}")
+                if global_step % train_log_freq == 0 or global_step == 1:
+                    print(f"global_step: {global_step}")
                     print(f"train_loss: {train_loss_all}")
-                    print(f"train_wer: {train_wer_all}")
-
                     train_metrics = defaultdict(float)
-                    train_metrics["global_step"] = current_step
+                    train_metrics["global_step"] = global_step
                     train_metrics["train/train_loss"] = train_loss_all
-                    train_metrics["train/train_wer"] = train_wer_all
-                    train_metrics["train/train_subs"] = train_subs_all
-                    train_metrics["train/train_dels"] = train_dels_all
-                    train_metrics["train/train_ins"] = train_ins_all
+
+                    if global_step > 1:
+                        print(f"train_wer: {train_wer_all}")
+                        train_metrics["train/train_wer"] = train_wer_all
+                        train_metrics["train/train_subs"] = train_subs_all
+                        train_metrics["train/train_dels"] = train_dels_all
+                        train_metrics["train/train_ins"] = train_ins_all
 
                     wandb.log(train_metrics)
 
@@ -1140,7 +1126,7 @@ def train(
                     )
 
                     log_tbl(
-                        current_step=current_step,
+                        global_step=global_step,
                         train_table=train_table,
                         run_id=run_id,
                         batch_audio_files=batch_audio_files,
@@ -1155,11 +1141,12 @@ def train(
 
             # evaluation
             if run_eval:
-                if (current_step % eval_freq) == 0 and current_step > 0:
+                if (global_step % eval_freq) == 0 and global_step > 0:
                     best_eval_wer = evaluate(
                         rank=rank,
                         local_rank=local_rank,
-                        current_step=current_step,
+                        global_step=global_step,
+                        local_step=local_step,
                         epoch=epoch,
                         model=model,
                         optimizer=optimizer,
@@ -1178,11 +1165,13 @@ def train(
                         ckpt_dir=ckpt_dir,
                     )
 
-                if (current_step % eval_freq) == 0 and current_step > 0:
+                if (global_step % eval_freq) == 0 and global_step > 0:
                     print(f"Rank {rank} reaching barrier")
                 dist.barrier()
-                if (current_step % eval_freq) == 0 and current_step > 0:
+                if (global_step % eval_freq) == 0 and global_step > 0:
                     print(f"Rank {rank} passing barrier")
+
+        start_dl = time.time()
 
         batch_pred_text = []
         batch_tgt_text = []
@@ -1202,23 +1191,24 @@ def train(
         clip_grad_norm_(model.parameters(), max_grad_norm)
         scaler.step(optimizer)
         scaler.update()
-        current_step += 1
+        global_step += 1
         scheduler.step()
 
-        if current_step >= epoch_steps + (epoch_steps * epoch):
-            if rank == 0 and (current_step % train_log_freq) == 0:
+        if global_step >= epoch_steps + (epoch_steps * epoch):
+            if rank == 0 and (global_step % train_log_freq) == 0:
                 print("Logging results at an epoch")
-                print(f"current_step: {current_step}")
+                print(f"global_step: {global_step}")
                 print(f"train_loss: {train_loss_all}")
 
                 train_metrics = defaultdict(float)
-                train_metrics["global_step"] = current_step
+                train_metrics["global_step"] = global_step
                 train_metrics["train/train_loss"] = train_loss_all
 
                 wandb.log(train_metrics)
 
             return (
-                current_step,
+                global_step,
+                local_step,
                 epoch,
                 best_eval_wer,
                 model,
@@ -1227,20 +1217,21 @@ def train(
                 scheduler,
             )
 
-        if current_step >= train_steps:
-            if rank == 0 and (current_step % train_log_freq) == 0:
+        if global_step >= train_steps:
+            if rank == 0 and (global_step % train_log_freq) == 0:
                 print("Logging results at an epoch")
-                print(f"current_step: {current_step}")
+                print(f"global_step: {global_step}")
                 print(f"train_loss: {train_loss_all}")
 
                 train_metrics = defaultdict(float)
-                train_metrics["global_step"] = current_step
+                train_metrics["global_step"] = global_step
                 train_metrics["train/train_loss"] = train_loss_all
 
                 wandb.log(train_metrics)
 
             return (
-                current_step,
+                global_step,
+                local_step,
                 epoch,
                 best_eval_wer,
                 model,
@@ -1251,23 +1242,24 @@ def train(
 
         current_lr = optimizer.param_groups[0]["lr"]
         if rank == 0:
-            wandb.log({"train/learning_rate": current_lr, "global_step": current_step})
+            wandb.log({"train/learning_rate": current_lr, "global_step": global_step})
         optimizer.zero_grad()
         total_loss = 0.0
 
-        if rank == 0 and (current_step % train_log_freq) == 0:
+        if rank == 0 and (global_step % train_log_freq) == 0:
             print("Logging results at an epoch")
-            print(f"current_step: {current_step}")
+            print(f"global_step: {global_step}")
             print(f"train_loss: {train_loss_all}")
 
             train_metrics = defaultdict(float)
-            train_metrics["global_step"] = current_step
+            train_metrics["global_step"] = global_step
             train_metrics["train/train_loss"] = train_loss_all
 
             wandb.log(train_metrics)
 
     return (
-        current_step,
+        global_step,
+        local_step,
         epoch,
         best_eval_wer,
         model,
@@ -1280,7 +1272,8 @@ def train(
 def evaluate(
     rank: int,
     local_rank: int,
-    current_step: int,
+    global_step: int,
+    local_step: int,
     epoch: int,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -1389,17 +1382,15 @@ def evaluate(
                     "a",
                 ) as f:
                     f.write(
-                        f"{eval_set} average WER: {avg_wer}\n at step {current_step}\n"
+                        f"{eval_set} average WER: {avg_wer}\n at step {global_step}\n"
                     )
-                wandb.log(
-                    {f"eval/{eval_set}_wer": avg_wer, "global_step": current_step}
-                )
+                wandb.log({f"eval/{eval_set}_wer": avg_wer, "global_step": global_step})
 
     if rank == 0:
         if table_idx is not None:
             wandb.log({f"eval_table_{table_idx}": eval_table})
         else:
-            wandb.log({f"eval_table_{current_step}": eval_table})
+            wandb.log({f"eval_table_{global_step}": eval_table})
 
         avg_eval_wer = np.mean(eval_wers)
 
@@ -1407,7 +1398,8 @@ def evaluate(
             best_eval_wer = avg_eval_wer
             print("Saving best eval model")
             save_ckpt(
-                current_step=current_step,
+                global_step=global_step,
+                local_step=local_step,
                 epoch=epoch,
                 best_eval_wer=best_eval_wer,
                 model=model,
@@ -1599,7 +1591,8 @@ def main(
     # model instantiation
     if run_id is not None or "/" in ckpt_file_name:
         (
-            current_step,
+            global_step,
+            local_step,
             epoch,
             best_eval_wer,
             model,
@@ -1644,7 +1637,8 @@ def main(
 
         scaler = GradScaler()
 
-        current_step = 0
+        global_step = 0
+        local_step = 0
         epoch = 0
 
         if run_eval:
@@ -1681,9 +1675,10 @@ def main(
 
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
 
-    while current_step < train_steps:
+    while global_step < train_steps:
         (
-            current_step,
+            global_step,
+            local_step,
             epoch,
             best_eval_wer,
             model,
@@ -1693,7 +1688,8 @@ def main(
         ) = train(
             rank=rank,
             local_rank=local_rank,
-            current_step=current_step,
+            global_step=global_step,
+            local_step=local_step,
             train_batch_size=train_batch_size,
             train_dataloader=train_dataloader,
             train_sampler=train_sampler,
@@ -1729,7 +1725,8 @@ def main(
 
         if rank == 0:
             save_ckpt(
-                current_step=current_step,
+                global_step=global_step,
+                local_step=local_step,
                 epoch=epoch,
                 best_eval_wer=best_eval_wer,
                 model=model,
@@ -1746,11 +1743,12 @@ def main(
             )
 
         if run_eval:
-            print(f"Evaluation after epoch at {current_step=} on rank {rank}")
+            print(f"Evaluation after epoch at {global_step=} on rank {rank}")
             best_eval_wer = evaluate(
                 rank=rank,
                 local_rank=local_rank,
-                current_step=current_step,
+                global_step=global_step,
+                local_step=local_step,
                 epoch=epoch,
                 model=model,
                 optimizer=optimizer,
