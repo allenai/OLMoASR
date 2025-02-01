@@ -187,7 +187,7 @@ class MultiHeadAttention(nn.Module):
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
         if mask is not None:
             if len(mask.shape) == 2:
-                mask = mask[:n_ctx, :n_ctx]
+                mask = mask[:n_ctx, :n_ctx].to(q.dtype)
             else:
                 mask = mask.unsqueeze(dim=1)
         wv = F.scaled_dot_product_attention(query=q, key=k, value=v, attn_mask=mask, scale=scale).permute(0, 2, 1, 3).flatten(start_dim=2)
