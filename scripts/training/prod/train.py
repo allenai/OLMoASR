@@ -46,6 +46,8 @@ VARIANT_TO_PARAMS = {
     "large": 1550 * 10**6,
 }
 
+HARDWARE_TO_FLOPS = {"H100": 900 * 10**12, "L40": 366 * 10**12, "A100": 312 * 10**12}
+
 
 class AudioTextDataset(Dataset):
     """Dataset for audio and transcript segments
@@ -402,6 +404,7 @@ def setup_wandb(
     weight_decay: float,
     eff_batch_size: int,
     train_batch_size: int,
+    hardware: str,
     wandb_tags: List[str],
 ) -> Tuple[Optional[str], List[str], wandb.Artifact, wandb.Artifact, bool, bool]:
     """Sets up the Weights and Biases logging
@@ -454,6 +457,7 @@ def setup_wandb(
         "n_text_head": model_dims.n_text_head,
         "n_text_layer": model_dims.n_text_layer,
         "model_params": VARIANT_TO_PARAMS[model_variant],
+        "peak_flops": HARDWARE_TO_FLOPS[hardware],
     }
 
     if run_id is None:
@@ -926,7 +930,8 @@ def train(
                     "efficiency/dl_time": end_dl - start_dl,
                     "efficiency/data_to_gpu_time": end_data_to_gpu - start_data_to_gpu,
                     "efficiency/fwd_time": end_fwd - start_fwd,
-                    "efficiency/avg_preproc_time": sum(preproc_time) / len(preproc_time),
+                    "efficiency/avg_preproc_time": sum(preproc_time)
+                    / len(preproc_time),
                     "local_step": local_step,
                 }
             )
@@ -1454,6 +1459,7 @@ def main(
     ckpt_freq: int = 2500,
     verbose: bool = False,
     precision: ["bfloat16", "float16", "float32"] = "float16",
+    hardware: str = "H100",
 ) -> None:
     """Main function for training
 
@@ -1666,6 +1672,7 @@ def main(
             weight_decay=weight_decay,
             eff_batch_size=eff_batch_size,
             train_batch_size=train_batch_size,
+            hardware=hardware,
             wandb_tags=tags,
         )
 
