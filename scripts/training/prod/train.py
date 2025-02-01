@@ -1111,33 +1111,33 @@ def train(
                         train_metrics["train/train_dels"] = train_dels_all
                         train_metrics["train/train_ins"] = train_ins_all
 
-                    wandb.log(train_metrics)
+                        wandb.log(train_metrics)
 
-                    print(
-                        f"""
-                        {len(batch_audio_files)=},
-                        {len(batch_audio_arr)=}, 
-                        {len(batch_text_files)=}, 
-                        {len(batch_pred_text)=}, 
-                        {len(batch_tgt_text)=}, 
-                        {len(batch_unnorm_pred_text)=}, 
-                        {len(norm_tgt_pred_pairs)=}
-                        """
-                    )
+                        print(
+                            f"""
+                            {len(batch_audio_files)=},
+                            {len(batch_audio_arr)=}, 
+                            {len(batch_text_files)=}, 
+                            {len(batch_pred_text)=}, 
+                            {len(batch_tgt_text)=}, 
+                            {len(batch_unnorm_pred_text)=}, 
+                            {len(norm_tgt_pred_pairs)=}
+                            """
+                        )
 
-                    log_tbl(
-                        global_step=global_step,
-                        train_table=train_table,
-                        run_id=run_id,
-                        batch_audio_files=batch_audio_files,
-                        batch_audio_arr=batch_audio_arr,
-                        batch_text_files=batch_text_files,
-                        batch_pred_text=batch_pred_text,
-                        batch_tgt_text=batch_tgt_text,
-                        batch_unnorm_pred_text=batch_unnorm_pred_text,
-                        norm_tgt_pred_pairs=norm_tgt_pred_pairs,
-                    )
-                    train_table = wandb.Table(columns=TRAIN_TABLE_COLS)
+                        log_tbl(
+                            global_step=global_step,
+                            train_table=train_table,
+                            run_id=run_id,
+                            batch_audio_files=batch_audio_files,
+                            batch_audio_arr=batch_audio_arr,
+                            batch_text_files=batch_text_files,
+                            batch_pred_text=batch_pred_text,
+                            batch_tgt_text=batch_tgt_text,
+                            batch_unnorm_pred_text=batch_unnorm_pred_text,
+                            norm_tgt_pred_pairs=norm_tgt_pred_pairs,
+                        )
+                        train_table = wandb.Table(columns=TRAIN_TABLE_COLS)
 
             # evaluation
             if run_eval:
