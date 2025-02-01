@@ -1111,8 +1111,6 @@ def train(
                         train_metrics["train/train_dels"] = train_dels_all
                         train_metrics["train/train_ins"] = train_ins_all
 
-                        wandb.log(train_metrics)
-
                         print(
                             f"""
                             {len(batch_audio_files)=},
@@ -1138,6 +1136,8 @@ def train(
                             norm_tgt_pred_pairs=norm_tgt_pred_pairs,
                         )
                         train_table = wandb.Table(columns=TRAIN_TABLE_COLS)
+
+                    wandb.log(train_metrics)
 
             # evaluation
             if run_eval:
