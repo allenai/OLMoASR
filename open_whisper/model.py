@@ -154,7 +154,6 @@ class MultiHeadAttention(nn.Module):
         x: Tensor,
         xa: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
-        inference: bool = False,
         kv_cache: Optional[dict] = None,
         verbose: bool = False,
         block_count: int = 0,
@@ -186,8 +185,7 @@ class MultiHeadAttention(nn.Module):
         q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
         k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
-        if not inference:
-            mask = mask.unsqueeze(dim=1) if mask is not None else None
+        mask = mask[:n_ctx, :n_ctx].unsqueeze(dim=1) if mask is not None else None
         wv = F.scaled_dot_product_attention(query=q, key=k, value=v, attn_mask=mask, scale=scale).permute(0, 2, 1, 3).flatten(start_dim=2)
         
         if verbose:
@@ -297,12 +295,11 @@ class ResidualAttentionBlock(nn.Module):
         x: Tensor,
         xa: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
-        inference: bool = False,
         kv_cache: Optional[dict] = None,
         verbose: bool = False,
         block_count: int = 0,
     ):
-        x = x + self.attn(self.attn_ln(x), mask=mask, inference=inference, kv_cache=kv_cache, block_count=block_count)[0]
+        x = x + self.attn(self.attn_ln(x), mask=mask, kv_cache=kv_cache, block_count=block_count)[0]
         if self.cross_attn:
             x = x + self.cross_attn(self.cross_attn_ln(x), xa, kv_cache=kv_cache, verbose=verbose)[0]
         x = x + self.mlp(self.mlp_ln(x))
@@ -445,8 +442,7 @@ class TextDecoder(nn.Module):
             print(f"{x.shape=}")
             print(f"{x=}")
 
-        n_ctx = x.shape[1]
-        inference = False
+        # n_ctx = x.shape[1]
         if padding_mask is not None:
             # mask = (
             #     torch.empty(n_ctx, n_ctx)
@@ -458,7 +454,6 @@ class TextDecoder(nn.Module):
             full_mask = padding_mask + self.mask
         else:
             full_mask = self.mask
-            inference = True
             # self.mask = (
             #     torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1).to(device=x.device)
             # )
@@ -469,7 +464,7 @@ class TextDecoder(nn.Module):
             if verbose:
                 print(f"Block {block_count}")
             # x = block(x, xa, mask=self.mask, kv_cache=kv_cache, verbose=verbose, block_count=block_count)
-            x = block(x, xa, mask=full_mask, inference=inference, kv_cache=kv_cache, verbose=verbose, block_count=block_count)
+            x = block(x, xa, mask=full_mask, kv_cache=kv_cache, verbose=verbose, block_count=block_count)
             if verbose:
                 print(f"{x.shape=}")
                 print(f"{x=}")
