@@ -181,25 +181,27 @@ class MultiHeadAttention(nn.Module):
         # wv, qk = self.qkv_attention(q, k, v, mask, verbose=verbose, block_count=block_count)
 
         qk = None
-        is_causal = False
-        n_batch, n_ctx, n_state = q.shape
-        scale = (n_state // self.n_head) ** -0.25
-        q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
-        k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
-        v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+        inference = False
+
         if mask is not None:
             if len(mask.shape) == 2:
-                mask = None
-                is_causal = True
+                inference = True
             else:
                 mask = mask.unsqueeze(dim=1)
-        wv = (
-            F.scaled_dot_product_attention(
-                query=q, key=k, value=v, attn_mask=mask, is_causal=is_causal
+        
+        if inference:
+            wv, qk = self.qkv_attention(q, k, v, mask, verbose=verbose, block_count=block_count)
+        else:
+            q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+            k = k.view(*k.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+            v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
+            wv = (
+                F.scaled_dot_product_attention(
+                    query=q, key=k, value=v, attn_mask=mask
+                )
+                .permute(0, 2, 1, 3)
+                .flatten(start_dim=2)
             )
-            .permute(0, 2, 1, 3)
-            .flatten(start_dim=2)
-        )
 
         if verbose:
             print(f"{wv=}")
@@ -475,7 +477,7 @@ class TextDecoder(nn.Module):
             print(f"{x.shape=}")
             print(f"{x=}")
 
-        # n_ctx = x.shape[1]
+        n_ctx = x.shape[1]
         if padding_mask is not None:
             # mask = (
             #     torch.empty(n_ctx, n_ctx)
@@ -486,7 +488,7 @@ class TextDecoder(nn.Module):
             # self.mask = padding_mask + mask
             full_mask = padding_mask + self.mask
         else:
-            full_mask = self.mask
+            full_mask = self.mask[:n_ctx, :n_ctx]
             # self.mask = (
             #     torch.empty(n_ctx, n_ctx).fill_(-np.inf).triu_(1).to(device=x.device)
             # )
