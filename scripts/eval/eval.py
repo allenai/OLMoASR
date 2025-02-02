@@ -687,6 +687,10 @@ def main(
     avg_ins = avg_measures["insertions"]
     avg_dels = avg_measures["deletions"]
 
+    print(
+        f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+    )
+
     if wandb_log:
         if wandb_run_id:
             wandb.log({f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step})
@@ -698,17 +702,14 @@ def main(
             wandb.run.summary["avg_subs"] = avg_subs
             wandb.run.summary["avg_ins"] = avg_ins
             wandb.run.summary["avg_dels"] = avg_dels
-    else:
-        with open(
-            f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt", "a"
-        ) as f:
-            f.write(
-                f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
-            )
 
-    print(
-        f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
-    )
+            with open(
+                f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt", "a"
+            ) as f:
+                f.write(
+                    f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
+                )
+
 
 
 def long_form_eval(
