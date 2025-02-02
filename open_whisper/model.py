@@ -180,6 +180,7 @@ class MultiHeadAttention(nn.Module):
         # wv, qk = self.qkv_attention(q, k, v, mask, verbose=verbose, block_count=block_count)
         
         qk = None
+        is_causal = False
         n_batch, n_ctx, n_state = q.shape
         scale = (n_state // self.n_head) ** -0.25
         q = q.view(*q.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
@@ -187,10 +188,11 @@ class MultiHeadAttention(nn.Module):
         v = v.view(*v.shape[:2], self.n_head, -1).permute(0, 2, 1, 3)
         if mask is not None:
             if len(mask.shape) == 2:
-                mask = mask[:n_ctx, :n_ctx].to(q.dtype)
+                mask = None
+                is_causal = True
             else:
                 mask = mask.unsqueeze(dim=1)
-        wv = F.scaled_dot_product_attention(query=q, key=k, value=v, attn_mask=mask, scale=scale).permute(0, 2, 1, 3).flatten(start_dim=2)
+        wv = F.scaled_dot_product_attention(query=q, key=k, value=v, attn_mask=mask, scale=scale, is_causal=is_causal).permute(0, 2, 1, 3).flatten(start_dim=2)
         
         if verbose:
             print(f"{wv=}")
