@@ -10,6 +10,7 @@ from whisper.decoding import decode as decode_function
 from whisper.decoding import detect_language as detect_language_function
 from whisper.transcribe import transcribe as transcribe_function
 
+
 class LayerNorm(nn.LayerNorm):
     """
     This function is from OpenAI's Whisper repository.
@@ -176,9 +177,9 @@ class MultiHeadAttention(nn.Module):
             print(f"{k=}")
             print(f"{v=}")
             print("Attention computation")
-            
+
         # wv, qk = self.qkv_attention(q, k, v, mask, verbose=verbose, block_count=block_count)
-        
+
         qk = None
         is_causal = False
         n_batch, n_ctx, n_state = q.shape
@@ -192,14 +193,26 @@ class MultiHeadAttention(nn.Module):
                 is_causal = True
             else:
                 mask = mask.unsqueeze(dim=1)
-        wv = F.scaled_dot_product_attention(query=q, key=k, value=v, attn_mask=mask, scale=scale, is_causal=is_causal).permute(0, 2, 1, 3).flatten(start_dim=2)
-        
+        wv = (
+            F.scaled_dot_product_attention(
+                query=q, key=k, value=v, attn_mask=mask, is_causal=is_causal
+            )
+            .permute(0, 2, 1, 3)
+            .flatten(start_dim=2)
+        )
+
         if verbose:
             print(f"{wv=}")
         return self.out(wv), qk
 
     def qkv_attention(
-        self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None, verbose: bool = False, block_count: int = 0
+        self,
+        q: Tensor,
+        k: Tensor,
+        v: Tensor,
+        mask: Optional[Tensor] = None,
+        verbose: bool = False,
+        block_count: int = 0,
     ):
         n_batch, n_ctx, n_state = q.shape
         scale = (n_state // self.n_head) ** -0.25
@@ -249,7 +262,7 @@ class MultiHeadAttention(nn.Module):
             print(f"{torch.max(qk, dim=-1).values=}")
             print(f"{torch.min(qk, dim=-1).values=}")
             print(f"{qk=}")
-            
+
         qk = qk.float()
         if verbose:
             print("Converting QK to torch.float32")
@@ -305,9 +318,19 @@ class ResidualAttentionBlock(nn.Module):
         verbose: bool = False,
         block_count: int = 0,
     ):
-        x = x + self.attn(self.attn_ln(x), mask=mask, kv_cache=kv_cache, block_count=block_count)[0]
+        x = (
+            x
+            + self.attn(
+                self.attn_ln(x), mask=mask, kv_cache=kv_cache, block_count=block_count
+            )[0]
+        )
         if self.cross_attn:
-            x = x + self.cross_attn(self.cross_attn_ln(x), xa, kv_cache=kv_cache, verbose=verbose)[0]
+            x = (
+                x
+                + self.cross_attn(
+                    self.cross_attn_ln(x), xa, kv_cache=kv_cache, verbose=verbose
+                )[0]
+            )
         x = x + self.mlp(self.mlp_ln(x))
         return x
 
@@ -396,13 +419,17 @@ class TextDecoder(nn.Module):
     ):
         super().__init__()
 
-        self.token_embedding = nn.Embedding(n_vocab + 1, n_state, padding_idx=51864 if n_vocab == 51864 else 51865)
+        self.token_embedding = nn.Embedding(
+            n_vocab + 1, n_state, padding_idx=51864 if n_vocab == 51864 else 51865
+        )
         nn.init.kaiming_normal_(
             self.token_embedding.weight, mode="fan_in", nonlinearity="relu"
         )
 
         self.positional_embedding = nn.Parameter(torch.empty(n_ctx, n_state))
-        nn.init.kaiming_normal_(self.positional_embedding, mode="fan_in", nonlinearity="relu")
+        nn.init.kaiming_normal_(
+            self.positional_embedding, mode="fan_in", nonlinearity="relu"
+        )
 
         self.blocks: Iterable[ResidualAttentionBlock] = nn.ModuleList(
             [
@@ -470,7 +497,14 @@ class TextDecoder(nn.Module):
             if verbose:
                 print(f"Block {block_count}")
             # x = block(x, xa, mask=self.mask, kv_cache=kv_cache, verbose=verbose, block_count=block_count)
-            x = block(x, xa, mask=full_mask, kv_cache=kv_cache, verbose=verbose, block_count=block_count)
+            x = block(
+                x,
+                xa,
+                mask=full_mask,
+                kv_cache=kv_cache,
+                verbose=verbose,
+                block_count=block_count,
+            )
             if verbose:
                 print(f"{x.shape=}")
                 print(f"{x=}")
@@ -530,9 +564,18 @@ class Whisper(nn.Module):
         return self.decoder(tokens, audio_features, padding_mask=padding_mask)
 
     def forward(
-        self, mel: torch.Tensor, tokens: torch.Tensor, padding_mask: torch.Tensor = None, verbose: bool = False
+        self,
+        mel: torch.Tensor,
+        tokens: torch.Tensor,
+        padding_mask: torch.Tensor = None,
+        verbose: bool = False,
     ) -> Dict[str, torch.Tensor]:
-        return self.decoder(tokens, self.encoder(mel, verbose=verbose), padding_mask=padding_mask, verbose=verbose)
+        return self.decoder(
+            tokens,
+            self.encoder(mel, verbose=verbose),
+            padding_mask=padding_mask,
+            verbose=verbose,
+        )
 
     @property
     def device(self):
