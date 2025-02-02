@@ -21,7 +21,9 @@ TRAIN_STEPS=340
 PREFETCH_FACTOR=2
 PROFILE=True
 
-torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} scripts/training/train_debug.py \
+SCRIPT="scripts/training/debug/train_ddp.py"
+
+torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} ${SCRIPT} \
     --model_variant=${MODEL_SIZE} \
     --exp_name=${EXP_NAME} \
     --job_type=${JOB_TYPE} \
