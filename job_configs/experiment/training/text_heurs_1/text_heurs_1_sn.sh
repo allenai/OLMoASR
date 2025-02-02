@@ -1,59 +1,57 @@
 set -ex
 
-FILTER="v2_simplefilter_SN"
+FILTER="text_heurs_1"
 MODEL_SIZE="tiny"
 LEARNING_RATE=1.5e-3
 LR="15e4"
 AUDIO_HOURS=440
-BATCH_SIZE=32
+BATCH_SIZE=64
 GPU_COUNT=8
 REPLICAS=1
-ACCUMULATION_STEPS=3
+ACCUMULATION_STEPS=1
 EFFECTIVE_BATCH_SIZE=$((BATCH_SIZE * GPU_COUNT * REPLICAS * ACCUMULATION_STEPS))
 EPOCHS=5
 NUM_WORKERS=12
-DATE="011125"
-SHARDING_STRATEGY="FULL_SHARD"
-EXP_NAME="${FILTER}_${MODEL_SIZE}_${LR}_${AUDIO_HOURS}K_bs${BATCH_SIZE}_ebs${EFFECTIVE_BATCH_SIZE}_${NUM_WORKERS}workers_${EPOCHS}pass_${SHARDING_STRATEGY}_${DATE}"
+DATE="013025"
+EXP_NAME="${FILTER}_${MODEL_SIZE}_${LR}_${AUDIO_HOURS}K_bs${BATCH_SIZE}_ebs${EFFECTIVE_BATCH_SIZE}_${NUM_WORKERS}workers_${EPOCHS}pass_${DATE}"
+echo ${EFFECTIVE_BATCH_SIZE}
 
-SHARED_MEMORY="20.0GiB"
-WORKSPACE="ai2/vida" #ai2/open-whisper ai2/vida
-WANDB_API_KEY="HUONGN_WANDB_API_KEY" #HUONGN_WANDB_API_KEY WANDB_API_KEY
-HF_TOKEN="HUONGN_HF_TOKEN" #HUONGN_HF_TOKEN HF_TOKEN
-GITHUB_TOKEN="HUONGN_GITHUB_TOKEN" #HUONGN_GITHUB_TOKEN GITHUB_TOKEN
-PRIORITY="high"
+SHARED_MEMORY="40.0GiB"
+WORKSPACE="ai2/open-whisper"
+CLUSTER="ai2/ceres-cirrascale" # ai2/ceres-cirrascale
+HARDWARE="H100"
+WANDB_API_KEY="WANDB_API_KEY"
+HF_TOKEN="HF_TOKEN"
+GITHUB_TOKEN="GITHUB_TOKEN"
+PRIORITY="normal"
 
 JOB_TYPE="filtering"
-SAMPLES_DICTS_DIR="/weka/huongn/samples_dicts/filtered/v2_simplefilter"
-EPOCH_STEPS=69430
-TRAIN_STEPS=349526
-EVAL_BATCH_SIZE=1
+SAMPLES_DICTS_DIR="/weka/huongn/samples_dicts/filtered/text_heurs_1"
+EPOCH_STEPS=102943
+TRAIN_STEPS=524288
+EVAL_BATCH_SIZE=8
 RUN_EVAL="True"
-EVAL_SETS="librispeech_clean,librispeech_other"
-TRAIN_LOG_FREQ=666
-EVAL_FREQ=3330
-CKPT_FREQ=666
+TRAIN_LOG_FREQ=1000
+EVAL_FREQ=5000
+CKPT_FREQ=1000
 VERBOSE="False"
-DETECT_ANOMALY="False"
-ADD_MODULE_HOOKS="True"
-PRECISION="bfloat16"
-USE_ORIG_PARAMS="False"
-CPU_OFFLOAD="True"
+PRECISION="float16"
+SCRIPT="scripts/training/prod/train.py"
 
 gantry run \
   --name ${EXP_NAME} \
   --task-name ${EXP_NAME} \
-  --description "Filtering experiment transcripts that don’t have at least “,” or “.” or have repeating lines or are not in mixed-case or all" \
+  --description "${FILTER} training experiment" \
   --allow-dirty \
   --no-nfs \
   --preemptible \
   --workspace ${WORKSPACE} \
-  --cluster ai2/ganymede-cirrascale \
+  --cluster ${CLUSTER} \
   --gpus ${GPU_COUNT} \
   --replicas ${REPLICAS} \
   --shared-memory ${SHARED_MEMORY} \
   --beaker-image huongn/ow_train_gantry \
-  --pip requirements-main.txt \
+  --pip requirements/requirements-train.txt \
   --budget ai2/prior \
   --priority ${PRIORITY} \
   --weka oe-data-default:/weka \
@@ -62,16 +60,14 @@ gantry run \
   --env-secret HF_TOKEN=${HF_TOKEN} \
   --gh-token-secret ${GITHUB_TOKEN} \
   --env WANDB_DIR=/results/huongn/ow_logs \
-  --env TORCH_NCCL_BLOCKING_WAIT=1 \
   --env NCCL_DEBUG=INFO \
-  -- /bin/bash -c "torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} scripts/training/train_fsdp.py \
+  -- /bin/bash -c "torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} ${SCRIPT} \
       --model_variant=${MODEL_SIZE} \
       --exp_name=${EXP_NAME} \
       --job_type=${JOB_TYPE} \
       --samples_dicts_dir=${SAMPLES_DICTS_DIR} \
       --train_steps=${TRAIN_STEPS} \
       --epoch_steps=${EPOCH_STEPS} \
-      --ckpt_file_name=None \
       --ckpt_dir=/weka/huongn/ow_ckpts \
       --log_dir=/results/huongn/ow_logs \
       --eval_dir=/ow_eval \
@@ -84,27 +80,16 @@ gantry run \
       --max_grad_norm=1.0 \
       --eff_batch_size=${EFFECTIVE_BATCH_SIZE} \
       --train_batch_size=${BATCH_SIZE} \
-      --val_batch_size=16 \
       --eval_batch_size=${EVAL_BATCH_SIZE} \
-      --train_val_split=1.0 \
       --num_workers=${NUM_WORKERS} \
       --pin_memory=True \
+      --shuffle=True \
       --persistent_workers=True \
       --run_val=False \
       --run_eval=${RUN_EVAL} \
-      --eval_wandb_log=False \
-      --eval_sets=${EVAL_SETS} \
       --train_log_freq=${TRAIN_LOG_FREQ} \
-      --val_freq=${EVAL_FREQ} \
       --eval_freq=${EVAL_FREQ} \
       --ckpt_freq=${CKPT_FREQ} \
       --verbose=${VERBOSE} \
-      --detect_anomaly=${DETECT_ANOMALY} \
-      --add_module_hooks=${ADD_MODULE_HOOKS} \
       --precision=${PRECISION} \
-      --use_orig_params=${USE_ORIG_PARAMS} \
-      --sharding_strategy=${SHARDING_STRATEGY} \
-      --cpu_offload=${CPU_OFFLOAD}"
-
-# 2^20 = 1048576
-# latest filter: 52740400 segments -> 206018 steps / epoch
+      --hardware=${HARDWARE}"
