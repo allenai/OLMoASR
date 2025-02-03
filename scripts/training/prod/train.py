@@ -1649,7 +1649,7 @@ def main(
     )
     print(f"Rank: {rank}, {len(train_dataloader)=}")
 
-    if not async_eval:
+    if not async_eval and run_eval:
         print(f"Preparing eval sets on rank {rank}")
         eval_sets = ["librispeech_clean", "librispeech_other"]
         eval_loaders = []
