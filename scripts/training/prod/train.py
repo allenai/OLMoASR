@@ -12,6 +12,7 @@ import multiprocessing
 from itertools import chain
 from collections import defaultdict
 import gzip
+import subprocess
 
 import torch
 import torch.nn.functional as F
@@ -833,6 +834,10 @@ def train(
     ckpt_freq: int,
     verbose: bool,
     precision: torch.dtype,
+    async_eval: bool,
+    eval_script_path: Optional[str],
+    eval_dir: Optional[str],
+    eval_wandb_log: bool,
 ) -> Tuple[
     int,
     float,
@@ -1146,28 +1151,43 @@ def train(
             # evaluation
             if run_eval:
                 if (global_step % eval_freq) == 0 and global_step > 0:
-                    best_eval_wer = evaluate(
-                        rank=rank,
-                        local_rank=local_rank,
-                        global_step=global_step,
-                        local_step=local_step,
-                        epoch=epoch,
-                        model=model,
-                        optimizer=optimizer,
-                        scaler=scaler,
-                        scheduler=scheduler,
-                        model_dims=model_dims,
-                        model_variant=model_variant,
-                        eval_loaders=eval_loaders,
-                        normalizer=normalizer,
-                        best_eval_wer=best_eval_wer,
-                        tags=tags,
-                        exp_name=exp_name,
-                        run_id=run_id,
-                        table_idx=None,
-                        log_dir=log_dir,
-                        ckpt_dir=ckpt_dir,
-                    )
+                    if async_eval:
+                        for eval_set in ["librispeech_clean", "librispeech_other"]:
+                            async_eval(
+                                rank=rank,
+                                exp_name=exp_name,
+                                eval_script_path=eval_script_path,
+                                current_step=global_step,
+                                num_workers=2,
+                                eval_set=eval_set,
+                                train_run_id=run_id,
+                                log_dir=log_dir,
+                                eval_dir=eval_dir,
+                                wandb_log=eval_wandb_log,
+                            )
+                    else:
+                        best_eval_wer = evaluate(
+                            rank=rank,
+                            local_rank=local_rank,
+                            global_step=global_step,
+                            local_step=local_step,
+                            epoch=epoch,
+                            model=model,
+                            optimizer=optimizer,
+                            scaler=scaler,
+                            scheduler=scheduler,
+                            model_dims=model_dims,
+                            model_variant=model_variant,
+                            eval_loaders=eval_loaders,
+                            normalizer=normalizer,
+                            best_eval_wer=best_eval_wer,
+                            tags=tags,
+                            exp_name=exp_name,
+                            run_id=run_id,
+                            table_idx=None,
+                            log_dir=log_dir,
+                            ckpt_dir=ckpt_dir,
+                        )
 
                 if (global_step % eval_freq) == 0 and global_step > 0:
                     print(f"Rank {rank} reaching barrier")
@@ -1422,6 +1442,56 @@ def evaluate(
     return best_eval_wer
 
 
+def async_eval(
+    rank: int,
+    exp_name: str,
+    eval_script_path: str,
+    current_step: int,
+    batch_size: int,
+    num_workers: int,
+    ckpt: str,
+    eval_set: Literal[
+        "librispeech_clean",
+        "librispeech_other",
+        "artie_bias_corpus",
+        "fleurs",
+        "tedlium",
+        "voxpopuli",
+        "common_voice",
+        "ami_ihm",
+        "ami_sdm",
+    ],
+    train_run_id: Optional[str],
+    log_dir: str,
+    run_id_dir: str,
+    eval_dir: str,
+    wandb_log: bool = False,
+) -> None:
+    wandb_log_dir = os.getenv("WANDB_DIR")
+    hf_token = os.getenv("HF_TOKEN")
+    cmd = [
+        "python",
+        eval_script_path,
+        short_form_eval,
+        f"--batch_size={batch_size}",
+        f"--num_workers={num_workers}",
+        f"--ckpt={ckpt}",
+        f"--eval_set={eval_set}",
+        f"--log_dir={log_dir}",
+        f"--current_step={current_step}",
+        f"--exp_name={exp_name}",
+        f"--train_run_id={train_run_id}",
+        f"--wandb_log={wandb_log}",
+        f"--wandb_log_dir={wandb_log_dir}",
+        f"--run_id_dir={run_id_dir}",
+        f"--eval_dir={eval_dir}",
+        f"--hf_token={hf_token}",
+    ]
+
+    if rank == 0:
+        subprocess.Popen(cmd)
+
+
 def cleanup():
     """Cleanup function for the distributed training"""
     torch.cuda.empty_cache()
@@ -1460,6 +1530,9 @@ def main(
     verbose: bool = False,
     precision: ["bfloat16", "float16", "float32"] = "float16",
     hardware: str = "H100",
+    async_eval: bool = "False",
+    eval_script_path: Optional[str] = None,
+    eval_wandb_log: bool = False,
 ) -> None:
     """Main function for training
 
@@ -1576,22 +1649,23 @@ def main(
     )
     print(f"Rank: {rank}, {len(train_dataloader)=}")
 
-    print(f"Preparing eval sets on rank {rank}")
-    eval_sets = ["librispeech_clean", "librispeech_other"]
-    eval_loaders = []
-    for eval_set in eval_sets:
-        eval_dataset = EvalDataset(eval_set=eval_set, eval_dir=eval_dir)
+    if not async_eval:
+        print(f"Preparing eval sets on rank {rank}")
+        eval_sets = ["librispeech_clean", "librispeech_other"]
+        eval_loaders = []
+        for eval_set in eval_sets:
+            eval_dataset = EvalDataset(eval_set=eval_set, eval_dir=eval_dir)
 
-        eval_dataloader = DataLoader(
-            eval_dataset,
-            batch_size=eval_batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            drop_last=False,
-            persistent_workers=persistent_workers,
-            pin_memory=pin_memory,
-        )
-        eval_loaders.append((eval_set, eval_dataloader))
+            eval_dataloader = DataLoader(
+                eval_dataset,
+                batch_size=eval_batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                drop_last=False,
+                persistent_workers=persistent_workers,
+                pin_memory=pin_memory,
+            )
+            eval_loaders.append((eval_set, eval_dataloader))
 
     # model instantiation
     if run_id is not None or "/" in ckpt_file_name:
@@ -1725,6 +1799,10 @@ def main(
             ckpt_freq=ckpt_freq,
             verbose=verbose,
             precision=precision_dict[precision],
+            async_eval=async_eval,
+            eval_script_path=eval_script_path,
+            eval_dir=eval_dir,
+            eval_wandb_log=eval_wandb_log,
         )
 
         epoch += 1
@@ -1750,27 +1828,42 @@ def main(
 
         if run_eval:
             print(f"Evaluation after epoch at {global_step=} on rank {rank}")
-            best_eval_wer = evaluate(
-                rank=rank,
-                local_rank=local_rank,
-                global_step=global_step,
-                local_step=local_step,
-                epoch=epoch,
-                model=model,
-                optimizer=optimizer,
-                scaler=scaler,
-                scheduler=scheduler,
-                model_dims=model_dims,
-                model_variant=model_variant,
-                eval_loaders=eval_loaders,
-                normalizer=normalizer,
-                best_eval_wer=best_eval_wer,
-                tags=tags,
-                exp_name=exp_name,
-                run_id=run_id,
-                table_idx=f"epoch_{epoch}",
-                log_dir=log_dir,
-                ckpt_dir=ckpt_dir,
+            if async_eval:
+                for eval_set in ["librispeech_clean", "librispeech_other"]:
+                    async_eval(
+                        rank=rank,
+                        exp_name=exp_name,
+                        eval_script_path=eval_script_path,
+                        current_step=global_step,
+                        num_workers=2,
+                        eval_set=eval_set,
+                        train_run_id=run_id,
+                        log_dir=log_dir,
+                        eval_dir=eval_dir,
+                        wandb_log=eval_wandb_log,
+                    )
+            else:
+                best_eval_wer = evaluate(
+                    rank=rank,
+                    local_rank=local_rank,
+                    global_step=global_step,
+                    local_step=local_step,
+                    epoch=epoch,
+                    model=model,
+                    optimizer=optimizer,
+                    scaler=scaler,
+                    scheduler=scheduler,
+                    model_dims=model_dims,
+                    model_variant=model_variant,
+                    eval_loaders=eval_loaders,
+                    normalizer=normalizer,
+                    best_eval_wer=best_eval_wer,
+                    tags=tags,
+                    exp_name=exp_name,
+                    run_id=run_id,
+                    table_idx=f"epoch_{epoch}",
+                    log_dir=log_dir,
+                    ckpt_dir=ckpt_dir,
             )
 
             print(f"Rank {rank} reaching barrier")
