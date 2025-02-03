@@ -529,6 +529,7 @@ def short_form_eval(
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
 
     os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(wandb_log_dir, exist_ok=True)
     os.makedirs(eval_dir, exist_ok=True)
 
     device = torch.device("cuda")
@@ -678,7 +679,7 @@ def short_form_eval(
     else:
         if train_run_id is not None:
             with open(
-                f"{log_dir}/{exp_name}/{train_run_id}/eval_results.txt", "a"
+                f"{log_dir}/{exp_name}_{train_run_id}.txt", "a"
             ) as f:
                 f.write(
                     f"Current step {current_step}, {eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
