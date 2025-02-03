@@ -1484,7 +1484,7 @@ def run_async_eval(
         f"--eval_set={eval_set}",
         f"--log_dir={log_dir}",
         f"--current_step={current_step}",
-        f"--exp_name={exp_name}",
+        f"--train_exp_name={exp_name}",
         f"--train_run_id={train_run_id}",
         f"--wandb_log={wandb_log}",
         f"--wandb_log_dir={wandb_log_dir}",
