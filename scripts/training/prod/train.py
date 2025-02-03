@@ -838,6 +838,8 @@ def train(
     eval_script_path: Optional[str],
     eval_dir: Optional[str],
     eval_wandb_log: bool,
+    eval_batch_size: Optional[int],
+    run_id_dir: Optional[str],
 ) -> Tuple[
     int,
     float,
@@ -1158,10 +1160,13 @@ def train(
                                 exp_name=exp_name,
                                 eval_script_path=eval_script_path,
                                 current_step=global_step,
+                                batch_size=eval_batch_size,
                                 num_workers=2,
+                                ckpt=f"{ckpt_dir}/{exp_name}_{run_id}/checkpoint_{global_step:08}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
                                 eval_set=eval_set,
                                 train_run_id=run_id,
                                 log_dir=log_dir,
+                                run_id_dir=run_id_dir,
                                 eval_dir=eval_dir,
                                 wandb_log=eval_wandb_log,
                             )
@@ -1805,6 +1810,8 @@ def main(
             eval_script_path=eval_script_path,
             eval_dir=eval_dir,
             eval_wandb_log=eval_wandb_log,
+            eval_batch_size=eval_batch_size,
+            run_id_dir=run_id_dir,
         )
 
         epoch += 1
@@ -1837,10 +1844,13 @@ def main(
                         exp_name=exp_name,
                         eval_script_path=eval_script_path,
                         current_step=global_step,
+                        batch_size=eval_batch_size,
                         num_workers=2,
+                        ckpt=f"{ckpt_dir}/{exp_name}_{run_id}/latesttrain_{global_step:08}_{model_variant}_{'_'.join(tags)}_non_ddp.pt",
                         eval_set=eval_set,
                         train_run_id=run_id,
                         log_dir=log_dir,
+                        run_id_dir=run_id_dir,
                         eval_dir=eval_dir,
                         wandb_log=eval_wandb_log,
                     )
