@@ -1153,7 +1153,7 @@ def train(
                 if (global_step % eval_freq) == 0 and global_step > 0:
                     if async_eval:
                         for eval_set in ["librispeech_clean", "librispeech_other"]:
-                            async_eval(
+                            run_async_eval(
                                 rank=rank,
                                 exp_name=exp_name,
                                 eval_script_path=eval_script_path,
@@ -1442,7 +1442,7 @@ def evaluate(
     return best_eval_wer
 
 
-def async_eval(
+def run_async_eval(
     rank: int,
     exp_name: str,
     eval_script_path: str,
@@ -1832,7 +1832,7 @@ def main(
             print(f"Evaluation after epoch at {global_step=} on rank {rank}")
             if async_eval:
                 for eval_set in ["librispeech_clean", "librispeech_other"]:
-                    async_eval(
+                    run_async_eval(
                         rank=rank,
                         exp_name=exp_name,
                         eval_script_path=eval_script_path,
