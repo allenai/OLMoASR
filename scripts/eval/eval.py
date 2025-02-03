@@ -517,7 +517,7 @@ def short_form_eval(
     ],
     log_dir: str,
     current_step: Optional[int] = None,
-    exp_name: Optional[str] = None,
+    train_exp_name: Optional[str] = None,
     train_run_id: Optional[str] = None,
     wandb_log: bool = False,
     wandb_log_dir: Optional[str] = "wandb",
@@ -562,12 +562,12 @@ def short_form_eval(
             "ins",
             "wer",
         ]
-        if not os.path.exists(f"{run_id_dir}/{exp_name}_eval.txt"):
+        if not os.path.exists(f"{run_id_dir}/{train_exp_name}_eval.txt"):
             run_id = wandb.util.generate_id()
-            with open(f"{run_id_dir}/{exp_name}_eval.txt", "w") as f:
+            with open(f"{run_id_dir}/{train_exp_name}_eval.txt", "w") as f:
                 f.write(run_id)
         else:
-            with open(f"{run_id_dir}/{exp_name}_eval.txt", "r") as f:
+            with open(f"{run_id_dir}/{train_exp_name}_eval.txt", "r") as f:
                 run_id = f.read().strip()
 
         ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
@@ -581,14 +581,14 @@ def short_form_eval(
         }
         if train_run_id is not None:
             config["train_run_id"] = train_run_id
-            
+
         wandb.init(
             id=run_id,
             resume="allow",
             project="open_whisper",
             entity="dogml",
             job_type="evals",
-            name=exp_name,
+            name=exp_name if train_exp_name is None else train_exp_name,
             dir=wandb_log_dir,
             config=config,
             tags=["eval", eval_set, ow_or_w, model_size],
@@ -678,9 +678,7 @@ def short_form_eval(
         wandb.log({f"eval/{eval_set}_dels": avg_dels, "global_step": current_step})
     else:
         if train_run_id is not None:
-            with open(
-                f"{log_dir}/{exp_name}_{train_run_id}.txt", "a"
-            ) as f:
+            with open(f"{log_dir}/{train_exp_name}_{train_run_id}.txt", "a") as f:
                 f.write(
                     f"Current step {current_step}, {eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
                 )
