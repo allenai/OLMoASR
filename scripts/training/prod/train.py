@@ -823,7 +823,7 @@ def train(
     model_variant: Optional[str],
     best_eval_wer: Optional[float],
     run_eval: bool,
-    eval_loaders: List[DataLoader],
+    eval_loaders: Optional[List[DataLoader]],
     run_id: Optional[str],
     tags: Optional[List[str]],
     exp_name: Optional[str],
