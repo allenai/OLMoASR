@@ -668,7 +668,7 @@ def short_form_eval(
     avg_dels = avg_measures["deletions"]
 
     print(
-        f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+        f"{eval_set} WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
     )
 
     if wandb_log:
@@ -681,6 +681,11 @@ def short_form_eval(
             with open(f"{log_dir}/{train_exp_name}_{train_run_id}.txt", "a") as f:
                 f.write(
                     f"Current step {current_step}, {eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
+                )
+        else:
+            with open(f"{log_dir}/eval_results.txt", "a") as f:
+                f.write(
+                    f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
                 )
 
 
