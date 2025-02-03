@@ -500,7 +500,7 @@ class EvalDataset(Dataset):
         return audio_arr, mel_spec
 
 
-def main(
+def short_form_eval(
     batch_size: int,
     num_workers: int,
     ckpt: str,
@@ -518,9 +518,10 @@ def main(
     log_dir: str,
     current_step: Optional[int] = None,
     exp_name: Optional[str] = None,
+    train_run_id: Optional[str] = None,
     wandb_log: bool = False,
-    wandb_run_id: Optional[str] = None,
-    wandb_log_dir: str = "wandb",
+    wandb_log_dir: Optional[str] = "wandb",
+    run_id_dir: Optional[str] = "wandb",
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
 ):
@@ -528,7 +529,6 @@ def main(
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
 
     os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(wandb_log_dir, exist_ok=True)
     os.makedirs(eval_dir, exist_ok=True)
 
     device = torch.device("cuda")
@@ -561,44 +561,38 @@ def main(
             "ins",
             "wer",
         ]
-        if wandb_run_id:
-            wandb_table_cols.append("run_id")
-            wandb.init(
-                id=wandb_run_id,
-                resume="allow",
-                project="open_whisper",
-                entity="dogml",
-                save_code=True,
-                settings=wandb.Settings(init_timeout=300, _service_wait=300),
-            )
-        else:
+        if not os.path.exists(f"{run_id_dir}/{exp_name}_eval.txt"):
             run_id = wandb.util.generate_id()
-            ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
-            exp_name = (
-                f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
-            )
-            model_sizes = ["tiny", "small", "base", "medium", "large"]
-            model_size = [
-                model_size for model_size in model_sizes if model_size in ckpt
-            ][0]
-            config = {
-                "ckpt": "/".join(ckpt.split("/")[-2:]),
-                "model": ow_or_w,
-                "model_size": model_size,
-            }
-            wandb.init(
-                id=run_id,
-                resume="allow",
-                project="open_whisper",
-                entity="dogml",
-                job_type="evals",
-                name=exp_name,
-                dir=wandb_log_dir,
-                config=config,
-                tags=["eval", eval_set, ow_or_w, model_size],
-            )
+            with open(f"{run_id_dir}/{exp_name}_eval.txt", "w") as f:
+                f.write(run_id)
+        else:
+            with open(f"{run_id_dir}/{exp_name}_eval.txt", "r") as f:
+                run_id = f.read().strip()
+
+        ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
+        exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
+        model_sizes = ["tiny", "small", "base", "medium", "large"]
+        model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
+        config = {
+            "ckpt": "/".join(ckpt.split("/")[-2:]),
+            "model": ow_or_w,
+            "model_size": model_size,
+        }
+        if train_run_id is not None:
+            config["train_run_id"] = train_run_id
+            
+        wandb.init(
+            id=run_id,
+            resume="allow",
+            project="open_whisper",
+            entity="dogml",
+            job_type="evals",
+            name=exp_name,
+            dir=wandb_log_dir,
+            config=config,
+            tags=["eval", eval_set, ow_or_w, model_size],
+        )
         eval_table = wandb.Table(columns=wandb_table_cols)
-        table_iter = 0
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
@@ -634,9 +628,8 @@ def main(
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
 
-            if wandb_log:
-                table_iter += 1
-                for i in tqdm(range(0, len(norm_pred_text)), total=len(norm_pred_text)):
+            if wandb_log and (batch_idx + 1) // 10 == 1:
+                for i, text in enumerate(norm_pred_text):
                     wer = (
                         np.round(
                             jiwer.wer(
@@ -654,32 +647,18 @@ def main(
                     dels = measures["deletions"]
                     ins = measures["insertions"]
 
-                    if wandb_run_id:
-                        eval_table.add_data(
-                            eval_set,
-                            wandb.Audio(audio_arr[i], sample_rate=16000),
-                            norm_pred_text[i],
-                            norm_tgt_text[i],
-                            subs,
-                            dels,
-                            ins,
-                            wer,
-                            wandb_run_id,
-                        )
-                    else:
-                        eval_table.add_data(
-                            eval_set,
-                            wandb.Audio(audio_arr[i], sample_rate=16000),
-                            norm_pred_text[i],
-                            norm_tgt_text[i],
-                            subs,
-                            dels,
-                            ins,
-                            wer,
-                        )
+                    eval_table.add_data(
+                        eval_set,
+                        wandb.Audio(audio_arr[i], sample_rate=16000),
+                        norm_pred_text[i],
+                        norm_tgt_text[i],
+                        subs,
+                        dels,
+                        ins,
+                        wer,
+                    )
 
-                wandb.log({f"eval_table_{table_iter}": eval_table})
-                eval_table = wandb.Table(columns=wandb_table_cols)
+                wandb.log({f"eval_table_{current_step}": eval_table})
 
     avg_wer = jiwer.wer(references, hypotheses) * 100
     avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
@@ -692,24 +671,18 @@ def main(
     )
 
     if wandb_log:
-        if wandb_run_id:
-            wandb.log({f"eval/{eval_set}_wer": avg_wer, "custom_step": current_step})
-            wandb.log({f"eval/{eval_set}_subs": avg_subs, "custom_step": current_step})
-            wandb.log({f"eval/{eval_set}_ins": avg_ins, "custom_step": current_step})
-            wandb.log({f"eval/{eval_set}_dels": avg_dels, "custom_step": current_step})
-        else:
-            wandb.run.summary["avg_wer"] = avg_wer
-            wandb.run.summary["avg_subs"] = avg_subs
-            wandb.run.summary["avg_ins"] = avg_ins
-            wandb.run.summary["avg_dels"] = avg_dels
-
+        wandb.log({f"eval/{eval_set}_wer": avg_wer, "global_step": current_step})
+        wandb.log({f"eval/{eval_set}_subs": avg_subs, "global_step": current_step})
+        wandb.log({f"eval/{eval_set}_ins": avg_ins, "global_step": current_step})
+        wandb.log({f"eval/{eval_set}_dels": avg_dels, "global_step": current_step})
+    else:
+        if train_run_id is not None:
             with open(
-                f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt", "a"
+                f"{log_dir}/{exp_name}/{train_run_id}/eval_results.txt", "a"
             ) as f:
                 f.write(
-                    f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
+                    f"Current step {current_step}, {eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
                 )
-
 
 
 def long_form_eval(
@@ -1095,4 +1068,10 @@ def ml_eval(
 
 
 if __name__ == "__main__":
-    Fire({"main": main, "ml_eval": ml_eval, "long_form_eval": long_form_eval})
+    Fire(
+        {
+            "short_form_eval": short_form_eval,
+            "ml_eval": ml_eval,
+            "long_form_eval": long_form_eval,
+        }
+    )
