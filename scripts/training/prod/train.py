@@ -1666,6 +1666,8 @@ def main(
                 pin_memory=pin_memory,
             )
             eval_loaders.append((eval_set, eval_dataloader))
+    else:
+        eval_loaders = None
 
     # model instantiation
     if run_id is not None or "/" in ckpt_file_name:
