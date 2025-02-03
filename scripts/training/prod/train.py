@@ -1477,7 +1477,7 @@ def run_async_eval(
     cmd = [
         "python",
         eval_script_path,
-        short_form_eval,
+        "short_form_eval",
         f"--batch_size={batch_size}",
         f"--num_workers={num_workers}",
         f"--ckpt={ckpt}",
