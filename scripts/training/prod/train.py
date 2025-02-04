@@ -560,10 +560,11 @@ def save_ckpt(
 
     os.makedirs(f"{ckpt_dir}/{exp_name}_{run_id}", exist_ok=True)
 
-    if file_name != "latesttrain" and "inf" not in file_name:
+    if file_name != "latesttrain":
         if len(glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*.pt")) > 0:
             for p in glob.glob(f"{ckpt_dir}/{exp_name}_{run_id}/{file_name}_*.pt"):
-                os.remove(p)
+                if "inf" not in p:
+                    os.remove(p)
 
     torch.save(
         ddp_checkpoint,
