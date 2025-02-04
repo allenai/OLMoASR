@@ -520,8 +520,8 @@ def short_form_eval(
     train_exp_name: Optional[str] = None,
     train_run_id: Optional[str] = None,
     wandb_log: bool = False,
-    wandb_log_dir: Optional[str] = "wandb",
-    run_id_dir: Optional[str] = "wandb",
+    wandb_log_dir: Optional[str] = None,
+    run_id_dir: Optional[str] = None,
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
     cuda: bool = True,
@@ -563,13 +563,16 @@ def short_form_eval(
             "ins",
             "wer",
         ]
-        if not os.path.exists(f"{run_id_dir}/{train_exp_name}_eval.txt"):
-            run_id = wandb.util.generate_id()
-            with open(f"{run_id_dir}/{train_exp_name}_eval.txt", "w") as f:
-                f.write(run_id)
+        if train_exp_name is not None:
+            if not os.path.exists(f"{run_id_dir}/{train_exp_name}_eval.txt"):
+                run_id = wandb.util.generate_id()
+                with open(f"{run_id_dir}/{train_exp_name}_eval.txt", "w") as f:
+                    f.write(run_id)
+            else:
+                with open(f"{run_id_dir}/{train_exp_name}_eval.txt", "r") as f:
+                    run_id = f.read().strip()
         else:
-            with open(f"{run_id_dir}/{train_exp_name}_eval.txt", "r") as f:
-                run_id = f.read().strip()
+            run_id = wandb.util.generate_id()
 
         ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
         exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
