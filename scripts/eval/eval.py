@@ -524,6 +524,7 @@ def short_form_eval(
     run_id_dir: Optional[str] = "wandb",
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
+    cuda: bool = True,
 ):
     if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
@@ -532,7 +533,7 @@ def short_form_eval(
     os.makedirs(wandb_log_dir, exist_ok=True)
     os.makedirs(eval_dir, exist_ok=True)
 
-    device = torch.device("cuda")
+    device = torch.device("cuda") if cuda else torch.device("cpu")
 
     dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
     dataloader = DataLoader(
