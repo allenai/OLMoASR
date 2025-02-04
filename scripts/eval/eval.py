@@ -683,13 +683,14 @@ def short_form_eval(
                 f.write(
                     f"Current step {current_step}, {eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
                 )
+            os.remove(ckpt)
         else:
             with open(f"{log_dir}/eval_results.txt", "a") as f:
                 f.write(
                     f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
                 )
     
-    if wandb_log:            
+    if wandb_log:
         wandb.finish(quiet=True)
     else:
         return None
