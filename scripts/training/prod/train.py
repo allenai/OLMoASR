@@ -1497,6 +1497,8 @@ def run_async_eval(
         f"--hf_token={hf_token}",
         f"--cuda={cuda}",
     ]
+    
+    print(f"{cmd=}")
 
     if rank == 0:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
