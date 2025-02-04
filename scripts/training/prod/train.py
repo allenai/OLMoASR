@@ -1155,7 +1155,7 @@ def train(
             # evaluation
             if run_eval:
                 if (global_step % eval_freq) == 0 and global_step > 0:
-                    if async_eval:
+                    if async_eval == True:
                         for eval_set in ["librispeech_clean", "librispeech_other"]:
                             run_async_eval(
                                 rank=rank,
