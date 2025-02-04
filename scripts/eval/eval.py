@@ -688,6 +688,11 @@ def short_form_eval(
                 f.write(
                     f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
                 )
+    
+    if wandb_log:            
+        wandb.finish(quiet=True)
+    else:
+        return None
 
 
 def long_form_eval(
