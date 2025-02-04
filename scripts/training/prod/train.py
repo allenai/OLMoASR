@@ -840,6 +840,7 @@ def train(
     eval_wandb_log: bool,
     eval_batch_size: Optional[int],
     run_id_dir: Optional[str],
+    eval_on_gpu: bool,
 ) -> Tuple[
     int,
     float,
@@ -1169,6 +1170,7 @@ def train(
                                 run_id_dir=run_id_dir,
                                 eval_dir=eval_dir,
                                 wandb_log=eval_wandb_log,
+                                cuda=eval_on_gpu,
                             )
                     else:
                         best_eval_wer = evaluate(
@@ -1471,6 +1473,7 @@ def run_async_eval(
     run_id_dir: str,
     eval_dir: str,
     wandb_log: bool = False,
+    cuda: bool = True,
 ) -> None:
     wandb_log_dir = os.getenv("WANDB_DIR")
     hf_token = os.getenv("HF_TOKEN")
@@ -1491,6 +1494,7 @@ def run_async_eval(
         f"--run_id_dir={run_id_dir}",
         f"--eval_dir={eval_dir}",
         f"--hf_token={hf_token}",
+        f"--cuda={cuda}",
     ]
 
     if rank == 0:
@@ -1538,6 +1542,7 @@ def main(
     async_eval: bool = "False",
     eval_script_path: Optional[str] = None,
     eval_wandb_log: bool = False,
+    eval_on_gpu: bool = True,
 ) -> None:
     """Main function for training
 
@@ -1812,6 +1817,7 @@ def main(
             eval_wandb_log=eval_wandb_log,
             eval_batch_size=eval_batch_size,
             run_id_dir=run_id_dir,
+            eval_on_gpu=eval_on_gpu,
         )
 
         epoch += 1
@@ -1853,6 +1859,7 @@ def main(
                         run_id_dir=run_id_dir,
                         eval_dir=eval_dir,
                         wandb_log=eval_wandb_log,
+                        cuda=eval_on_gpu,
                     )
             else:
                 best_eval_wer = evaluate(
