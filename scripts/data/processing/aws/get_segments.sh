@@ -30,7 +30,11 @@ mkdir seg_manifest
 /mnt/raid0/s5cmd cp "s3://allennlp-mattj/openwhisper/pretraining_data/SEG_MANIFEST_DIR/*" "seg_manifest/" # <--- fill in SEG_MANIFEST_DIR
 
 # get the code
-git clone https://github.com/huongngo-8/open_whisper.git
+GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxx" # Replace with your token
+GITHUB_USER="huongngo-8"
+REPO="open_whisper"
+
+git clone https://$GITHUB_USER:$GITHUB_TOKEN@github.com/$GITHUB_USER/$REPO.git
 
 # create virtual environment
 python3 -m venv /mnt/raid0/env
@@ -45,7 +49,7 @@ source /home/ec2-user/.bashrc
 source /home/ec2-user/.profile
 
 # install the requirements
-pip install -r open_whisper/requirements-data-process.txt
+pip install -r open_whisper/requirements/requirements-data.txt
 
 # run the script
 python3 open_whisper/scripts/data/processing/segment_jsonl.py --source_dir=full_jsonls --manifest_dir=seg_manifest --log_dir=logs --output_dir=seg_jsonls --subsample=True --subsample_size=2500 --subsample_seed=42
