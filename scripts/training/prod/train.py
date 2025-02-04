@@ -13,6 +13,7 @@ from itertools import chain
 from collections import defaultdict
 import gzip
 import subprocess
+import threading
 
 import torch
 import torch.nn.functional as F
@@ -1498,7 +1499,15 @@ def run_async_eval(
     ]
 
     if rank == 0:
-        subprocess.Popen(cmd)
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
+
+        # Define a function to wait for the process to finish
+        def wait_for_completion():
+            process.wait()
+        
+        # Start a background thread to monitor the process
+        thread = threading.Thread(target=wait_for_completion, daemon=True)
+        thread.start()
 
 
 def cleanup():
