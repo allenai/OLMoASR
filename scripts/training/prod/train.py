@@ -1550,7 +1550,7 @@ def main(
     verbose: bool = False,
     precision: ["bfloat16", "float16", "float32"] = "float16",
     hardware: str = "H100",
-    async_eval: bool = "False",
+    async_eval: bool = False,
     eval_script_path: Optional[str] = None,
     eval_wandb_log: bool = False,
     eval_on_gpu: bool = True,
@@ -1854,7 +1854,7 @@ def main(
 
         if run_eval:
             print(f"Evaluation after epoch at {global_step=} on rank {rank}")
-            if async_eval:
+            if async_eval is True:
                 for eval_set in ["librispeech_clean", "librispeech_other"]:
                     run_async_eval(
                         rank=rank,
