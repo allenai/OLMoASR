@@ -305,7 +305,12 @@ def chunk_transcript(
         segments_list = [
             segment
             for segment in segments_list
-            if "/".join(segment["subtitle_file"].split("/")[-2:]) in transcript_manifest
+            if "/".join(
+                segment["subtitle_file"].split("/")[-2:]
+                if dolma_format is False
+                else segment["metadata"]["subtitle_file"].split("/")[-2:]
+            )
+            in transcript_manifest
         ]
         return segments_list
     except ValueError as e:
@@ -413,7 +418,8 @@ def main(
     keep_tokens: bool = False,
     dolma_format: bool = False,
     in_memory: bool = True,
-):
+):  
+    print(f"{dolma_format=}, {subsample=}, {subsample_size=}, {subsample_seed=}, {keep_tokens=}, {in_memory=}")
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
 
