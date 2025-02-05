@@ -675,23 +675,29 @@ def short_form_eval(
         f"{eval_set} WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
     )
 
-    if wandb_log:
+    if wandb_log and train_run_id is not None:
         wandb.log({f"eval/{eval_set}_wer": avg_wer, "global_step": current_step})
         wandb.log({f"eval/{eval_set}_subs": avg_subs, "global_step": current_step})
         wandb.log({f"eval/{eval_set}_ins": avg_ins, "global_step": current_step})
         wandb.log({f"eval/{eval_set}_dels": avg_dels, "global_step": current_step})
-    else:
-        if train_run_id is not None:
-            with open(f"{log_dir}/{train_exp_name}_{train_run_id}.txt", "a") as f:
-                f.write(
-                    f"Current step {current_step}, {eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
-                )
-            os.remove(ckpt)
-        else:
-            with open(f"{log_dir}/eval_results.txt", "a") as f:
-                f.write(
-                    f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
-                )
+    elif not wandb_log and train_run_id is not None:
+        with open(f"{log_dir}/{train_exp_name}_{train_run_id}.txt", "a") as f:
+            f.write(
+                f"Current step {current_step}, {eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
+            )
+    elif wandb_log and train_run_id is None:
+        wandb.run.summary["avg_wer"] = avg_wer
+        wandb.run.summary["avg_subs"] = avg_subs
+        wandb.run.summary["avg_ins"] = avg_ins
+        wandb.run.summary["avg_dels"] = avg_dels
+    elif not wandb_log and train_run_id is None:
+        with open(f"{log_dir}/eval_results.txt", "a") as f:
+            f.write(
+                f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
+            )
+    
+    if train_run_id is not None:
+        os.remove(ckpt)
     
     return None
 
