@@ -54,6 +54,7 @@ def chunk_transcript(
     transcript_manifest: List[str],
     log_dir: str,
     keep_tokens: bool = False,
+    dolma_format: bool = False,
     in_memory: bool = True,
 ) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
     """Segment audio and transcript files into <= 30-second chunks
@@ -137,15 +138,29 @@ def chunk_transcript(
                         timestamp = t_output_file.split("/")[-1].split(
                             f".{transcript_ext}"
                         )[0]
-                        segment = {
-                            "subtitle_file": t_output_file,
-                            "seg_content": transcript_string,
-                            "timestamp": timestamp,
-                            "id": video_id,
-                            "audio_file": t_output_file.replace(
-                                f".{transcript_ext}", ".npy"
-                            ).replace("ow_full", "ow_seg"),
-                        }
+                        if dolma_format is True:
+                            segment = {
+                                "id": f"{video_id}_{segment_count}",
+                                "text": transcript_string,
+                                "source": "OW",
+                                "metadata": {
+                                    "subtitle_file": t_output_file,
+                                    "timestamp": timestamp,
+                                    "audio_file": t_output_file.replace(
+                                        f".{transcript_ext}", ".npy"
+                                    ).replace("ow_full", "ow_seg"),
+                                },
+                            }
+                        else:
+                            segment = {
+                                "subtitle_file": t_output_file,
+                                "seg_content": transcript_string,
+                                "timestamp": timestamp,
+                                "id": video_id,
+                                "audio_file": t_output_file.replace(
+                                    f".{transcript_ext}", ".npy"
+                                ).replace("ow_full", "ow_seg"),
+                            }
                         if keep_tokens and res is not None:
                             segment["tokens"] = res
                         segments_list.append(segment)
@@ -195,15 +210,29 @@ def chunk_transcript(
                         timestamp = t_output_file.split("/")[-1].split(
                             f".{transcript_ext}"
                         )[0]
-                        segment = {
-                            "subtitle_file": t_output_file,
-                            "seg_content": transcript_string,
-                            "timestamp": timestamp,
-                            "id": video_id,
-                            "audio_file": t_output_file.replace(
-                                f".{transcript_ext}", ".npy"
-                            ).replace("ow_full", "ow_seg"),
-                        }
+                        if dolma_format is True:
+                            segment = {
+                                "id": f"{video_id}_{segment_count}",
+                                "text": transcript_string,
+                                "source": "OW",
+                                "metadata": {
+                                    "subtitle_file": t_output_file,
+                                    "timestamp": timestamp,
+                                    "audio_file": t_output_file.replace(
+                                        f".{transcript_ext}", ".npy"
+                                    ).replace("ow_full", "ow_seg"),
+                                },
+                            }
+                        else:
+                            segment = {
+                                "subtitle_file": t_output_file,
+                                "seg_content": transcript_string,
+                                "timestamp": timestamp,
+                                "id": video_id,
+                                "audio_file": t_output_file.replace(
+                                    f".{transcript_ext}", ".npy"
+                                ).replace("ow_full", "ow_seg"),
+                            }
                         if keep_tokens:
                             segment["tokens"] = [
                                 50257,
@@ -234,15 +263,29 @@ def chunk_transcript(
                         timestamp = t_output_file.split("/")[-1].split(
                             f".{transcript_ext}"
                         )[0]
-                        segment = {
-                            "subtitle_file": t_output_file,
-                            "seg_content": transcript_string,
-                            "timestamp": timestamp,
-                            "id": video_id,
-                            "audio_file": t_output_file.replace(
-                                f".{transcript_ext}", ".npy"
-                            ).replace("ow_full", "ow_seg"),
-                        }
+                        if dolma_format is True:
+                            segment = {
+                                "id": f"{video_id}_{segment_count}",
+                                "text": transcript_string,
+                                "source": "OW",
+                                "metadata": {
+                                    "subtitle_file": t_output_file,
+                                    "timestamp": timestamp,
+                                    "audio_file": t_output_file.replace(
+                                        f".{transcript_ext}", ".npy"
+                                    ).replace("ow_full", "ow_seg"),
+                                },
+                            }
+                        else:
+                            segment = {
+                                "subtitle_file": t_output_file,
+                                "seg_content": transcript_string,
+                                "timestamp": timestamp,
+                                "id": video_id,
+                                "audio_file": t_output_file.replace(
+                                    f".{transcript_ext}", ".npy"
+                                ).replace("ow_full", "ow_seg"),
+                            }
                         if keep_tokens and res is not None:
                             segment["tokens"] = res
                         segments_list.append(segment)
@@ -292,6 +335,7 @@ def preprocess_jsonl(
     subsample_size: int = 0,
     subsample_seed: int = 42,
     keep_tokens: bool = False,
+    dolma_format: bool = False,
     in_memory: bool = True,
 ):
     output_path = f"{output_dir}/shard_seg_{shard}.jsonl.gz"
@@ -312,7 +356,12 @@ def preprocess_jsonl(
 
         segments_group = [
             chunk_transcript(
-                transcript, transcript_manifest, shard_log_dir, keep_tokens, in_memory
+                transcript,
+                transcript_manifest,
+                shard_log_dir,
+                keep_tokens,
+                dolma_format,
+                in_memory,
             )
             for transcript in transcript_data
         ]
@@ -362,6 +411,7 @@ def main(
     subsample_size: int = 0,
     subsample_seed: int = 42,
     keep_tokens: bool = False,
+    dolma_format: bool = False,
     in_memory: bool = True,
 ):
     os.makedirs(log_dir, exist_ok=True)
@@ -390,6 +440,7 @@ def main(
                         repeat(subsample_size),
                         repeat(subsample_seed),
                         repeat(keep_tokens),
+                        repeat(dolma_format),
                         repeat(in_memory),
                     ),
                 ),
