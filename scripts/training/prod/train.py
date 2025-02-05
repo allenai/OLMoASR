@@ -149,7 +149,7 @@ class AudioTextDataset(Dataset):
 
             text_tokens = tokenizer.encode(transcript_text)
 
-        text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens + tokenizer.eot
+        text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens + [tokenizer.eot]
 
         # offset
         text_input = text_tokens[:-1]
