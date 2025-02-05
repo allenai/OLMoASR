@@ -1,6 +1,8 @@
 from typing import Iterable, List, Tuple
 import re
 import string
+import sys
+sys.
 from open_whisper.utils import TranscriptReader
 
 from dolma.core.data_types import TextSlice
@@ -10,9 +12,10 @@ from dolma import add_tagger
 @add_tagger("ow-tedlium-quality")
 class OWTedliumQualityClassifier(BaseFastTextTagger):
     MODEL_PATH = "/mnt/raid0/tedlium.bin"
+    MAX_CHAR_LEN = 376
 
-    def __init__(self, max_char_len=None):
-        self.max_char_len = max_char_len
+    def __init__(self):
+        self.max_char_len = self.MAX_CHAR_LEN
         super().__init__(model_path=self.MODEL_PATH, model_mode=self.DOCUMENT_LEVEL_TAGGER)
 
     def modify_text(self, text):
@@ -68,9 +71,10 @@ class OWTedliumQualityClassifier(BaseFastTextTagger):
 @add_tagger("ow-commonvoice-quality")
 class OWCVQualityClassifier(BaseFastTextTagger):
     MODEL_PATH = "/mnt/raid0/commonvoice.bin"
+    MAX_CHAR_LEN = 211
 
-    def __init__(self, max_char_len=None):
-        self.max_char_len = max_char_len
+    def __init__(self):
+        self.max_char_len = self.MAX_CHAR_LEN
         super().__init__(model_path=self.MODEL_PATH, model_mode=self.DOCUMENT_LEVEL_TAGGER)
 
     def modify_text(self, text):
