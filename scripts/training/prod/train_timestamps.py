@@ -184,18 +184,25 @@ class AudioTextDataset(Dataset):
         #     :, : self.n_text_ctx, : self.n_text_ctx
         # ]
 
-        text_input = np.pad(
-            text_input,
-            pad_width=(0, self.n_text_ctx - len(text_input)),
-            mode="constant",
-            constant_values=51864,
-        )
-        text_y = np.pad(
-            text_y,
-            pad_width=(0, self.n_text_ctx - len(text_y)),
-            mode="constant",
-            constant_values=51864,
-        )
+        try:
+            text_input = np.pad(
+                text_input,
+                pad_width=(0, self.n_text_ctx - len(text_input)),
+                mode="constant",
+                constant_values=51864,
+            )
+            text_y = np.pad(
+                text_y,
+                pad_width=(0, self.n_text_ctx - len(text_y)),
+                mode="constant",
+                constant_values=51864,
+            )
+        except Exception as e:
+            print(f"{transcript_text=}")
+            print(f"{tokenizer.sot_sequence=}")
+            print(f"{tokenizer.timestamp_begin=}")
+            print(f"{end_time_token=}")
+            print(f"{text_tokens=}")
 
         text_input = torch.tensor(text_input, dtype=torch.long)
         text_y = torch.tensor(text_y, dtype=torch.long)
