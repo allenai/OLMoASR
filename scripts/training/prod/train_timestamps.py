@@ -167,7 +167,7 @@ class AudioTextDataset(Dataset):
             )
         else:
             text_tokens = (
-                list(tokenizer.sot_sequence_including_notimestamps) + text_tokens + tokenizer.eot
+                list(tokenizer.sot_sequence_including_notimestamps) + text_tokens + [tokenizer.eot]
             )
         
         # offset
