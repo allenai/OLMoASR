@@ -722,7 +722,17 @@ def gen_pred(logits, text_y, tokenizer):
     microbatch_pred_text = []
     microbatch_unnorm_pred_text = []
     for pred_instance in pred.cpu().numpy():
-        pred_instance_text = tokenizer.decode_with_timestamps(list(pred_instance))
+        try:
+            if "51864" in pred_instance:
+                print(f"{pred_instance=}")
+                print(f"{text_y=}")
+                print(f"{tokenizer.decode(list(pred_instance))=}")
+            else:
+                pred_instance = list(filter(lambda token: token != 51864, pred_instance))
+                pred_instance_text = tokenizer.decode_with_timestamps(list(pred_instance))
+        except Exception as e:
+            print(f"{pred_instance=}")
+            print(f"{text_y=}")
         microbatch_unnorm_pred_text.append(pred_instance_text)
         pred_instance_text = ow.utils.remove_after_endoftext(pred_instance_text)
         microbatch_pred_text.append(pred_instance_text)
