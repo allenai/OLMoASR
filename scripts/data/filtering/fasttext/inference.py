@@ -1,7 +1,6 @@
 from typing import Iterable, List, Tuple
 import re
 import string
-import sys
 from open_whisper.utils import TranscriptReader
 
 from dolma.core.data_types import TextSlice
@@ -52,7 +51,7 @@ class OWTedliumQualityClassifier(BaseFastTextTagger):
         return text
 
     def predict_slice(self, text_slice: TextSlice) -> Iterable[Prediction]:
-        text = zip(*self.preprocess(text_slice.text))
+        text = self.preprocess(text_slice.text)
         pred = self.classifier.predict(text, k=-1)
         
         # Extract the predicted label and its probability
@@ -111,7 +110,7 @@ class OWCVQualityClassifier(BaseFastTextTagger):
         return text
 
     def predict_slice(self, text_slice: TextSlice) -> Iterable[Prediction]:
-        text = zip(*self.preprocess(text_slice.text))
+        text = self.preprocess(text_slice.text)
         pred = self.classifier.predict(text, k=-1)
         
         # Extract the predicted label and its probability
