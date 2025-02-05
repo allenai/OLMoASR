@@ -148,11 +148,21 @@ class AudioTextDataset(Dataset):
         else:
             transcript_text = reader.extract_text(transcript=transcript)
             text_tokens = tokenizer.encode(transcript_text)
-            
+
             if self.n_text_ctx - len(text_tokens) >= 4:
                 if np.random.rand() > 0.5:
-                    end = transcript_end.split(":")[-1].split(",") if "," in transcript_end else transcript_end.split(":")[-1].split(".")
-                    end_time_token_str = f"<|{int(end[0])}.{(int(end[1][:2]) + 1 if int(end[1][:2]) % 2 != 0 else int(end[1][:2])):02}|>"
+                    end = (
+                        transcript_end.split(":")[-1].split(",")
+                        if "," in transcript_end
+                        else transcript_end.split(":")[-1].split(".")
+                    )
+                    sec, msec = int(end[0]), int(end[1][:2])
+                    if msec == 99:
+                        sec += 1
+                        msec = 0
+                    elif msec % 2 != 0:
+                        msec += 1
+                    end_time_token_str = f"<|{sec}.{(msec):02}|>"
                     end_time_token = tokenizer.encode(
                         end_time_token_str, allowed_special="all"
                     )
@@ -167,9 +177,11 @@ class AudioTextDataset(Dataset):
             )
         else:
             text_tokens = (
-                list(tokenizer.sot_sequence_including_notimestamps) + text_tokens + [tokenizer.eot]
+                list(tokenizer.sot_sequence_including_notimestamps)
+                + text_tokens
+                + [tokenizer.eot]
             )
-        
+
         # offset
         text_input = text_tokens[:-1]
         text_y = text_tokens[1:]
@@ -201,6 +213,7 @@ class AudioTextDataset(Dataset):
             print(f"{transcript_text=}")
             print(f"{tokenizer.sot_sequence=}")
             print(f"{tokenizer.timestamp_begin=}")
+            print(f"{end=}")
             print(f"{end_time_token=}")
             print(f"{text_tokens=}")
 
@@ -1521,7 +1534,7 @@ def run_async_eval(
         f"--hf_token={hf_token}",
         f"--cuda={cuda}",
     ]
-    
+
     print(f"{cmd=}")
 
     if rank == 0:
@@ -1910,7 +1923,7 @@ def main(
                     table_idx=f"epoch_{epoch}",
                     log_dir=log_dir,
                     ckpt_dir=ckpt_dir,
-            )
+                )
 
             print(f"Rank {rank} reaching barrier")
             dist.barrier()
