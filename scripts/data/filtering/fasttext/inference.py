@@ -1,6 +1,7 @@
 from typing import Iterable, List, Tuple
 import re
 import string
+from open_whisper.utils import TranscriptReader
 
 from dolma.core.data_types import TextSlice
 from dolma.core.ft_tagger import BaseFastTextTagger, Prediction
@@ -31,7 +32,14 @@ class OWTedliumQualityClassifier(BaseFastTextTagger):
 
         return text
 
-    def preprocess(self, text: str) -> List[Tuple[str, Tuple[int, int]]]:
+    def preprocess(self, transcript_string: str) -> List[Tuple[str, Tuple[int, int]]]:
+        reader = TranscriptReader(
+            file_path=None,
+            transcript_string=transcript_string,
+            ext="vtt" if "WEBVTT" in transcript_string else "srt",
+        )
+        t_dict, *_ = reader.read()
+        text = reader.extract_text(t_dict)
         text = self.modify_text(text)
         text = text.strip()
         text = text.lower()
@@ -50,11 +58,10 @@ class OWTedliumQualityClassifier(BaseFastTextTagger):
         pred_label = pred_label[0]
         probability_score = pred_prob[0]
 
-        # If the predicted label is 'CC', adjust the probability of it being 'Wikipedia'
         if pred_label == "__label__negative":
             probability_score = 1 - probability_score
 
-        label = pred_label.replace("__label__", "").replace("positive", "score").replace("negative", "score")
+        label = pred_label.replace("__label__", "")
 
         return [Prediction(label=label, score=probability_score)]
     
@@ -83,7 +90,14 @@ class OWCVQualityClassifier(BaseFastTextTagger):
 
         return text
 
-    def preprocess(self, text: str) -> List[Tuple[str, Tuple[int, int]]]:
+    def preprocess(self, transcript_string: str) -> List[Tuple[str, Tuple[int, int]]]:
+        reader = TranscriptReader(
+            file_path=None,
+            transcript_string=transcript_string,
+            ext="vtt" if "WEBVTT" in transcript_string else "srt",
+        )
+        t_dict, *_ = reader.read()
+        text = reader.extract_text(t_dict)
         text = self.modify_text(text)
         text = text.strip()
         text = text.lower()
@@ -102,10 +116,9 @@ class OWCVQualityClassifier(BaseFastTextTagger):
         pred_label = pred_label[0]
         probability_score = pred_prob[0]
 
-        # If the predicted label is 'CC', adjust the probability of it being 'Wikipedia'
         if pred_label == "__label__negative":
             probability_score = 1 - probability_score
 
-        label = pred_label.replace("__label__", "").replace("positive", "score").replace("negative", "score")
+        label = pred_label.replace("__label__", "")
 
         return [Prediction(label=label, score=probability_score)]
