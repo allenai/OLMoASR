@@ -4,11 +4,11 @@ import string
 
 from dolma.core.data_types import TextSlice
 from dolma.core.ft_tagger import BaseFastTextTagger, Prediction
-from dolma.core.registry import TaggerRegistry
+from dolma import add_tagger
 
-@TaggerRegistry.add("ow-tedlium-quality")
+@add_tagger("ow-tedlium-quality")
 class OWTedliumQualityClassifier(BaseFastTextTagger):
-    MODEL_PATH = "https://dolma-artifacts.org/fasttext_models/dolma-1_7/cc_wiki_wikiref_sw_pes2o_adult_fakenews_math_books_openhermes.bin"  # noqa: E501
+    MODEL_PATH = "/mnt/raid0/tedlium.bin"
 
     def __init__(self, max_char_len=None):
         self.max_char_len = max_char_len
@@ -58,9 +58,9 @@ class OWTedliumQualityClassifier(BaseFastTextTagger):
 
         return [Prediction(label=label, score=probability_score)]
     
-@TaggerRegistry.add("ow-commonvoice-quality")
+@add_tagger("ow-commonvoice-quality")
 class OWCVQualityClassifier(BaseFastTextTagger):
-    MODEL_PATH = "https://dolma-artifacts.org/fasttext_models/dolma-1_7/cc_wiki_wikiref_sw_pes2o_adult_fakenews_math_books_openhermes.bin"  # noqa: E501
+    MODEL_PATH = "/mnt/raid0/commonvoice.bin"
 
     def __init__(self, max_char_len=None):
         self.max_char_len = max_char_len
