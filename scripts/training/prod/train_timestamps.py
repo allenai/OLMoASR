@@ -163,7 +163,7 @@ class AudioTextDataset(Dataset):
                 + [tokenizer.timestamp_begin]
                 + text_tokens
                 + end_time_token
-                + tokenizer.eot
+                + [tokenizer.eot]
             )
         else:
             text_tokens = (
