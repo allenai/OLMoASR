@@ -62,7 +62,7 @@ class OWTedliumQualityClassifier(BaseFastTextTagger):
         if pred_label == "__label__negative":
             probability_score = 1 - probability_score
 
-        label = pred_label.replace("__label__", "")
+        label = pred_label.replace("__label__", "").replace("positive", "score").replace("negative", "score")
 
         return [Prediction(label=label, score=probability_score)]
     
@@ -121,6 +121,6 @@ class OWCVQualityClassifier(BaseFastTextTagger):
         if pred_label == "__label__negative":
             probability_score = 1 - probability_score
 
-        label = pred_label.replace("__label__", "")
+        label = pred_label.replace("__label__", "").replace("positive", "score").replace("negative", "score")
 
         return [Prediction(label=label, score=probability_score)]
