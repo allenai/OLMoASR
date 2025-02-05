@@ -2,7 +2,6 @@ from typing import Iterable, List, Tuple
 import re
 import string
 import sys
-sys.
 from open_whisper.utils import TranscriptReader
 
 from dolma.core.data_types import TextSlice
