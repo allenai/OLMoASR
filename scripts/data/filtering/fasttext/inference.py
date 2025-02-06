@@ -37,7 +37,7 @@ class OWTedliumQualityClassifier(BaseFastTextTagger):
         reader = TranscriptReader(
             file_path=None,
             transcript_string=transcript_string,
-            ext="vtt" if "WEBVTT" in transcript_string else "srt",
+            ext="vtt" if transcript_string.startswith("WEBVTT") else "srt",
         )
         t_dict, *_ = reader.read()
         text = reader.extract_text(t_dict)
@@ -96,7 +96,7 @@ class OWCVQualityClassifier(BaseFastTextTagger):
         reader = TranscriptReader(
             file_path=None,
             transcript_string=transcript_string,
-            ext="vtt" if "WEBVTT" in transcript_string else "srt",
+            ext="vtt" if transcript_string.startswith("WEBVTT") else "srt",
         )
         t_dict, *_ = reader.read()
         text = reader.extract_text(t_dict)
