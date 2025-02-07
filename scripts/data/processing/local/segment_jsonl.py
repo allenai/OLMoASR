@@ -336,6 +336,7 @@ def preprocess_jsonl(
     transcript_manifest_file: str,
     log_dir: str,
     output_dir: str,
+    only_subsample: bool = False,
     subsample: bool = False,
     subsample_size: int = 0,
     subsample_seed: int = 42,
@@ -347,34 +348,40 @@ def preprocess_jsonl(
     if os.path.exists(output_path):
         return output_path, None, 0
     else:
-        shard_log_dir = os.path.join(log_dir, shard)
-        os.makedirs(shard_log_dir, exist_ok=True)
+        if not only_subsample:
+            shard_log_dir = os.path.join(log_dir, shard)
+            os.makedirs(shard_log_dir, exist_ok=True)
 
-        if json_file.endswith(".gz"):
-            transcript_data = unarchive_jsonl_gz(json_file)
+            if json_file.endswith(".gz"):
+                transcript_data = unarchive_jsonl_gz(json_file)
+            else:
+                with open(json_file, "r") as f:
+                    transcript_data = [json.loads(line.strip()) for line in f]
+
+            with open(transcript_manifest_file, "r") as f:
+                transcript_manifest = [line.strip() for line in f]
+
+            segments_group = [
+                chunk_transcript(
+                    transcript,
+                    transcript_manifest,
+                    shard_log_dir,
+                    keep_tokens,
+                    dolma_format,
+                    in_memory,
+                )
+                for transcript in transcript_data
+            ]
+
+            segments_group = [group for group in segments_group if group is not None]
+
+            # Write the data to tar files
+            segments_list = list(chain(*segments_group))
+            seg_count = len(segments_list)
         else:
-            with open(json_file, "r") as f:
-                transcript_data = [json.loads(line.strip()) for line in f]
-
-        with open(transcript_manifest_file, "r") as f:
-            transcript_manifest = [line.strip() for line in f]
-
-        segments_group = [
-            chunk_transcript(
-                transcript,
-                transcript_manifest,
-                shard_log_dir,
-                keep_tokens,
-                dolma_format,
-                in_memory,
-            )
-            for transcript in transcript_data
-        ]
-
-        segments_group = [group for group in segments_group if group is not None]
-
-        # Write the data to tar files
-        segments_list = list(chain(*segments_group))
+            with gzip.open(json_file, "rt", encoding="utf-8") as f:
+                segments_list = [json.loads(line.strip()) for line in f]
+            seg_count = len(segments_list)
 
         if subsample:
             if len(segments_list) > subsample_size:
@@ -383,6 +390,7 @@ def preprocess_jsonl(
                     segments_list, size=subsample_size, replace=False
                 )
                 segments_list = subsampled_segments_list
+                subsampled_count = len(subsampled_segments_list)
             else:
                 with open(
                     f"{log_dir}/less_than_subsample_size_{subsample_size}.txt", "a"
@@ -400,7 +408,7 @@ def preprocess_jsonl(
                     f.write(json.dumps(segment) + "\n")
 
         # return output_path, shard_log_dir, len(segments_list)
-        return len(segments_list)
+        return seg_count, subsampled_count if subsample else 0
 
 
 def parallel_preprocess_jsonl(args):
@@ -412,14 +420,17 @@ def main(
     manifest_dir: str,
     log_dir: str,
     output_dir: str,
+    only_subsample: bool = False,
     subsample: bool = False,
     subsample_size: int = 0,
     subsample_seed: int = 42,
     keep_tokens: bool = False,
     dolma_format: bool = False,
     in_memory: bool = True,
-):  
-    print(f"{dolma_format=}, {subsample=}, {subsample_size=}, {subsample_seed=}, {keep_tokens=}, {in_memory=}")
+):
+    print(
+        f"{dolma_format=}, {only_subsample=}, {subsample=}, {subsample_size=}, {subsample_seed=}, {keep_tokens=}, {in_memory=}"
+    )
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
 
@@ -432,7 +443,7 @@ def main(
     manifest_files = [f"{manifest_dir}/{shard}.txt" for shard in shards]
     logger.info(f"{manifest_files[:5]=}")
     with multiprocessing.Pool() as pool:
-        segment_counts = list(
+        segment_counts, subsampled_counts = list(
             tqdm(
                 pool.imap_unordered(
                     parallel_preprocess_jsonl,
@@ -442,6 +453,7 @@ def main(
                         manifest_files,
                         repeat(log_dir),
                         repeat(output_dir),
+                        repeat(only_subsample),
                         repeat(subsample),
                         repeat(subsample_size),
                         repeat(subsample_seed),
@@ -454,8 +466,13 @@ def main(
             )
         )
 
-    # logger.info(f"Total segment count: {segment_count}")
-    logger.info(f"Total segment count: {sum(segment_counts)}")
+    logger.info(
+        f"Total segment count: {sum(segment_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours"
+    )
+    if subsample:
+        logger.info(
+            f"Total subsampled segment count: {sum(subsampled_counts)}, total duration: {(sum(subsampled_counts) * 30) / (60 * 60)} hours"
+        )
 
 
 if __name__ == "__main__":
