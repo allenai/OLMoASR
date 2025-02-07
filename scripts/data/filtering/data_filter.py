@@ -256,6 +256,7 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     ]
     lines_seen = lines_kept = 0
     chars_seen = chars_kept = 0
+    dur_seen = dur_kept = 0
 
     # Process all lines
     output_lines = []
@@ -265,6 +266,7 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
         parsed_content = parse_into_iter(line["content"], line["subtitle_file"])
         scores_dict = {k: v for k, v in line.items() if "score" in k}
         chars_seen += len(line["content"])  # TODO: Be more precise here
+        dur_seen += line["length"]
         output_content, hitlist = process_content(
             parsed_content, scores_dict, config_dict
         )
@@ -275,6 +277,7 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
             output_content_str = parse_iter_to_string(output_content)
             lines_kept += 1
             chars_kept += len(output_content_str)  # TODO: Be more precise here
+            dur_kept += line["length"]
             line["content"] = output_content_str
             output_lines.append(line)
         else:
@@ -290,7 +293,15 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
                 )
             )
 
-    return (lines_seen, lines_kept, chars_seen, chars_kept, dict(total_hitlist))
+    return (
+        lines_seen,
+        lines_kept,
+        chars_seen,
+        chars_kept,
+        dur_seen,
+        dur_kept,
+        dict(total_hitlist),
+    )
 
 
 def process_content(content, scores_dict, config):
@@ -332,13 +343,15 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
     partial_fxn = partial(process_jsonl, config_dict=config_dict, output_dir=output_dir)
     output_numbers = run_imap_multiprocessing(partial_fxn, files, num_cpus)
 
-    lines_seen = lines_kept = chars_seen = chars_kept = 0
+    lines_seen = lines_kept = chars_seen = chars_kept = dur_seen = dur_kept = 0
     total_hitlist = defaultdict(int)
-    for ls, lk, cs, ck, hitlist in output_numbers:
+    for ls, lk, cs, ck, ds, dk, hitlist in output_numbers:
         lines_seen += ls
         lines_kept += lk
         chars_seen += cs
         chars_kept += ck
+        dur_seen += ds
+        dur_kept += dk
         for k, v in hitlist.items():
             total_hitlist[k] += v
 
@@ -347,14 +360,32 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
     )
     print(
         "Kept %s/%s Lines | %.04f survival rate"
-        % (lines_kept, lines_seen, lines_kept / lines_seen)
+        % (lines_kept, lines_seen, 100 * (lines_kept / lines_seen))
     )
     print(
         "Kept %s/%s Chars | %.04f survival rate"
-        % (chars_kept, chars_seen, chars_kept / chars_seen)
+        % (chars_kept, chars_seen, 100 * (chars_kept / chars_seen))
     )
-
+    print(
+        "Kept %.04f/%.04f Hours | %.04f survival rate"
+        % (dur_kept / (60 * 60), dur_seen / (60 * 60), 100 * (dur_kept / dur_seen))
+    )
+    
     process_hitlist(dict(total_hitlist), config_dict["pipeline"])
+
+    with open(os.path.join(output_dir, f"{config_path.split('.yaml')[0]}.log"), "w") as f:
+        f.write(
+            "Kept %s/%s Lines | %.04f survival rate\n"
+            % (lines_kept, lines_seen, 100 * (lines_kept / lines_seen))
+        )
+        f.write(
+            "Kept %s/%s Chars | %.04f survival rate\n"
+            % (chars_kept, chars_seen, 100 * (chars_kept / chars_seen))
+        )
+        f.write(
+            "Kept %.04f/%.04f Hours | %.04f survival rate\n"
+            % (dur_kept / (60 * 60), dur_seen / (60 * 60), 100 * (dur_kept / dur_seen))
+        )
 
 
 if __name__ == "__main__":
