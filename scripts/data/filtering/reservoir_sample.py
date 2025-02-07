@@ -1,6 +1,6 @@
 import glob
 import os 
-from typing import Tuple, Union, Dict, Any, Literal, Optional
+from typing import Tuple, Union, Dict, Any, Literal, Optional, List
 import numpy as np
 import io
 from collections import defaultdict
@@ -66,7 +66,7 @@ class SharedCounter:
 # ======================================================
 
 
-def process_chunk(chunk, key, chunk_reservoir_size, counter, result_queue):
+def process_chunk(chunk, keys: Union[str, List], chunk_reservoir_size, counter, result_queue):
 
     temp = tempfile.NamedTemporaryFile(delete=False)
     docs_seen = 0
@@ -74,7 +74,12 @@ def process_chunk(chunk, key, chunk_reservoir_size, counter, result_queue):
     for file in chunk:
         lines = [json.loads(_) for _ in open(file, 'rb').read().splitlines()]
         for line in lines:
-            value = line.get(key)
+            if isinstance(keys, str):
+                value = line.get(keys)
+            else:
+                value = line
+                for key in keys:
+                    value = value.get(key)
             if value == None:
                 continue
 
@@ -101,7 +106,7 @@ def process_chunk(chunk, key, chunk_reservoir_size, counter, result_queue):
 
 
 
-def main(input_dir, key, output_loc, reservoir_size=1_000_000, num_cpus=None):
+def main(input_dir, keys, output_loc, reservoir_size=1_000_000, num_cpus=None):
     start_time = time.time()
     if num_cpus == None:
         num_cpus = os.cpu_count()
@@ -115,15 +120,17 @@ def main(input_dir, key, output_loc, reservoir_size=1_000_000, num_cpus=None):
     chunk_reservoir_size = round(reservoir_size / num_cpus)
     counter = SharedCounter()
 
-    print("Starting reservoir sampling for key %s | %s files | Res size: %s" % (key,  len(files), reservoir_size))
+    if "," in keys:
+        keys = keys.split(",")
+    print("Starting reservoir sampling for key %s | %s files | Res size: %s" % (keys,  len(files), reservoir_size))
 
     # Claude's multiprocessing incantations
     pbar = tqdm(total=len(files), position=0, leave=True)
     processes = []
-
+    
     result_queue = Queue()
     for _ in range(num_cpus):
-        p = Process(target=process_chunk, args=(chunks[_], key, chunk_reservoir_size, counter, result_queue))
+        p = Process(target=process_chunk, args=(chunks[_], keys, chunk_reservoir_size, counter, result_queue))
         processes.append(p)
         p.start()
 
@@ -174,10 +181,10 @@ if __name__ == '__main__':
 
     parser.add_argument('--input-dir', type=str, required=True)
     parser.add_argument('--output-loc', type=str, default=None)
-    parser.add_argument('--key', type=str, required=True)
+    parser.add_argument('--keys', type=str, required=True)
     parser.add_argument('--reservoir-size', type=int, default=1_000_000)
     parser.add_argument('--num-cpus', type=int, required=False)
     args = parser.parse_args()
 
-    main(args.input_dir, args.key, args.output_loc, args.reservoir_size, args.num_cpus)
+    main(args.input_dir, args.keys, args.output_loc, args.reservoir_size, args.num_cpus)
 
