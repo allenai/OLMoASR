@@ -370,19 +370,42 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
         for k, v in hitlist.items():
             total_hitlist[k] += v
 
+    dur_seen = (lines_seen * 30) / (60 * 60)
+    dur_kept = (lines_kept * 30) / (60 * 60)
+
     print(
         "Processed %s files in %.02f seconds" % (len(files), time.time() - start_time)
     )
     print(
         "Kept %s/%s Lines | %.04f survival rate"
-        % (lines_kept, lines_seen, lines_kept / lines_seen)
+        % (lines_kept, lines_seen, 100 * (lines_kept / lines_seen))
     )
     print(
         "Kept %s/%s Chars | %.04f survival rate"
-        % (chars_kept, chars_seen, chars_kept / chars_seen)
+        % (chars_kept, chars_seen, 100 * (chars_kept / chars_seen))
+    )
+    print(
+        "Kept %.04f/%.04f Hours | %.04f survival rate"
+        % (dur_kept, dur_seen, 100 * (dur_kept / dur_seen))
     )
 
     process_hitlist(dict(total_hitlist), config_dict["pipeline"])
+
+    with open(
+        os.path.join(output_dir, f"{config_path.split('.yaml')[0]}.log"), "w"
+    ) as f:
+        f.write(
+            "Kept %s/%s Lines | %.04f survival rate\n"
+            % (lines_kept, lines_seen, 100 * (lines_kept / lines_seen))
+        )
+        f.write(
+            "Kept %s/%s Chars | %.04f survival rate\n"
+            % (chars_kept, chars_seen, 100 * (chars_kept / chars_seen))
+        )
+        f.write(
+            "Kept %.04f/%.04f Hours | %.04f survival rate\n"
+            % (dur_kept, dur_seen, 100 * (dur_kept / dur_seen))
+        )
 
 
 if __name__ == "__main__":
