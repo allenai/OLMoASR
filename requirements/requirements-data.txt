@@ -20,3 +20,5 @@ yt-dlp
 pytest
 librosa
 pydub
+jiwer
+tabulate
