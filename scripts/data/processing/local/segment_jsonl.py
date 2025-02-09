@@ -346,7 +346,7 @@ def preprocess_jsonl(
 ):
     output_path = f"{output_dir}/shard_seg_{shard}.jsonl.gz"
     if os.path.exists(output_path):
-        return output_path, None, 0
+        return 0, 0
     else:
         if not only_subsample:
             shard_log_dir = os.path.join(log_dir, shard)
@@ -444,7 +444,7 @@ def main(
     manifest_files = [f"{manifest_dir}/{shard}.txt" for shard in shards]
     logger.info(f"{manifest_files[:5]=}")
     with multiprocessing.Pool() as pool:
-        segment_counts, subsampled_counts = list(
+        counts = list(
             tqdm(
                 pool.imap_unordered(
                     parallel_preprocess_jsonl,
@@ -466,6 +466,8 @@ def main(
                 total=len(shard_jsonls),
             )
         )
+
+    segment_counts, subsampled_counts = zip(*counts)
 
     logger.info(
         f"Total segment count: {sum(segment_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours"
