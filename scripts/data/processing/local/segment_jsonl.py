@@ -392,6 +392,7 @@ def preprocess_jsonl(
                 segments_list = subsampled_segments_list
                 subsampled_count = len(subsampled_segments_list)
             else:
+                subsampled_count = seg_count
                 with open(
                     f"{log_dir}/less_than_subsample_size_{subsample_size}.txt", "a"
                 ) as f:
