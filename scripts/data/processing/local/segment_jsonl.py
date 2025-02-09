@@ -418,7 +418,7 @@ def parallel_preprocess_jsonl(args):
 
 def main(
     source_dir: str,
-    manifest_dir: str,
+    manifest_dir: Optional[str],
     log_dir: str,
     output_dir: str,
     only_subsample: bool = False,
