@@ -1,5 +1,7 @@
 from typing import Literal, Optional
 import os
+import glob
+import json
 import numpy as np
 import librosa
 import torch
@@ -152,6 +154,53 @@ class AMI:
         return audio_files, transcript_texts
 
 
+class CORAAL:
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+
+    def load(self):
+        audio_files = []
+        transcript_texts = []
+        with open(f"{self.root_dir}/coraal_snippets.tsv", "r") as f:
+            next(f)
+            segments = [line.split("\t") for line in f]
+
+        for segment in segments:
+            basefile, *_, content, _, _, _, segment_basename = segment
+            sub_folder = os.path.join(self.root_dir, basefile.split("_")[0].lower())
+            audio_file = os.path.join(sub_folder, "segments", segment_basename + ".wav")
+            audio_files.append(audio_file)
+            transcript_texts.append(content)
+
+        return audio_files, transcript_texts
+
+
+class chime6:
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+
+    def load(self):
+        audio_files = []
+        transcript_texts = []
+
+        for p in glob.glob(f"{self.root_dir}/transcripts/*.json"):
+            with open(p, "r") as f:
+                data = json.load(f)
+                audio_files.extend(
+                    [
+                        os.path.join(
+                            self.root_dir, "segments", segment_dict["audio_seg_file"]
+                        )
+                        for segment_dict in data
+                    ]
+                )
+                transcript_texts.extend(
+                    [segment_dict["words"] for segment_dict in data]
+                )
+
+        return audio_files, transcript_texts
+
+
 # long-form
 class TEDLIUM_long(TEDLIUM):
     def __init__(
@@ -299,7 +348,6 @@ class TEDLIUM_long(TEDLIUM):
         return self._load_tedlium_item(fileid, self._path)
 
 
-# multilingual
 class EvalDataset(Dataset):
     def __init__(
         self,
@@ -411,6 +459,18 @@ class EvalDataset(Dataset):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
             self.dataset = AMI(root_dir=root_dir)
+        elif eval_set == "coraal":
+            root_dir = f"{eval_dir}/coraal"
+            if not os.path.exists(root_dir):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+            self.dataset = CORAAL(root_dir=root_dir)
+        elif eval_set == "chime6":
+            root_dir = f"{eval_dir}/chime6"
+            if not os.path.exists(root_dir):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+            
+            self.dataset = chime6(root_dir=root_dir)
 
         self.eval_set = eval_set
 
@@ -514,6 +574,8 @@ def short_form_eval(
         "common_voice",
         "ami_ihm",
         "ami_sdm",
+        "coraal",
+        "chime6",
     ],
     log_dir: str,
     current_step: Optional[int] = None,
@@ -695,10 +757,10 @@ def short_form_eval(
             f.write(
                 f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
             )
-    
+
     if train_run_id is not None:
         os.remove(ckpt)
-    
+
     return None
 
 
