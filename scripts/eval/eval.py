@@ -3,6 +3,7 @@ import os
 import glob
 import json
 import numpy as np
+import pandas as pd
 import librosa
 import torch
 from torch.utils.data import Dataset, DataLoader, IterableDataset
@@ -161,9 +162,13 @@ class CORAAL:
     def load(self):
         audio_files = []
         transcript_texts = []
-        with open(f"{self.root_dir}/CORAAL_transcripts.csv", "r") as f:
-            next(f)
-            segments = [line.strip().split(",") for line in f]
+        # with open(f"{self.root_dir}/coraal_snippets.tsv", "r") as f:
+        #     next(f)
+        #     segments = [line.strip().split("\t") for line in f]
+
+        segments = pd.read_csv(
+            f"{self.root_dir}/CORAAL_transcripts.csv", quotechar='"'
+        ).values.tolist()
 
         for segment in segments:
             # basefile, *_, content, _, _, _, segment_basename = segment
@@ -470,7 +475,7 @@ class EvalDataset(Dataset):
             root_dir = f"{eval_dir}/chime6"
             if not os.path.exists(root_dir):
                 get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-            
+
             self.dataset = chime6(root_dir=root_dir)
 
         self.eval_set = eval_set
