@@ -168,7 +168,7 @@ class CORAAL:
         for segment in segments:
             basefile, *_, content, _, _, _, segment_basename = segment
             sub_folder = os.path.join(self.root_dir, basefile.split("_")[0].lower())
-            audio_file = os.path.join(sub_folder, "segments", segment_basename + ".wav")
+            audio_file = os.path.join(sub_folder, "segments", segment_basename)
             audio_files.append(audio_file)
             transcript_texts.append(content)
 
