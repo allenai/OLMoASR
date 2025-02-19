@@ -175,7 +175,9 @@ class CORAAL:
             segment_basename, basefile, _, _, _, _, _, content, *_ = segment
             sub_folder = os.path.join(self.root_dir, basefile.split("_")[0].lower())
             # audio_file = os.path.join(sub_folder, "segments", segment_basename)
-            audio_file = os.path.join(sub_folder, segment_basename.replace(".wav", ".mp3"))
+            audio_file = os.path.join(sub_folder, segment_basename)
+            if not os.path.exists(audio_file):
+                audio_file = audio_file.replace(".wav", ".mp3")
             audio_files.append(audio_file)
             transcript_texts.append(content)
 
