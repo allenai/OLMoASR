@@ -163,7 +163,7 @@ class CORAAL:
         transcript_texts = []
         with open(f"{self.root_dir}/coraal_snippets.tsv", "r") as f:
             next(f)
-            segments = [line.split("\t") for line in f]
+            segments = [line.strip().split("\t") for line in f]
 
         for segment in segments:
             basefile, *_, content, _, _, _, segment_basename = segment
