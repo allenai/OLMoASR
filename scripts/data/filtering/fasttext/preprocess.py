@@ -13,27 +13,39 @@ from tqdm import tqdm
 from typing import Optional
 from itertools import repeat, chain
 from datasets import load_dataset
+import gzip
 
 # preprocess both positive and negative training data to ensure they are in the same format (no transcript specific format remains)
 # generate text file w/ labels from these 2 sets of data
 
-
-class AMI:
+class Librispeech:
     def __init__(self, root_dir):
         self.root_dir = root_dir
 
     def load(self):
-        with open(f"{self.root_dir}/text", "r") as f:
-            file_text = [line.split(" ", 1) for line in f]
-            audio_files, transcript_texts = zip(*file_text)
-            audio_files = [
-                f"{self.root_dir}/{f.split('_')[1]}/eval_{f.lower()}.wav"
-                for f in audio_files
-            ]
+        transcript_files = []
+        audio_text = {}
+        for root, _, files in os.walk(self.root_dir):
+            for file in files:
+                if file.endswith(".txt"):
+                    transcript_files.append(os.path.join(root, file))
 
-        return audio_files, transcript_texts
+        for file in sorted(transcript_files):
+            with open(file, "r") as f:
+                for line in f:
+                    audio_codes = line.split(" ")[0].split("-")
+                    audio_file = os.path.join(
+                        self.root_dir,
+                        audio_codes[0],
+                        audio_codes[1],
+                        f"{audio_codes[0]}-{audio_codes[1]}-{audio_codes[2]}.flac",
+                    )
+                    audio_text[audio_file] = " ".join(line.split(" ")[1:]).strip()
 
+        return list(audio_text.keys()), list(audio_text.values())
+    
 
+    
 def modify_text(content):
     pattern_brackets = (
         r"[ ]*\[(?![Mm][Uu][Ss][Ii][Cc]\])([A-Z][a-zA-Z]*(?: [A-Z][a-zA-Z]*)*)\][ ]*"
@@ -53,7 +65,9 @@ def modify_text(content):
 
 
 def gen_text(
-    transcript_file: Optional[str] = None, transcript_string: Optional[str] = None, max_char_len: Optional[int] = None
+    transcript_file: Optional[str] = None,
+    transcript_string: Optional[str] = None,
+    max_char_len: Optional[int] = None,
 ):
     reader = TranscriptReader(
         file_path=transcript_file if transcript_file else None,
@@ -161,30 +175,53 @@ def main(
         negative_subsample_count = len(dataset)
         print(f"Number of documents in eval train data: {negative_subsample_count}")
         random_seed = 82
-    elif eval_set == "ami_ihm":
-        root_dir = f"{eval_train_dir}/ami/ihm"
-        if not os.path.exists(root_dir):
+    elif eval_set == "librispeech_clean":
+        if not os.path.exists(f"{eval_train_dir}/librispeech_train_clean"):
             get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir)
-
-        dataset = AMI(root_dir=root_dir)
-
-        output_file = f"{eval_train_dir}/ami_ihm_train.txt"
-
-        count = 0
+        
+        _, transcripts = Librispeech(f"{eval_train_dir}/librispeech_train_clean").load()
+        output_file = f"{eval_train_dir}/librispeech_clean_train.txt"
+        
         with open(output_file, "w", encoding="utf-8") as file:
-            for _, transcript_text in zip(*dataset.load()):
-                transcript_text = transcript_text.strip()
-                transcript_text = transcript_text.lower()
-                transcript_text += "\n"
-                file.write("__label__positive " + transcript_text)
-                count += 1
-
+            for transcript in transcripts:
+                text_y = transcript.strip()
+                text_y = text_y.lower()
+                text_y = text_y.translate(str.maketrans("", "", punctuation_to_remove))
+                text_y += "\n"
+                file.write("__label__positive " + text_y)
+                if len(text_y) > max_char_len:
+                    max_char_len = len(text_y)
+        
         print(f"Transcripts have been written to {output_file}.")
-
-        negative_subsample_count = count
+        print(f"{max_char_len=}")
+        
+        negative_subsample_count = len(transcripts)
         print(f"Number of documents in eval train data: {negative_subsample_count}")
-        random_seed = 88
-
+        random_seed = 2002
+    elif eval_set == "librispeech_other":
+        if not os.path.exists(f"{eval_train_dir}/librispeech_train_other"):
+            get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir)
+        
+        _, transcripts = Librispeech(f"{eval_train_dir}/librispeech_train_other").load()
+        output_file = f"{eval_train_dir}/librispeech_other_train.txt"
+        
+        with open(output_file, "w", encoding="utf-8") as file:
+            for transcript in transcripts:
+                text_y = transcript.strip()
+                text_y = text_y.lower()
+                text_y = text_y.translate(str.maketrans("", "", punctuation_to_remove))
+                text_y += "\n"
+                file.write("__label__positive " + text_y)
+                if len(text_y) > max_char_len:
+                    max_char_len = len(text_y)
+        
+        print(f"Transcripts have been written to {output_file}.")
+        print(f"{max_char_len=}")
+        
+        negative_subsample_count = len(transcripts)
+        print(f"Number of documents in eval train data: {negative_subsample_count}")
+        random_seed = 2828
+        
     # subsample negative training data (from training pool) and match num. of docs w/ positive training data (from samples dict)
     rng = np.random.default_rng(random_seed)
     if segment_filter:
