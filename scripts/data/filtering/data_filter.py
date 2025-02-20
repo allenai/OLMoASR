@@ -17,6 +17,8 @@ import webvtt
 from io import StringIO
 import re
 import spacy
+from ftlangdetect import detect
+from open_whisper.utils import TranscriptReader
 
 """
 Single node ec2 data filtering pipeline. 
@@ -77,6 +79,32 @@ def parse_config(config_path):
     return config_dict
 
 
+def parse_man_content(man_content):
+    ext = lambda text: "vtt" if text.startswith("WEBVTT") else "srt"
+    reader = TranscriptReader(
+        file_path=None, transcript_string=man_content, ext=ext(man_content)
+    )
+
+    t_dict, *_ = reader.read()
+    parsed_content = reader.extract_text(t_dict)
+
+    return parsed_content
+
+
+def parse_mach_content(mach_content):
+    content = webvtt.from_string(mach_content)
+    parsed_content_list = []
+    for i, caption in enumerate(content):
+        if "\n" not in caption.text and i < len(content) - 1:
+            parsed_content_list.append(caption.text)
+        if i == len(content) - 1:
+            parsed_content_list.append(caption.text.split("\n")[-1])
+
+    parsed_content = " ".join(parsed_content_list)
+
+    return parsed_content
+
+
 def parse_into_iter(content, subtitle_file_name):
     """Parses either the contents of an srt or vtt into an iterable string of things with a .text field"""
     ext = os.path.splitext(subtitle_file_name)[-1]
@@ -118,12 +146,24 @@ def process_hitlist(hitlist, pipeline):
         if fxn != "modify_text":
             print(
                 "Step %02d (%s) %s | Killed %05.02f%% of total | Killed %05.02f%% of remainder"
-                % (i, fxn, pad, 100 * this_hit / total_lines, 100 * this_hit / remainder)
+                % (
+                    i,
+                    fxn,
+                    pad,
+                    100 * this_hit / total_lines,
+                    100 * this_hit / remainder,
+                )
             )
         else:
             print(
                 "Step %02d (%s) %s | Modified %05.02f%% of total | Modified %05.02f%% of remainder"
-                % (i, fxn, pad, 100 * this_hit / total_lines, 100 * this_hit / remainder)
+                % (
+                    i,
+                    fxn,
+                    pad,
+                    100 * this_hit / total_lines,
+                    100 * this_hit / remainder,
+                )
             )
         remainder -= this_hit
 
@@ -308,6 +348,19 @@ def empty_caption(content):
     return content
 
 
+# lang_align filter (en only)
+def lang_align(content, man_content, mach_content):
+    parsed_man_content = parse_man_content(man_content)
+    parsed_mach_content = parse_mach_content(mach_content)
+    man_res = detect(text=parsed_man_content)["lang"]
+    mach_res = detect(text=parsed_mach_content)["lang"]
+
+    if man_res == "en" and mach_res == "en":
+        return content
+    else:
+        return None
+
+
 # text_heurs_3 filters
 def consecutive_words_starting_with_upper(
     content,
@@ -402,11 +455,15 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     for line in lines:
         lines_seen += 1
         parsed_content = parse_into_iter(line["content"], line["subtitle_file"])
+        man_mach_dict = {
+            "content": line["content"],
+            "mach_content": line["mach_content"],
+        }
         scores_dict = {k: v for k, v in line.items() if "score" in k}
         chars_seen += len(line["content"])  # TODO: Be more precise here
         dur_seen += line["length"]
         output_content, hitlist = process_content(
-            parsed_content, scores_dict, config_dict
+            parsed_content, scores_dict, man_mach_dict, config_dict
         )
         for k, v in hitlist.items():
             total_hitlist[k] += v
@@ -442,7 +499,7 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     )
 
 
-def process_content(content, scores_dict, config):
+def process_content(content, scores_dict, man_mach_dict, config):
     hitlist = defaultdict(int)
     for filter_dict in config["pipeline"]:
         filter_fxn = FILTER_DICT[filter_dict["fxn"]]
@@ -456,6 +513,10 @@ def process_content(content, scores_dict, config):
             content, mod_count = filter_fxn(content, **kwargs)
             if mod_count > 0:
                 hitlist[filter_dict["fxn"]] += 1
+        elif filter_dict["fxn"] == "lang_align":
+            content = filter_fxn(
+                content, man_mach_dict["content"], man_mach_dict["mach_content"]
+            )
         else:
             content = filter_fxn(content, **kwargs)
 
