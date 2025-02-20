@@ -177,24 +177,24 @@ def get_eval_train(
     """
     os.makedirs(eval_dir, exist_ok=True)
     if eval_set == "librispeech_clean" and not os.path.exists(
-        f"{eval_dir}/librispeech_test_clean"
+        f"{eval_dir}/librispeech_train_clean"
     ):
         # downloading the file
         command = [
             "wget",
             "-P",
             eval_dir,
-            "https://www.openslr.org/resources/12/test-clean.tar.gz",
+            "https://www.openslr.org/resources/12/train-clean-100.tar.gz",
         ]
         subprocess.run(command)
         # extracting the file
-        command = ["tar", "-xvf", f"{eval_dir}/test-clean.tar.gz", "-C", eval_dir]
+        command = ["tar", "-xvf", f"{eval_dir}/train-clean-100.tar.gz", "-C", eval_dir]
         subprocess.run(command)
         # removing the tar file
-        os.remove(f"{eval_dir}/test-clean.tar.gz")
+        os.remove(f"{eval_dir}/train-clean-100.tar.gz")
         # making test-clean main data folder
         os.rename(
-            f"{eval_dir}/LibriSpeech/test-clean", f"{eval_dir}/librispeech_test_clean"
+            f"{eval_dir}/LibriSpeech/train-clean-100", f"{eval_dir}/librispeech_train_clean"
         )
         shutil.rmtree(f"{eval_dir}/LibriSpeech")
     elif eval_set == "librispeech_other":
@@ -203,17 +203,17 @@ def get_eval_train(
             "wget",
             "-P",
             eval_dir,
-            "https://www.openslr.org/resources/12/test-other.tar.gz",
+            "https://www.openslr.org/resources/12/train-other-500.tar.gz",
         ]
         subprocess.run(command)
         # extracting the file
-        command = ["tar", "-xvf", f"{eval_dir}/test-other.tar.gz", "-C", eval_dir]
+        command = ["tar", "-xvf", f"{eval_dir}/train-other-500.tar.gz", "-C", eval_dir]
         subprocess.run(command)
         # removing the tar file
-        os.remove(f"{eval_dir}/test-other.tar.gz")
+        os.remove(f"{eval_dir}/train-other-500.tar.gz")
         # making test-other main data folder
         os.rename(
-            f"{eval_dir}/LibriSpeech/test-other", f"{eval_dir}/librispeech_test_other"
+            f"{eval_dir}/LibriSpeech/train-other-500", f"{eval_dir}/librispeech_train_other"
         )
         shutil.rmtree(f"{eval_dir}/LibriSpeech")
     elif eval_set == "multilingual_librispeech":
