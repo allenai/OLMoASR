@@ -13,7 +13,7 @@ def process_scores(attributes_dict):
     scores = {}
     for tagger_info, score_info in attributes_dict.items():
         tagger = tagger_info.split("_")[1]
-        score = score_info[0].split(",")[-1]
+        score = score_info[0][-1]
         scores[tagger] = score
 
     return scores
@@ -46,7 +46,9 @@ def join_docs_and_attributes(docs_jsonl_gz, attributes_jsonl_gz, output_dir):
         }
         shard_dict_list.append(shard_dict)
 
-    with open(os.path.join(output_dir, os.path.basename(docs_jsonl_gz)), "wt") as f:
+    with gzip.open(
+        os.path.join(output_dir, os.path.basename(docs_jsonl_gz)), "wt"
+    ) as f:
         for shard_dict in shard_dict_list:
             f.write(json.dumps(shard_dict) + "\n")
 
@@ -77,7 +79,7 @@ def join_attributes(attributes_jsonl_gzs: List, output_dir: str):
             }
         )
 
-    with open(
+    with gzip.open(
         os.path.join(output_dir, os.path.basename(attributes_jsonl_gzs[0])), "wt"
     ) as f:
         for attributes_dicts in merged_attributes:
@@ -94,6 +96,7 @@ def main(
     output_dir: str,
     mode: Literal["join_docs_and_attributes", "join_attributes"],
 ):
+    os.makedirs(output_dir, exist_ok=True)
     if docs_dir is not None:
         shard_docs_jsonls = sorted(glob.glob(f"{docs_dir}/*.jsonl.gz"))
         print(f"{len(shard_docs_jsonls)} docs found")
