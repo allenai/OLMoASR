@@ -115,10 +115,16 @@ def process_hitlist(hitlist, pipeline):
         pad = " " * max(0, max_fxn_len - len(d["fxn"]))
         this_hit = hitlist.get(fxn, 0)
 
-        print(
-            "Step %02d (%s) %s | Killed %05.02f%% of total | Killed %05.02f%% of remainder"
-            % (i, fxn, pad, 100 * this_hit / total_lines, 100 * this_hit / remainder)
-        )
+        if fxn != "modify_text":
+            print(
+                "Step %02d (%s) %s | Killed %05.02f%% of total | Killed %05.02f%% of remainder"
+                % (i, fxn, pad, 100 * this_hit / total_lines, 100 * this_hit / remainder)
+            )
+        else:
+            print(
+                "Step %02d (%s) %s | Modified %05.02f%% of total | Modified %05.02f%% of remainder"
+                % (i, fxn, pad, 100 * this_hit / total_lines, 100 * this_hit / remainder)
+            )
         remainder -= this_hit
 
 
@@ -149,6 +155,7 @@ def identity_filter(content):
     return content
 
 
+# text_heurs_1 filters
 def has_comma_period(content):
     # Returns full content if both a ',' and '.' are contained in the content
     seen_period = seen_comma = False
@@ -212,13 +219,18 @@ def modify_text(content):
     # Pattern to capture lowercase words inside brackets
     # brackets_pattern_capture = r"\[([a-z]+(?: [a-z]+)*)\]"
 
+    mod_count = 0
     for caption in content:
-        caption.text = re.sub(primary_pattern, " ", caption.text)
+        new_text = re.sub(primary_pattern, " ", caption.text)
+        if new_text != caption.text:
+            mod_count += 1
+        caption.text = new_text
         # caption.text = re.sub(brackets_pattern_capture, r"\1", caption.text)
 
-    return content
+    return content, mod_count
 
 
+# manmach filter
 def filter_unrelated(scores_dict: Dict, threshold: int, comparison: str):
     score = scores_dict["man_mach_score"]
 
@@ -440,6 +452,10 @@ def process_content(content, scores_dict, config):
             keep = filter_fxn(scores_dict, **kwargs)
             if not keep:
                 content = None
+        elif filter_dict["fxn"] == "modify_text":
+            content, mod_count = filter_fxn(content, **kwargs)
+            if mod_count > 0:
+                hitlist[filter_dict["fxn"]] += 1
         else:
             content = filter_fxn(content, **kwargs)
 
