@@ -95,7 +95,7 @@ def main(
     eval_train_dir: str,
     train_dir: str,
     segment_filter: bool,
-    jsonl_input: bool,
+    jsonl_gz_input: bool,
     hf_token: Optional[str] = None,
 ):
     # collect all positive training data (data from eval set)
@@ -251,7 +251,8 @@ def main(
             subsampled_train_text = list(
                 tqdm(
                     pool.imap_unordered(
-                        parallel_gen_text, zip(subsampled_train_data, repeat(None), repeat(max_char_len))
+                        parallel_gen_text,
+                        zip(subsampled_train_data, repeat(None), repeat(max_char_len)),
                     ),
                     total=len(subsampled_train_data),
                 )
@@ -259,13 +260,13 @@ def main(
         print(f"{len(subsampled_train_text)=}")
         print(f"{subsampled_train_text[:5]=}")
     else:
-        if jsonl_input:
+        if jsonl_gz_input:
             shard_jsonls = glob.glob(f"{train_dir}/*")
             subsampled_train_data = []
             subsampled_count = 0
             while True:
                 shard_jsonl = rng.choice(shard_jsonls, 1)[0]
-                with open(shard_jsonl, "r") as f:
+                with gzip.open(shard_jsonl, "rt") as f:
                     transcript_strings = [
                         (
                             json.loads(line.strip())["subtitle_file"],
@@ -374,11 +375,10 @@ def main(
     with open(f"{eval_train_dir}/{eval_set}.train", "w") as file:
         for text in train_data:
             file.write(text)
-    
+
     with open(f"{eval_train_dir}/{eval_set}.test", "w") as file:
         for text in test_data:
             file.write(text)
-    
 
 
 if __name__ == "__main__":
