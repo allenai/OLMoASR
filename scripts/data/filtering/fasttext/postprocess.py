@@ -12,7 +12,7 @@ from itertools import repeat
 def process_scores(attributes_dict):
     scores = {}
     for tagger_info, score_info in attributes_dict.items():
-        tagger = tagger_info.split("_")[1]
+        tagger = tagger_info.split("_quality")[0].split("ow_")[-1]
         score = score_info[0][-1]
         scores[tagger] = score
 
