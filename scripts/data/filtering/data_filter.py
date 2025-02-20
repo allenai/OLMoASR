@@ -16,6 +16,7 @@ import pysrt
 import webvtt
 from io import StringIO
 import re
+import spacy
 
 """
 Single node ec2 data filtering pipeline. 
@@ -127,6 +128,7 @@ def process_hitlist(hitlist, pipeline):
 # Some constants
 CONST_a2z = set([chr(ord("a") + i) for i in range(26)])
 CONST_A2Z = set(_.upper() for _ in CONST_a2z)
+NLP = spacy.load("en_core_web_sm")
 
 
 def _filter_stub(content, **kwargs):
@@ -230,6 +232,126 @@ def filter_unrelated(scores_dict: Dict, threshold: int, comparison: str):
         return score < threshold
 
 
+# text_heurs_2 filters
+def has_proper_capitalization_and_punctuation(content):
+    pattern = (
+        r"\S[.,][^a-z]|"  # Punctuation followed by a non-lowercase letter
+        r".[.?!]\s+[a-z]|"  # Sentence-ending punctuation followed by a lowercase letter
+        r"\s[.,;:!?'\"-/]\s|"  # Punctuation surrounded by whitespace
+        r"\s[.,;:!?'-/]|"  # Punctuation preceded by whitespace
+        r"(?<!['\"])[^\w\s]{2,}(?!['\"])"  # Two or more consecutive non-alphanumeric characters (punctuation) not surrounded by quotes
+    )
+
+    for caption in content:
+        if re.search(pattern, caption.text):
+            return None
+    return content
+
+
+def has_proper_capitalization_after_punctuation_line(content):
+    pattern = r"[.!?](?:\s*)$"
+    for i, caption in enumerate(content):
+        if i != 0:
+            prev_caption = content[i - 1]
+            if re.search(pattern, prev_caption.text):
+                if not caption.text[0].isupper() and caption.text[0].isalpha():
+                    return None
+    return content
+
+
+def proper_noun(string):
+    doc = NLP(string)
+    for token in doc:
+        if token.pos_ == "PROPN":
+            return True
+    return False
+
+
+# can be used for segment-level text heuristics (might be better because
+# this might remove cases where the word w/ first letter capitalized is a proper noun)
+def has_proper_punctuation_before_capitalization_line(content):
+    # pattern = r"[.!?](?:\s*)$"
+    pattern = r"[^\w\s]$"
+    pattern_2 = r"^I\s"
+    for i, caption in enumerate(content):
+        if i != len(content) - 1:
+            next_caption = content[i + 1]
+            if (
+                next_caption.text[0].isupper()
+                and not proper_noun(next_caption.text.split(" ")[0])
+                and not re.search(pattern_2, next_caption.text)
+            ):
+                if not re.search(pattern, caption.text):
+                    # print(f"Line {i + 1} does not have proper punctuation")
+                    # print(f"Line {i + 1}: {caption.text}")
+                    # print(f"Line {i + 2}: {next_caption.text}")
+                    return None
+    return content
+
+
+def empty_caption(content):
+    for caption in content:
+        if caption.text.strip() == "":
+            return None
+    return content
+
+
+# text_heurs_3 filters
+def consecutive_words_starting_with_upper(
+    content,
+    word_level_threshold,
+    transcript_level_threshold,
+    consecutive_threshold,
+    consecutive_bad_threshold,
+):
+    bad_captions = 0
+    consecutive_freq = 0
+    consecutive_bad_captions = 0
+    occurred = False
+    for caption in content:
+        if caption.text.strip() != "":
+            words = caption.text.split()
+            word_rate = sum([1 for word in words if word[0].isupper()]) / len(words)
+            if not occurred and consecutive_freq >= consecutive_threshold:
+                consecutive_bad_captions += 1
+                occurred = True
+
+            if word_rate > word_level_threshold:
+                consecutive_freq += 1
+                bad_captions += 1
+            else:
+                consecutive_freq = 0
+                occurred = False
+        if (
+            bad_captions > transcript_level_threshold
+            and consecutive_bad_captions > consecutive_bad_threshold
+        ):
+            return None
+        return content
+
+
+def consecutive_caption_starting_with_upper(
+    content, caption_level_threshold, transcript_level_threshold
+):
+    consecutive_freq = 0
+    consecutive_transcript_freq = 0
+    occurred = False
+    for caption in content:
+        if not occurred and consecutive_freq >= caption_level_threshold:
+            consecutive_transcript_freq += 1
+            occurred = True
+
+        if caption.text[0].isupper():
+            consecutive_freq += 1
+        else:
+            consecutive_freq = 0
+            occurred = False
+
+    if consecutive_transcript_freq > transcript_level_threshold:
+        return None
+    return content
+
+
 FILTER_DICT = {
     "identity": identity_filter,
     "has_comma_period": has_comma_period,
@@ -237,6 +359,10 @@ FILTER_DICT = {
     "has_no_repeats": has_no_repeats,
     "modify_text": modify_text,
     "filter_unrelated": filter_unrelated,
+    "has_proper_capitalization_and_punctuation": has_proper_capitalization_and_punctuation,
+    "has_proper_capitalization_after_punctuation_line": has_proper_capitalization_after_punctuation_line,
+    "has_proper_punctuation_before_capitalization_line": has_proper_punctuation_before_capitalization_line,
+    "empty_caption": empty_caption,
 }
 
 
@@ -370,10 +496,12 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
         "Kept %.04f/%.04f Hours | %.04f survival rate"
         % (dur_kept / (60 * 60), dur_seen / (60 * 60), 100 * (dur_kept / dur_seen))
     )
-    
+
     process_hitlist(dict(total_hitlist), config_dict["pipeline"])
 
-    with open(os.path.join(output_dir, f"{config_path.split('.yaml')[0]}.log"), "w") as f:
+    with open(
+        os.path.join(output_dir, f"{config_path.split('.yaml')[0]}.log"), "w"
+    ) as f:
         f.write(
             "Kept %s/%s Lines | %.04f survival rate\n"
             % (lines_kept, lines_seen, 100 * (lines_kept / lines_seen))
