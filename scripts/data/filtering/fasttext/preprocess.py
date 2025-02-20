@@ -18,6 +18,7 @@ import gzip
 # preprocess both positive and negative training data to ensure they are in the same format (no transcript specific format remains)
 # generate text file w/ labels from these 2 sets of data
 
+
 class Librispeech:
     def __init__(self, root_dir):
         self.root_dir = root_dir
@@ -43,9 +44,8 @@ class Librispeech:
                     audio_text[audio_file] = " ".join(line.split(" ")[1:]).strip()
 
         return list(audio_text.keys()), list(audio_text.values())
-    
 
-    
+
 def modify_text(content):
     pattern_brackets = (
         r"[ ]*\[(?![Mm][Uu][Ss][Ii][Cc]\])([A-Z][a-zA-Z]*(?: [A-Z][a-zA-Z]*)*)\][ ]*"
@@ -69,10 +69,15 @@ def gen_text(
     transcript_string: Optional[str] = None,
     max_char_len: Optional[int] = None,
 ):
+    ext = lambda text: "vtt" if text.startswith("WEBVTT") else "srt"
     reader = TranscriptReader(
         file_path=transcript_file if transcript_file else None,
         transcript_string=None if transcript_file else transcript_string,
-        ext=transcript_file.split(".")[-1] if transcript_file else None,
+        ext=(
+            transcript_file.split(".")[-1]
+            if transcript_file
+            else ext(transcript_string)
+        ),
     )
     t_dict, *_ = reader.read()
     text = reader.extract_text(t_dict)
@@ -178,11 +183,11 @@ def main(
     elif eval_set == "librispeech_clean":
         if not os.path.exists(f"{eval_train_dir}/librispeech_train_clean"):
             get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir)
-        
+
         _, transcripts = Librispeech(f"{eval_train_dir}/librispeech_train_clean").load()
         output_file = f"{eval_train_dir}/librispeech_clean_train.txt"
         punctuation_to_remove = string.punctuation.replace("'", "") + "“" + "”"
-        
+
         with open(output_file, "w", encoding="utf-8") as file:
             for transcript in transcripts:
                 text_y = transcript.strip()
@@ -192,21 +197,21 @@ def main(
                 file.write("__label__positive " + text_y)
                 if len(text_y) > max_char_len:
                     max_char_len = len(text_y)
-        
+
         print(f"Transcripts have been written to {output_file}.")
         print(f"{max_char_len=}")
-        
+
         negative_subsample_count = len(transcripts)
         print(f"Number of documents in eval train data: {negative_subsample_count}")
         random_seed = 2002
     elif eval_set == "librispeech_other":
         if not os.path.exists(f"{eval_train_dir}/librispeech_train_other"):
             get_eval_train(eval_set=eval_set, eval_dir=eval_train_dir)
-        
+
         _, transcripts = Librispeech(f"{eval_train_dir}/librispeech_train_other").load()
         output_file = f"{eval_train_dir}/librispeech_other_train.txt"
         punctuation_to_remove = string.punctuation.replace("'", "") + "“" + "”"
-        
+
         with open(output_file, "w", encoding="utf-8") as file:
             for transcript in transcripts:
                 text_y = transcript.strip()
@@ -216,14 +221,14 @@ def main(
                 file.write("__label__positive " + text_y)
                 if len(text_y) > max_char_len:
                     max_char_len = len(text_y)
-        
+
         print(f"Transcripts have been written to {output_file}.")
         print(f"{max_char_len=}")
-        
+
         negative_subsample_count = len(transcripts)
         print(f"Number of documents in eval train data: {negative_subsample_count}")
         random_seed = 2828
-        
+
     # subsample negative training data (from training pool) and match num. of docs w/ positive training data (from samples dict)
     rng = np.random.default_rng(random_seed)
     if segment_filter:
@@ -270,11 +275,7 @@ def main(
                 shard_jsonl = rng.choice(shard_jsonls, 1)[0]
                 with gzip.open(shard_jsonl, "rt") as f:
                     transcript_strings = [
-                        (
-                            json.loads(line.strip())["subtitle_file"],
-                            json.loads(line.strip())["seg_content"],
-                        )
-                        for line in f
+                        json.loads(line.strip())["seg_content"] for line in f
                     ]
                 if len(transcript_strings) < (
                     negative_subsample_count - subsampled_count
@@ -303,7 +304,11 @@ def main(
                     tqdm(
                         pool.imap_unordered(
                             parallel_gen_text,
-                            subsampled_train_data,
+                            zip(
+                                subsampled_train_data,
+                                repeat(None),
+                                repeat(max_char_len),
+                            ),
                         ),
                         total=len(subsampled_train_data),
                     )
@@ -342,7 +347,12 @@ def main(
                 subsampled_train_text = list(
                     tqdm(
                         pool.imap_unordered(
-                            parallel_gen_text, zip(subsampled_train_data, repeat(None))
+                            parallel_gen_text,
+                            zip(
+                                subsampled_train_data,
+                                repeat(None),
+                                repeat(max_char_len),
+                            ),
                         ),
                         total=len(subsampled_train_data),
                     )
