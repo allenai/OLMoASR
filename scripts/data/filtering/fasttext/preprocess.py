@@ -52,7 +52,7 @@ def modify_text(content):
     )
     pattern_parentheses = r"[ ]*\(.*?\)[ ]*"
     pattern_colon = r"[ ]*(?:[A-Z][a-zA-Z]*[ ])+:[ ]*"
-    specific_strings = r"[ ]*(?:&nbsp;|&amp;|&lt;|&gt;|=|\.{3})+[ ]*"
+    specific_strings = r"[ ]*(?:&nbsp;|&amp;|&lt;|&gt;|=|\.{3}|\\h)+[ ]*"
     primary_pattern = (
         f"{pattern_brackets}|{pattern_parentheses}|{pattern_colon}|{specific_strings}"
     )
@@ -181,6 +181,7 @@ def main(
         
         _, transcripts = Librispeech(f"{eval_train_dir}/librispeech_train_clean").load()
         output_file = f"{eval_train_dir}/librispeech_clean_train.txt"
+        punctuation_to_remove = string.punctuation.replace("'", "") + "“" + "”"
         
         with open(output_file, "w", encoding="utf-8") as file:
             for transcript in transcripts:
@@ -204,6 +205,7 @@ def main(
         
         _, transcripts = Librispeech(f"{eval_train_dir}/librispeech_train_other").load()
         output_file = f"{eval_train_dir}/librispeech_other_train.txt"
+        punctuation_to_remove = string.punctuation.replace("'", "") + "“" + "”"
         
         with open(output_file, "w", encoding="utf-8") as file:
             for transcript in transcripts:
