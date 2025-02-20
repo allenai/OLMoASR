@@ -272,7 +272,7 @@ def main(
                     transcript_strings = [
                         (
                             json.loads(line.strip())["subtitle_file"],
-                            json.loads(line.strip())["content"],
+                            json.loads(line.strip())["seg_content"],
                         )
                         for line in f
                     ]
