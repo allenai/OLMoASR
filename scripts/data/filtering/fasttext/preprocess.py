@@ -305,8 +305,8 @@ def main(
                         pool.imap_unordered(
                             parallel_gen_text,
                             zip(
-                                subsampled_train_data,
                                 repeat(None),
+                                subsampled_train_data,
                                 repeat(max_char_len),
                             ),
                         ),
