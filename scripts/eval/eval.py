@@ -25,6 +25,7 @@ from pathlib import Path
 from torchaudio.datasets.tedlium import _RELEASE_CONFIGS
 from torchaudio._internal import download_url_to_file
 from torchaudio.datasets.utils import _extract_tar
+import csv
 
 SHORT_FORM_EVAL_SETS = [
     "librispeech_clean",
@@ -596,6 +597,7 @@ def short_form_eval(
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
     cuda: bool = True,
+    bootstrap: bool = False,
 ):
     if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
@@ -622,6 +624,8 @@ def short_form_eval(
 
     hypotheses = []
     references = []
+    if bootstrap:
+        per_sample_wer = []
 
     if wandb_log:
         wandb_table_cols = [
@@ -735,12 +739,31 @@ def short_form_eval(
                     )
 
                 wandb.log({f"eval_table_{current_step}": eval_table})
+            elif bootstrap:
+                per_sample_wer.extend(
+                    [
+                        [
+                            jiwer.wer(
+                                reference=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                            ),
+                            len(norm_tgt_text[i]),
+                        ]
+                        for i in range(len(norm_pred_text))
+                    ]
+                )
 
     avg_wer = jiwer.wer(references, hypotheses) * 100
     avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
     avg_subs = avg_measures["substitutions"]
     avg_ins = avg_measures["insertions"]
     avg_dels = avg_measures["deletions"]
+    
+    if bootstrap:
+        with open(f"{log_dir}/{eval_set}_sample_wer.csv", "w") as f:
+            writer = csv.writer(f)
+            writer.writerow(["wer", "ref_length"])
+            for wer, length in per_sample_wer:
+                writer.writerow([wer, length])
 
     print(
         f"{eval_set} WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
