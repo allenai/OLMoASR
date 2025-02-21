@@ -500,14 +500,16 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
 
 def process_content(content, scores_dict, man_mach_dict, config):
     hitlist = defaultdict(int)
+    unrelated_keep = []
     for filter_dict in config["pipeline"]:
         filter_fxn = FILTER_DICT[filter_dict["fxn"]]
         kwargs = {k: v for k, v in filter_dict.items() if k != "fxn"}
 
         if filter_dict["fxn"] == "filter_unrelated":
             keep = filter_fxn(scores_dict, **kwargs)
-            if not keep:
-                content = None
+            unrelated_keep.append(keep)
+            # if not keep:
+            #     content = None
         elif filter_dict["fxn"] == "modify_text":
             content, mod_count = filter_fxn(content, **kwargs)
             if mod_count > 0:
@@ -522,6 +524,14 @@ def process_content(content, scores_dict, man_mach_dict, config):
         if content == None:
             hitlist[filter_dict["fxn"]] += 1
             return None, hitlist
+
+    # multiple comparisons for filter_unrelated
+    if content is not None and len(unrelated_keep) > 0:
+        if "False" in set(unrelated_keep):
+            hitlist["filter_unrelated"] += 1
+            return None, hitlist
+        elif set(unrelated_keep) == {True}:
+            pass
 
     hitlist["pass"] += 1
     return content, hitlist
