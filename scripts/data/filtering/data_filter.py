@@ -301,8 +301,9 @@ def has_proper_capitalization_after_punctuation_line(content):
         if i != 0:
             prev_caption = content[i - 1]
             if re.search(pattern, prev_caption.text):
-                if not caption.text[0].isupper() and caption.text[0].isalpha():
-                    return None
+                if caption.text.strip() != "":
+                    if not caption.text[0].isupper() and caption.text[0].isalpha():
+                        return None
     return content
 
 
@@ -323,16 +324,17 @@ def has_proper_punctuation_before_capitalization_line(content):
     for i, caption in enumerate(content):
         if i != len(content) - 1:
             next_caption = content[i + 1]
-            if (
-                next_caption.text[0].isupper()
-                and not proper_noun(next_caption.text.split(" ")[0])
-                and not re.search(pattern_2, next_caption.text)
-            ):
-                if not re.search(pattern, caption.text):
-                    # print(f"Line {i + 1} does not have proper punctuation")
-                    # print(f"Line {i + 1}: {caption.text}")
-                    # print(f"Line {i + 2}: {next_caption.text}")
-                    return None
+            if next_caption.text.strip() != "":
+                if (
+                    next_caption.text[0].isupper()
+                    and not proper_noun(next_caption.text.split(" ")[0])
+                    and not re.search(pattern_2, next_caption.text)
+                ):
+                    if not re.search(pattern, caption.text):
+                        # print(f"Line {i + 1} does not have proper punctuation")
+                        # print(f"Line {i + 1}: {caption.text}")
+                        # print(f"Line {i + 2}: {next_caption.text}")
+                        return None
     return content
 
 
