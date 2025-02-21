@@ -17,7 +17,7 @@ import webvtt
 from io import StringIO
 import re
 import spacy
-from ftlangdetect import detect
+import pycld2 as cld2
 from open_whisper.utils import TranscriptReader
 
 """
@@ -352,10 +352,12 @@ def empty_caption(content):
 def lang_align(content, man_content, mach_content):
     parsed_man_content = parse_man_content(man_content)
     parsed_mach_content = parse_mach_content(mach_content)
-    man_res = detect(text=parsed_man_content)["lang"]
-    mach_res = detect(text=parsed_mach_content)["lang"]
+    *_, man_details = cld2.detect(parsed_man_content)
+    *_, mach_details = cld2.detect(parsed_mach_content)
+    man_lang = man_details[1]
+    mach_lang = mach_details[1]
 
-    if man_res == "en" and mach_res == "en":
+    if man_lang == "en" and mach_lang == "en":
         return content
     else:
         return None
