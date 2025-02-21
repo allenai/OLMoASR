@@ -286,13 +286,8 @@ def filter_unrelated(scores_dict: Dict, threshold: int, comparison: str):
 
 # text_heurs_2 filters
 def has_proper_capitalization_and_punctuation(content):
-    pattern = (
-        r"\S[.,][^a-z]|"  # Punctuation followed by a non-lowercase letter
-        r".[.?!]\s+[a-z]|"  # Sentence-ending punctuation followed by a lowercase letter
-        r"\s[.,;:!?'\"-/]\s|"  # Punctuation surrounded by whitespace
-        r"\s[.,;:!?'-/]|"  # Punctuation preceded by whitespace
-        r"(?<!['\"])[^\w\s]{2,}(?!['\"])"  # Two or more consecutive non-alphanumeric characters (punctuation) not surrounded by quotes
-    )
+  # Sentence-ending punctuation followed by a lowercase letter, Punctuation surrounded by whitespace, Punctuation preceded by whitespace
+    pattern = r".[.?!]\s+[a-z]|\s[.,;:!?'\"-/]\s|\s[.,;:!?'-/]"
 
     for caption in content:
         if re.search(pattern, caption.text):
