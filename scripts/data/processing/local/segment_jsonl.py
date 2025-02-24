@@ -144,7 +144,9 @@ def chunk_transcript(
                                 "text": transcript_string,
                                 "source": "OW",
                                 "metadata": {
-                                    "subtitle_file": t_output_file,
+                                    "subtitle_file": t_output_file.replace(
+                                        "ow_full", "ow_seg"
+                                    ),
                                     "timestamp": timestamp,
                                     "audio_file": t_output_file.replace(
                                         f".{transcript_ext}", ".npy"
@@ -153,7 +155,9 @@ def chunk_transcript(
                             }
                         else:
                             segment = {
-                                "subtitle_file": t_output_file,
+                                "subtitle_file": t_output_file.replace(
+                                    "ow_full", "ow_seg"
+                                ),
                                 "seg_content": transcript_string,
                                 "timestamp": timestamp,
                                 "id": video_id,
@@ -216,7 +220,9 @@ def chunk_transcript(
                                 "text": transcript_string,
                                 "source": "OW",
                                 "metadata": {
-                                    "subtitle_file": t_output_file,
+                                    "subtitle_file": t_output_file.replace(
+                                        "ow_full", "ow_seg"
+                                    ),
                                     "timestamp": timestamp,
                                     "audio_file": t_output_file.replace(
                                         f".{transcript_ext}", ".npy"
@@ -225,7 +231,9 @@ def chunk_transcript(
                             }
                         else:
                             segment = {
-                                "subtitle_file": t_output_file,
+                                "subtitle_file": t_output_file.replace(
+                                    "ow_full", "ow_seg"
+                                ),
                                 "seg_content": transcript_string,
                                 "timestamp": timestamp,
                                 "id": video_id,
@@ -269,7 +277,9 @@ def chunk_transcript(
                                 "text": transcript_string,
                                 "source": "OW",
                                 "metadata": {
-                                    "subtitle_file": t_output_file,
+                                    "subtitle_file": t_output_file.replace(
+                                        "ow_full", "ow_seg"
+                                    ),
                                     "timestamp": timestamp,
                                     "audio_file": t_output_file.replace(
                                         f".{transcript_ext}", ".npy"
@@ -278,7 +288,9 @@ def chunk_transcript(
                             }
                         else:
                             segment = {
-                                "subtitle_file": t_output_file,
+                                "subtitle_file": t_output_file.replace(
+                                    "ow_full", "ow_seg"
+                                ),
                                 "seg_content": transcript_string,
                                 "timestamp": timestamp,
                                 "id": video_id,
@@ -302,16 +314,33 @@ def chunk_transcript(
         if len(segments_list) == 0:
             return None
 
-        segments_list = [
-            segment
-            for segment in segments_list
-            if "/".join(
-                segment["subtitle_file"].split("/")[-2:]
-                if dolma_format is False
-                else segment["metadata"]["subtitle_file"].split("/")[-2:]
-            )
-            in transcript_manifest
-        ]
+        if not mach_transcript:
+            if not merge_man_mach:
+                segments_list = [
+                    segment
+                    for segment in segments_list
+                    if "/".join(
+                        segment["subtitle_file"].split("/")[-2:]
+                        if dolma_format is False
+                        else segment["metadata"]["subtitle_file"].split("/")[-2:]
+                    )
+                    in transcript_manifest
+                ]
+            else:
+                segments_list = [
+                    (
+                        {**segment, "in_manifest": True}
+                        if "/".join(
+                            segment["subtitle_file"].split("/")[-2:]
+                            if dolma_format is False
+                            else segment["metadata"]["subtitle_file"].split("/")[-2:]
+                        )
+                        in transcript_manifest
+                        else {**segment, "in_manifest": False}
+                    )
+                    for segment in segments_list
+                ]
+
         return segments_list
     except ValueError as e:
         with open(f"{log_dir}/failed_chunking.txt", "a") as f:
@@ -330,6 +359,112 @@ def parallel_chunk_transcript(
     return chunk_transcript(*args)
 
 
+def get_seg_text(segment):
+    reader = utils.TranscriptReader(
+        file_path=None,
+        transcript_string=segment["seg_content"],
+        ext="vtt" if segment["seg_content"].startswith("WEBVTT") else "srt",
+    )
+    t_dict, _ = reader.read()
+    segment_text = reader.extract_text(t_dict)
+    return segment_text
+
+
+def get_mach_seg_text(mach_segment):
+    content = webvtt.from_string(mach_segment["seg_content"])
+    modified_content = []
+    if content[0].text == content[1].text:
+        modified_content.append(content[0])
+        start = 2
+    else:
+        start = 1
+    for i in range(start, len(content)):
+        caption = content[i]
+        if "\n" not in caption.text:
+            modified_content.append(caption)
+    mach_segment_text = " ".join([caption.text for caption in modified_content])
+    return mach_segment_text
+
+
+def merge_man_mach_segs(
+    transcript, transcript_manifest, shard_log_dir, keep_tokens, dolma_format, in_memory
+):
+    segments = chunk_transcript(
+        transcript_data=transcript,
+        transcript_manifest=transcript_manifest,
+        log_dir=shard_log_dir,
+        keep_tokens=keep_tokens,
+        dolma_format=dolma_format,
+        mach_transcript=False,
+        merge_man_mach=True,
+        in_memory=in_memory,
+    )
+
+    if segments is not None:
+        shard_mach_log_dir = shard_log_dir + "_mach"
+        os.makedirs(shard_mach_log_dir, exist_ok=True)
+        mach_segments = chunk_transcript(
+            transcript_data=transcript,
+            transcript_manifest=None,
+            log_dir=shard_mach_log_dir,
+            keep_tokens=keep_tokens,
+            dolma_format=dolma_format,
+            mach_transcript=True,
+            merge_man_mach=True,
+            in_memory=in_memory,
+        )
+
+        mach_segments = deque(mach_segments)
+        new_segments = []
+        for segment in segments:
+            seg_text = get_seg_text(segment)
+            if seg_text != "":
+                mach_segment = mach_segments.popleft()
+                if segment["in_manifest"] is True:
+                    mach_seg_text = get_mach_seg_text(mach_segment)
+                    wer = jiwer.wer(normalizer(seg_text), normalizer(mach_seg_text))
+                    segment["mach_seg_content"] = mach_seg_text
+                    segment["mach_timestamps"] = mach_segment["timestamp"]
+                    segment["mach_seg_id"] = mach_segment["seg_id"]
+                    segment["wer"] = wer
+                    del segment["in_manifest"]
+                    new_segments.append(segment)
+                else:
+                    mach_segments.append(mach_segment)
+            elif seg_text == "":
+                segment["mach_seg_content"] = ""
+                segment["mach_timestamps"] = ""
+                segment["mach_seg_id"] = ""
+                segment["wer"] = 0.0
+                del segment["in_manifest"]
+                new_segments.append(segment)
+        
+        segments = new_segments
+
+        if len(mach_segments) > 0:
+            for mach_segment in mach_segments:
+                segments.append(
+                    {
+                        "subtitle_file": "",
+                        "seg_content": "",
+                        "timestamp": "",
+                        "id": "",
+                        "seg_id": "",
+                        "audio_file": "",
+                        "mach_seg_content": mach_segment["seg_content"],
+                        "mach_timestamps": mach_segment["timestamp"],
+                        "mach_seg_id": mach_segment["seg_id"],
+                        "wer": jiwer.wer(
+                            normalizer(mach_segment["seg_content"]), normalizer("")
+                        ),
+                    }
+                )
+
+        return segments
+    else:
+        return None
+
+
 def preprocess_jsonl(
     json_file: str,
     shard: str,
@@ -342,6 +477,7 @@ def preprocess_jsonl(
     subsample_seed: int = 42,
     keep_tokens: bool = False,
     dolma_format: bool = False,
+    seg_mach: bool = False,
     in_memory: bool = True,
 ):
     output_path = f"{output_dir}/shard_seg_{shard}.jsonl.gz"
@@ -361,17 +497,30 @@ def preprocess_jsonl(
             with open(transcript_manifest_file, "r") as f:
                 transcript_manifest = [line.strip() for line in f]
 
-            segments_group = [
-                chunk_transcript(
-                    transcript,
-                    transcript_manifest,
-                    shard_log_dir,
-                    keep_tokens,
-                    dolma_format,
-                    in_memory,
-                )
-                for transcript in transcript_data
-            ]
+            if not seg_mach:
+                segments_group = [
+                    chunk_transcript(
+                        transcript,
+                        transcript_manifest,
+                        shard_log_dir,
+                        keep_tokens,
+                        dolma_format,
+                        in_memory,
+                    )
+                    for transcript in transcript_data
+                ]
+            else:
+                segments_group = [
+                    merge_man_mach_segs(
+                        transcript=transcript,
+                        transcript_manifest=transcript_manifest,
+                        shard_log_dir=shard_log_dir,
+                        keep_tokens=keep_tokens,
+                        dolma_format=dolma_format,
+                        in_memory=in_memory,
+                    )
+                    for transcript in transcript_data
+                ]
 
             segments_group = [group for group in segments_group if group is not None]
 
@@ -427,6 +576,7 @@ def main(
     subsample_seed: int = 42,
     keep_tokens: bool = False,
     dolma_format: bool = False,
+    seg_mach: bool = False,
     in_memory: bool = True,
 ):
     print(
@@ -460,6 +610,7 @@ def main(
                         repeat(subsample_seed),
                         repeat(keep_tokens),
                         repeat(dolma_format),
+                        repeat(seg_mach),
                         repeat(in_memory),
                     ),
                 ),
