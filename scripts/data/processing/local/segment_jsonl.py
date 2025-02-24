@@ -10,6 +10,11 @@ import sys
 import glob
 import json
 import gzip
+from whisper.normalizers import EnglishTextNormalizer
+import jiwer
+from collections import deque
+import webvtt
+
 
 sys.path.append(os.getcwd())
 import segment_jsonl_utils as utils
@@ -22,6 +27,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+normalizer = EnglishTextNormalizer()
 
 SEGMENT_COUNT_THRESHOLD = 120
 
@@ -51,10 +57,12 @@ def unarchive_jsonl_gz(file_path, output_path=None):
 
 def chunk_transcript(
     transcript_data: Dict,
-    transcript_manifest: List[str],
+    transcript_manifest: Optional[List[str]],
     log_dir: str,
     keep_tokens: bool = False,
     dolma_format: bool = False,
+    mach_transcript: bool = False,
+    merge_man_mach: bool = False,
     in_memory: bool = True,
 ) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
     """Segment audio and transcript files into <= 30-second chunks
@@ -69,7 +77,11 @@ def chunk_transcript(
         Exception: If an error occurs during the chunking process
     """
     try:
-        transcript_string = transcript_data["content"]
+        transcript_string = (
+            transcript_data["content"]
+            if not mach_transcript
+            else transcript_data["mach_content"]
+        )
         transcript_file = transcript_data["subtitle_file"]
         if transcript_file.startswith("/weka"):
             video_id = transcript_file.split("/")[5]
@@ -77,7 +89,14 @@ def chunk_transcript(
             video_id = transcript_file.split("/")[1]
 
         output_dir = os.path.dirname(transcript_file)
-        transcript_ext = transcript_file.split(".")[-1]
+        get_ext = lambda transcript_string: (
+            "vtt" if transcript_string.startswith("WEBVTT") else "srt"
+        )
+        transcript_ext = (
+            transcript_file.split(".")[-1]
+            if not mach_transcript
+            else get_ext(transcript_string)
+        )
         segment_count = 0
 
         transcript, *_ = utils.TranscriptReader(
