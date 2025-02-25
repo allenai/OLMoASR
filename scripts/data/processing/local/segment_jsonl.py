@@ -450,51 +450,83 @@ def merge_man_mach_segs(
             in_memory=in_memory,
         )
 
-        mach_segments = deque(mach_segments)
         new_segments = []
-        for segment in segments:
-            seg_text = get_seg_text(segment)
-            if seg_text != "":
-                mach_segment = mach_segments.popleft()
+        if mach_segments is None:
+            for segment in segments:
                 if segment["in_manifest"] is True:
-                    mach_seg_text = get_mach_seg_text(mach_segment)
-                    wer = jiwer.wer(normalizer(seg_text), normalizer(mach_seg_text))
-                    segment["mach_seg_content"] = mach_seg_text
-                    segment["mach_timestamps"] = mach_segment["timestamp"]
-                    segment["mach_seg_id"] = mach_segment["seg_id"]
-                    segment["wer"] = wer
+                    segment["mach_seg_content"] = "None"
+                    segment["mach_timestamps"] = ""
+                    # segment["mach_seg_id"] = ""
+                    # segment["wer"] = 0.0
+                    segment["edit_dist"] = 0
                     del segment["in_manifest"]
                     new_segments.append(segment)
-                else:
-                    mach_segments.append(mach_segment)
-            elif seg_text == "":
-                segment["mach_seg_content"] = ""
-                segment["mach_timestamps"] = ""
-                segment["mach_seg_id"] = ""
-                segment["wer"] = 0.0
-                del segment["in_manifest"]
-                new_segments.append(segment)
-        
-        segments = new_segments
+        else:
+            mach_segments = deque(mach_segments)
+            for segment in segments:
+                seg_text = get_seg_text(segment)
+                if seg_text != "":
+                    if len(mach_segments) == 0:
+                        segment["mach_seg_content"] = ""
+                        segment["mach_timestamps"] = ""
+                        # segment["mach_seg_id"] = ""
+                        # segment["wer"] = 0.0
+                        edit_dist = Levenshtein.distance(
+                            normalizer(seg_text), normalizer("")
+                        )
+                        segment["edit_dist"] = edit_dist
+                        del segment["in_manifest"]
+                        new_segments.append(segment)
+                    else:
+                        mach_segment = mach_segments.popleft()
+                        if segment["in_manifest"] is True:
+                            mach_seg_text = get_mach_seg_text(mach_segment)
+                            # wer = jiwer.wer(normalizer(seg_text), normalizer(mach_seg_text))
+                            edit_dist = Levenshtein.distance(
+                                normalizer(seg_text), normalizer(mach_seg_text)
+                            )
+                            segment["mach_seg_content"] = mach_segment["seg_content"]
+                            segment["mach_timestamps"] = mach_segment["timestamp"]
+                            # segment["mach_seg_id"] = mach_segment["seg_id"]
+                            # segment["wer"] = wer
+                            segment["edit_dist"] = edit_dist
+                            del segment["in_manifest"]
+                            new_segments.append(segment)
+                        # else:
+                        #     # not sure if should keep this?
+                        #     mach_segments.append(mach_segment)
+                elif seg_text == "":
+                    segment["mach_seg_content"] = ""
+                    segment["mach_timestamps"] = ""
+                    # segment["mach_seg_id"] = ""
+                    # segment["wer"] = 0.0
+                    segment["edit_dist"] = 0
+                    del segment["in_manifest"]
+                    new_segments.append(segment)
 
-        if len(mach_segments) > 0:
-            for mach_segment in mach_segments:
-                segments.append(
-                    {
-                        "subtitle_file": "",
-                        "seg_content": "",
-                        "timestamp": "",
-                        "id": "",
-                        "seg_id": "",
-                        "audio_file": "",
-                        "mach_seg_content": mach_segment["seg_content"],
-                        "mach_timestamps": mach_segment["timestamp"],
-                        "mach_seg_id": mach_segment["seg_id"],
-                        "wer": jiwer.wer(
-                            normalizer(mach_segment["seg_content"]), normalizer("")
-                        ),
-                    }
-                )
+            if len(mach_segments) > 0:
+                for mach_segment in mach_segments:
+                    new_segments.append(
+                        {
+                            "subtitle_file": "",
+                            "seg_content": "",
+                            "timestamp": "",
+                            "id": segments[0]["id"],
+                            # "seg_id": "",
+                            "audio_file": "",
+                            "mach_seg_content": mach_segment["seg_content"],
+                            "mach_timestamps": mach_segment["timestamp"],
+                            # "mach_seg_id": mach_segment["seg_id"],
+                            # "wer": jiwer.wer(
+                            #     normalizer(mach_segment["seg_content"]), normalizer("")
+                            # ),
+                            "edit_dist": Levenshtein.distance(
+                                normalizer(mach_segment["seg_content"]), normalizer("")
+                            ),
+                        }
+                    )
+
+        segments = new_segments
 
         return segments
     else:
