@@ -12,6 +12,7 @@ import json
 import gzip
 from whisper.normalizers import EnglishTextNormalizer
 import jiwer
+import Levenshtein
 from collections import deque
 import webvtt
 
@@ -391,17 +392,33 @@ def get_seg_text(segment):
 
 def get_mach_seg_text(mach_segment):
     content = webvtt.from_string(mach_segment["seg_content"])
+    # print(mach_segment)
+    # for i, p in enumerate(content):
+    #     print(f"{i=}")
+    #     print(f"{p=}")
+    # print(f"{content[0]=}")
+    # print(f"{content[-1]=}")
+    # print(f"{content[1]=}")
+    # print(f"{len(content)=}")
     modified_content = []
-    if content[0].text == content[1].text:
-        modified_content.append(content[0])
-        start = 2
+    if len(content) > 0:
+        if len(content) > 1:
+            if content[0].text == content[1].text:
+                modified_content.append(content[0])
+                start = 2
+            else:
+                start = 1
+        elif len(content) == 1:
+            start = 0
+
+        for i in range(start, len(content)):
+            caption = content[i]
+            if "\n" not in caption.text:
+                modified_content.append(caption)
+        mach_segment_text = " ".join([caption.text for caption in modified_content])
     else:
-        start = 1
-    for i in range(start, len(content)):
-        caption = content[i]
-        if "\n" not in caption.text:
-            modified_content.append(caption)
-    mach_segment_text = " ".join([caption.text for caption in modified_content])
+        mach_segment_text = ""
+    # print(f"{mach_segment_text=}")
     return mach_segment_text
 
 
