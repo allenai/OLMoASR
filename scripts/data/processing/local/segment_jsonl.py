@@ -385,7 +385,7 @@ def get_seg_text(segment):
         transcript_string=segment["seg_content"],
         ext="vtt" if segment["seg_content"].startswith("WEBVTT") else "srt",
     )
-    t_dict, _ = reader.read()
+    t_dict, *_ = reader.read()
     segment_text = reader.extract_text(t_dict)
     return segment_text
 
