@@ -701,64 +701,83 @@ def merge_man_mach_segs(
                 seg_text = get_seg_text(segment)
                 if seg_text != "":
                     if len(mach_segments) == 0:
+                        norm_seg_text = normalizer(seg_text)
+                        segment["seg_text"] = norm_seg_text
+                        segment["mach_seg_text"] = ""
                         segment["mach_seg_content"] = ""
-                        segment["mach_timestamps"] = ""
-                        # segment["mach_seg_id"] = ""
-                        # segment["wer"] = 0.0
-                        edit_dist = Levenshtein.distance(
-                            normalizer(seg_text), normalizer("")
-                        )
+                        segment["mach_timestamp"] = ""
+                        # edit_dist = Levenshtein.distance(norm_seg_text, "")
+                        if norm_seg_text != "":
+                            edit_dist = jiwer.wer(norm_seg_text, "")
+                        else:
+                            edit_dist = jiwer.wer(seg_text, "")
                         segment["edit_dist"] = edit_dist
-                        del segment["in_manifest"]
                         new_segments.append(segment)
                     else:
                         mach_segment = mach_segments.popleft()
-                        while mach_segment["seg_content"] == "WEBVTT\n\n":
-                            mach_segment = mach_segments.popleft()
+                        if mach_segment["seg_content"] == "WEBVTT\n\n":
+                            while mach_segment["seg_content"] == "WEBVTT\n\n":
+                                if len(mach_segments) == 0:
+                                    mach_segment = None
+                                    break
+                                else:
+                                    mach_segment = mach_segments.popleft()
                         if segment["in_manifest"] is True:
                             mach_seg_text = get_mach_seg_text(mach_segment)
-                            # wer = jiwer.wer(normalizer(seg_text), normalizer(mach_seg_text))
-                            edit_dist = Levenshtein.distance(
-                                normalizer(seg_text), normalizer(mach_seg_text)
-                            )
+                            norm_mach_seg_text = normalizer(mach_seg_text)
+                            norm_seg_text = normalizer(seg_text)
+                            if norm_seg_text != "":
+                                segment["seg_text"] = norm_seg_text
+                                # edit_dist = Levenshtein.distance(norm_seg_text, norm_mach_seg_text)
+                                edit_dist = jiwer.wer(norm_seg_text, norm_mach_seg_text)
+                            else:
+                                segment["seg_text"] = seg_text
+                                # edit_dist = Levenshtein.distance(seg_text, norm_mach_seg_text)
+                                edit_dist = jiwer.wer(seg_text, norm_mach_seg_text)
+                            segment["mach_seg_text"] = norm_mach_seg_text
                             segment["mach_seg_content"] = mach_segment["seg_content"]
-                            segment["mach_timestamps"] = mach_segment["timestamp"]
-                            # segment["mach_seg_id"] = mach_segment["seg_id"]
-                            # segment["wer"] = wer
+                            segment["mach_timestamp"] = mach_segment["timestamp"]
                             segment["edit_dist"] = edit_dist
-                            del segment["in_manifest"]
                             new_segments.append(segment)
-                        # else:
-                        #     # not sure if should keep this?
-                        #     mach_segments.append(mach_segment)
                 elif seg_text == "":
+                    segment["seg_text"] = ""
+                    segment["mach_seg_text"] = ""
                     segment["mach_seg_content"] = ""
                     segment["mach_timestamps"] = ""
-                    # segment["mach_seg_id"] = ""
-                    # segment["wer"] = 0.0
-                    segment["edit_dist"] = 0
-                    del segment["in_manifest"]
+                    segment["edit_dist"] = 0.0
                     new_segments.append(segment)
+
+                del segment["in_manifest"]
 
             if len(mach_segments) > 0:
                 for mach_segment in mach_segments:
+                    mach_seg_text = normalizer(mach_segment["seg_content"])
                     new_segments.append(
                         {
                             "subtitle_file": "",
                             "seg_content": "",
                             "timestamp": "",
                             "id": segments[0]["id"],
-                            # "seg_id": "",
                             "audio_file": "",
+                            "seg_text": "",
+                            "mach_seg_text": (
+                                mach_seg_text
+                                if mach_seg_text != ""
+                                else mach_segment["seg_content"]
+                            ),
                             "mach_seg_content": mach_segment["seg_content"],
-                            "mach_timestamps": mach_segment["timestamp"],
-                            # "mach_seg_id": mach_segment["seg_id"],
-                            # "wer": jiwer.wer(
+                            "mach_timestamp": mach_segment["timestamp"],
+                            "edit_dist": jiwer.wer(
+                                (
+                                    mach_seg_text
+                                    if mach_seg_text != ""
+                                    else mach_segment["seg_content"]
+                                ),
+                                "",
+                            ),
+                            # "edit_dist": Levenshtein.distance(
                             #     normalizer(mach_segment["seg_content"]), normalizer("")
                             # ),
-                            "edit_dist": Levenshtein.distance(
-                                normalizer(mach_segment["seg_content"]), normalizer("")
-                            ),
                         }
                     )
 
