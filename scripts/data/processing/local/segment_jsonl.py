@@ -642,6 +642,10 @@ def get_mach_seg_text(mach_segment):
             caption = content[i]
             if "\n" not in caption.text:
                 modified_content.append(caption)
+            elif "\n" in caption.text and i == len(content) - 1:
+                caption.text = caption.text.split("\n")[-1]
+                modified_content.append(caption)
+
         mach_segment_text = " ".join([caption.text for caption in modified_content])
     else:
         mach_segment_text = ""
