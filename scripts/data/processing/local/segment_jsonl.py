@@ -379,6 +379,233 @@ def parallel_chunk_transcript(
     return chunk_transcript(*args)
 
 
+def chunk_mach_transcript(
+    transcript_data: Dict,
+    log_dir: str,
+    man_timestamps: Optional[List] = None,
+    in_memory: bool = True,
+) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
+    """Segment audio and transcript files into <= 30-second chunks
+
+    Segment audio and transcript files into <= 30-second chunks. The audio and transcript files are represented by audio_file and transcript_file respectively.
+
+    Args:
+    transcript_file: Path to the transcript file
+    audio_file: Path to the audio file
+
+    Raises:
+        Exception: If an error occurs during the chunking process
+    """
+    try:
+        transcript_string = transcript_data["mach_content"]
+        transcript_file = transcript_data["subtitle_file"]
+        if transcript_file.startswith("/weka"):
+            video_id = transcript_file.split("/")[5]
+        else:
+            video_id = transcript_file.split("/")[1]
+
+        output_dir = os.path.dirname(transcript_file)
+        get_ext = lambda transcript_string: (
+            "vtt" if transcript_string.startswith("WEBVTT") else "srt"
+        )
+        transcript_ext = get_ext(transcript_string)
+        segment_count = 0
+
+        transcript, *_ = utils.TranscriptReader(
+            file_path=None, transcript_string=transcript_string, ext=transcript_ext
+        ).read()
+
+        if len(transcript.keys()) == 0:
+            with open(f"{log_dir}/empty_transcripts.txt", "a") as f:
+                f.write(f"{video_id}\n")
+            return None
+
+        a = 0
+        b = 0
+
+        timestamps = list(transcript.keys())
+        diff = 0
+        init_diff = 0
+        man_seg_idx = 0
+        max_man_mach_diff = np.inf
+        segments_list = []
+
+        while (
+            a < len(transcript) + 1
+            and segment_count < SEGMENT_COUNT_THRESHOLD
+            and man_seg_idx < len(man_timestamps)
+        ):
+            init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
+
+            man_mach_diff = np.absolute(
+                utils.convert_to_milliseconds(man_timestamps[man_seg_idx][1])
+                - utils.convert_to_milliseconds(timestamps[b][1])
+            )
+            if man_mach_diff <= max_man_mach_diff:
+                diff = init_diff
+                max_man_mach_diff = man_mach_diff
+                b += 1
+            elif man_mach_diff > max_man_mach_diff:
+                # edge case (when transcript line is > 30s)
+                if b == a:
+                    with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
+                        f.write(f"{video_id}\tindex: {b}\n")
+
+                    a += 1
+                    b += 1
+
+                    if a == b == len(transcript):
+                        if segment_count == 0:
+                            with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
+                                f.write(f"{video_id}\tdelete\n")
+                        break
+
+                    continue
+
+                over_ctx_len, res = utils.over_ctx_len(
+                    timestamps=timestamps[a:b], transcript=transcript, language=None
+                )
+                if not over_ctx_len:
+                    t_output_file, transcript_string = utils.write_segment(
+                        timestamps=timestamps[a:b],
+                        transcript=transcript,
+                        output_dir=output_dir,
+                        ext=transcript_ext,
+                        in_memory=in_memory,
+                    )
+
+                    if not utils.too_short_audio_text(
+                        start=timestamps[a][0], end=timestamps[b - 1][1]
+                    ):
+                        timestamp = t_output_file.split("/")[-1].split(
+                            f".{transcript_ext}"
+                        )[0]
+                        segment = {
+                            "subtitle_file": t_output_file.replace("ow_full", "ow_seg"),
+                            "seg_content": transcript_string,
+                            "timestamp": timestamp,
+                            "id": video_id,
+                            "audio_file": t_output_file.replace(
+                                f".{transcript_ext}", ".npy"
+                            ).replace("ow_full", "ow_seg"),
+                        }
+                        segments_list.append(segment)
+                        segment_count += 1
+                        man_seg_idx += 1
+                else:
+                    if type(res) is not List or res is not None:
+                        with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
+                            f.write(f"{video_id}\tindex: {b}\n")
+                    elif res is None:
+                        with open(f"{log_dir}/over_ctx_len.txt", "a") as f:
+                            f.write(f"{video_id}\tindex: {b}\n")
+
+                init_diff = 0
+                diff = 0
+                max_man_mach_diff = np.inf
+
+                # checking for silence
+                # if timestamps[b][0] > timestamps[b - 1][1]:
+                #     silence_segments = (
+                #         utils.calculate_difference(
+                #             timestamps[b - 1][1], timestamps[b][0]
+                #         )
+                #         // 30000
+                #     )
+
+                #     for i in range(0, silence_segments + 1):
+                #         start = utils.adjust_timestamp(
+                #             timestamps[b - 1][1], (i * 30000)
+                #         )
+
+                #         if i == silence_segments:
+                #             if start == timestamps[b][0]:
+                #                 continue
+                #             else:
+                #                 end = timestamps[b][0]
+                #         else:
+                #             end = utils.adjust_timestamp(start, 30000)
+
+                #         t_output_file, transcript_string = utils.write_segment(
+                #             timestamps=[(start, end)],
+                #             transcript=None,
+                #             output_dir=output_dir,
+                #             ext=transcript_ext,
+                #             in_memory=in_memory,
+                #         )
+
+                #     if not utils.too_short_audio_text(start=start, end=end):
+                #         timestamp = t_output_file.split("/")[-1].split(
+                #             f".{transcript_ext}"
+                #         )[0]
+                #         segment = {
+                #             "subtitle_file": t_output_file.replace("ow_full", "ow_seg"),
+                #             "seg_content": transcript_string,
+                #             "timestamp": timestamp,
+                #             "id": video_id,
+                #             "audio_file": t_output_file.replace(
+                #                 f".{transcript_ext}", ".npy"
+                #             ).replace("ow_full", "ow_seg"),
+                #         }
+                #         segments_list.append(segment)
+                #         segment_count += 1
+                #         man_seg_idx += 1
+                a = b
+
+            if b == len(transcript) and diff < 30000:
+                over_ctx_len, res = utils.over_ctx_len(
+                    timestamps=timestamps[a:b], transcript=transcript, language=None
+                )
+                if not over_ctx_len:
+                    t_output_file, transcript_string = utils.write_segment(
+                        timestamps=timestamps[a:b],
+                        transcript=transcript,
+                        output_dir=output_dir,
+                        ext=transcript_ext,
+                        in_memory=in_memory,
+                    )
+
+                    if not utils.too_short_audio_text(
+                        start=timestamps[a][0], end=timestamps[b - 1][1]
+                    ):
+                        timestamp = t_output_file.split("/")[-1].split(
+                            f".{transcript_ext}"
+                        )[0]
+                        segment = {
+                            "subtitle_file": t_output_file.replace("ow_full", "ow_seg"),
+                            "seg_content": transcript_string,
+                            "timestamp": timestamp,
+                            "id": video_id,
+                            "audio_file": t_output_file.replace(
+                                f".{transcript_ext}", ".npy"
+                            ).replace("ow_full", "ow_seg"),
+                        }
+                        segments_list.append(segment)
+                        segment_count += 1
+                        man_seg_idx += 1
+                else:
+                    if type(res) is not List or res is not None:
+                        with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
+                            f.write(f"{video_id}\tindex: {b}\n")
+                    elif res is None:
+                        with open(f"{log_dir}/over_ctx_len.txt", "a") as f:
+                            f.write(f"{video_id}\tindex: {b}\n")
+
+                break
+        if len(segments_list) == 0:
+            return None
+
+        return segments_list
+    except ValueError as e:
+        with open(f"{log_dir}/failed_chunking.txt", "a") as f:
+            f.write(f"{video_id}\t{e}\n")
+        return None
+    except Exception as e:
+        with open(f"{log_dir}/failed_chunking.txt", "a") as f:
+            f.write(f"{video_id}\t{e}\n")
+        return None
+
+
 def get_seg_text(segment):
     reader = utils.TranscriptReader(
         file_path=None,
@@ -479,6 +706,8 @@ def merge_man_mach_segs(
                         new_segments.append(segment)
                     else:
                         mach_segment = mach_segments.popleft()
+                        while mach_segment["seg_content"] == "WEBVTT\n\n":
+                            mach_segment = mach_segments.popleft()
                         if segment["in_manifest"] is True:
                             mach_seg_text = get_mach_seg_text(mach_segment)
                             # wer = jiwer.wer(normalizer(seg_text), normalizer(mach_seg_text))
