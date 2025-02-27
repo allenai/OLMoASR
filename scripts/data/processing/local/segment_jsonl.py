@@ -670,7 +670,14 @@ def merge_man_mach_segs(
     if segments is not None:
         shard_mach_log_dir = shard_log_dir + "_mach"
         os.makedirs(shard_mach_log_dir, exist_ok=True)
-        mach_segments = chunk_transcript(
+        man_timestamps = [
+            segment["timestamp"].split("_")
+            for segment in segments
+            if not (
+                segment["seg_content"] == "" or segment["seg_content"] == "WEBVTT\n\n"
+            )
+        ]
+        mach_segments = chunk_mach_transcript(
             transcript_data=transcript,
             transcript_manifest=None,
             log_dir=shard_mach_log_dir,
