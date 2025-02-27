@@ -679,12 +679,8 @@ def merge_man_mach_segs(
         ]
         mach_segments = chunk_mach_transcript(
             transcript_data=transcript,
-            transcript_manifest=None,
             log_dir=shard_mach_log_dir,
-            keep_tokens=keep_tokens,
-            dolma_format=dolma_format,
-            mach_transcript=True,
-            merge_man_mach=True,
+            man_timestamps=man_timestamps,
             in_memory=in_memory,
         )
 
@@ -693,10 +689,10 @@ def merge_man_mach_segs(
             for segment in segments:
                 if segment["in_manifest"] is True:
                     segment["mach_seg_content"] = "None"
-                    segment["mach_timestamps"] = ""
-                    # segment["mach_seg_id"] = ""
-                    # segment["wer"] = 0.0
-                    segment["edit_dist"] = 0
+                    segment["seg_text"] = "None"
+                    segment["mach_seg_text"] = "None"
+                    segment["mach_timestamp"] = ""
+                    segment["edit_dist"] = 0.0
                     del segment["in_manifest"]
                     new_segments.append(segment)
         else:
