@@ -634,7 +634,7 @@ def get_mach_seg_text(mach_segment):
                 modified_content.append(content[0])
                 start = 2
             else:
-                start = 1
+                start = 0
         elif len(content) == 1:
             start = 0
 
