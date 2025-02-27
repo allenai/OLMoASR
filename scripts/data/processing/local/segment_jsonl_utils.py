@@ -26,7 +26,14 @@ def convert_to_milliseconds(timestamp: str) -> int:
     Returns:
         Timestamp in milliseconds
     """
-    h, m, s, ms = map(float, timestamp.replace(".", ":").split(":"))
+    h, m, s, ms = map(
+        float,
+        (
+            timestamp.replace(".", ":").split(":")
+            if "." in timestamp
+            else timestamp.replace(",", ":").split(":")
+        ),
+    )
     return int(h * 3600000 + m * 60000 + s * 1000 + ms)
 
 
@@ -264,7 +271,7 @@ def over_ctx_len(
     try:
         text_lines = [transcript[timestamps[i]].strip() for i in range(len(timestamps))]
         text = " ".join(text_lines)
-        
+
         if language is None:
             tokenizer = get_tokenizer(multilingual=False)
         else:
@@ -284,6 +291,7 @@ def over_ctx_len(
     except Exception as e:
         logger.info(f"Error processing text:{e}")
         return True, "error"
+
 
 def too_short_audio_text(start: str, end: str) -> bool:
     duration = calculate_difference(start, end) / 1000
