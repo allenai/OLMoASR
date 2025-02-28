@@ -443,6 +443,7 @@ def chunk_mach_transcript(
             else:
                 break
         
+        a = a - 1
         b = a    
         while (
             a < len(transcript) + 1
@@ -577,7 +578,8 @@ def chunk_mach_transcript(
                             a += 1
                         else:
                             break
-                
+                        
+                    a = a - 1
                     b = a   
 
 
