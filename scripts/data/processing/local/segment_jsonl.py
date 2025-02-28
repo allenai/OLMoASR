@@ -428,8 +428,22 @@ def chunk_mach_transcript(
         init_diff = 0
         man_seg_idx = 0
         max_man_mach_diff = np.inf
+        max_start_man_mach_diff = np.inf
         segments_list = []
 
+        # to determine where to start
+        while True:
+            start_man_mach_diff = np.absolute(
+                utils.convert_to_milliseconds(man_timestamps[man_seg_idx][0])
+                - utils.convert_to_milliseconds(timestamps[a][0])
+            )
+            if start_man_mach_diff < max_start_man_mach_diff:
+                max_start_man_mach_diff = start_man_mach_diff
+                a += 1
+            else:
+                break
+        
+        b = a    
         while (
             a < len(transcript) + 1
             and segment_count < SEGMENT_COUNT_THRESHOLD
@@ -503,6 +517,7 @@ def chunk_mach_transcript(
                 init_diff = 0
                 diff = 0
                 max_man_mach_diff = np.inf
+                max_start_man_mach_diff = np.inf
 
                 # checking for silence
                 # if timestamps[b][0] > timestamps[b - 1][1]:
@@ -551,8 +566,22 @@ def chunk_mach_transcript(
                 #         segment_count += 1
                 #         man_seg_idx += 1
                 a = b
+                if man_seg_idx < len(man_timestamps):
+                    while True:
+                        start_man_mach_diff = np.absolute(
+                            utils.convert_to_milliseconds(man_timestamps[man_seg_idx][0])
+                            - utils.convert_to_milliseconds(timestamps[a][0])
+                        )
+                        if start_man_mach_diff < max_start_man_mach_diff:
+                            max_start_man_mach_diff = start_man_mach_diff
+                            a += 1
+                        else:
+                            break
+                
+                    b = a   
 
-            if b == len(transcript) and diff < 30000:
+
+            if b == len(transcript):
                 over_ctx_len, res = utils.over_ctx_len(
                     timestamps=timestamps[a:b], transcript=transcript, language=None
                 )
