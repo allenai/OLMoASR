@@ -353,7 +353,7 @@ def process_content(content, scores_dict, config):
         if set(fasttext_keep) == {False}:
             hitlist["filter_fasttext"] += 1
             return None, hitlist
-        elif "True" in fasttext_keep:
+        elif True in fasttext_keep:
             pass
         elif set(fasttext_keep) == {True}:
             pass
