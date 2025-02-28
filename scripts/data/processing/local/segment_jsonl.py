@@ -774,7 +774,7 @@ def merge_man_mach_segs(
                     segment["seg_text"] = ""
                     segment["mach_seg_text"] = ""
                     segment["mach_seg_content"] = ""
-                    segment["mach_timestamps"] = ""
+                    segment["mach_timestamp"] = ""
                     segment["edit_dist"] = 0.0
                     new_segments.append(segment)
 
