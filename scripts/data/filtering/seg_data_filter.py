@@ -220,14 +220,27 @@ def modify_text(content):
 def filter_unrelated(scores_dict: Dict, threshold: int, comparison: str):
     score = scores_dict["score_unrelated"]
 
-    if comparison is "ge":
+    if comparison == "ge":
         return score >= threshold
-    elif comparison is "g":
+    elif comparison == "g":
         return score > threshold
-    elif comparison is "le":
+    elif comparison == "le":
         return score <= threshold
-    elif comparison is "l":
+    elif comparison == "l":
         return score < threshold
+
+
+def filter_bad_align_edit_dist(scores_dict: Dict, threshold: int, comparison: str):
+    edit_dist = scores_dict["edit_dist"]
+
+    if comparison == "ge":
+        return edit_dist >= threshold
+    elif comparison == "g":
+        return edit_dist > threshold
+    elif comparison == "le":
+        return edit_dist <= threshold
+    elif comparison == "l":
+        return edit_dist < threshold
 
 
 def filter_fasttext(scores_dict: Dict, threshold: int, comparison: str, eval_set: str):
@@ -250,7 +263,8 @@ FILTER_DICT = {
     "has_no_repeats": has_no_repeats,
     "modify_text": modify_text,
     "filter_unrelated": filter_unrelated,
-    "filter_fasttext": filter_fasttext,
+    "filter_bad_align_edit_dist": filter_bad_align_edit_dist,
+    # "filter_fasttext": filter_fasttext,
 }
 
 
@@ -277,7 +291,9 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     for line in lines:
         lines_seen += 1
         parsed_content = parse_into_iter(line["seg_content"], line["subtitle_file"])
-        scores_dict = {k: v for k, v in line.items() if "score" in k}
+        scores_dict = {
+            k: v for k, v in line.items() if "score" in k or "edit_dist" in k
+        }
         chars_seen += len(line["seg_content"])  # TODO: Be more precise here
         output_content, hitlist = process_content(
             parsed_content, scores_dict, config_dict
@@ -315,6 +331,10 @@ def process_content(content, scores_dict, config):
         kwargs = {k: v for k, v in filter_dict.items() if k != "fxn"}
 
         if filter_dict["fxn"] == "filter_unrelated":
+            keep = filter_fxn(scores_dict, **kwargs)
+            if not keep:
+                content = None
+        elif filter_dict["fxn"] == "filter_bad_align_edit_dist":
             keep = filter_fxn(scores_dict, **kwargs)
             if not keep:
                 content = None
