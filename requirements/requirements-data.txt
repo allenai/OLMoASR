@@ -22,3 +22,4 @@ librosa
 pydub
 jiwer
 tabulate
+Levenshtein
