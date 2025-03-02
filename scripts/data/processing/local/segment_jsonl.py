@@ -519,53 +519,6 @@ def chunk_mach_transcript(
                 diff = 0
                 max_man_mach_diff = np.inf
                 max_start_man_mach_diff = np.inf
-
-                # checking for silence
-                # if timestamps[b][0] > timestamps[b - 1][1]:
-                #     silence_segments = (
-                #         utils.calculate_difference(
-                #             timestamps[b - 1][1], timestamps[b][0]
-                #         )
-                #         // 30000
-                #     )
-
-                #     for i in range(0, silence_segments + 1):
-                #         start = utils.adjust_timestamp(
-                #             timestamps[b - 1][1], (i * 30000)
-                #         )
-
-                #         if i == silence_segments:
-                #             if start == timestamps[b][0]:
-                #                 continue
-                #             else:
-                #                 end = timestamps[b][0]
-                #         else:
-                #             end = utils.adjust_timestamp(start, 30000)
-
-                #         t_output_file, transcript_string = utils.write_segment(
-                #             timestamps=[(start, end)],
-                #             transcript=None,
-                #             output_dir=output_dir,
-                #             ext=transcript_ext,
-                #             in_memory=in_memory,
-                #         )
-
-                #     if not utils.too_short_audio_text(start=start, end=end):
-                #         timestamp = t_output_file.split("/")[-1].split(
-                #             f".{transcript_ext}"
-                #         )[0]
-                #         segment = {
-                #             "subtitle_file": t_output_file.replace("ow_full", "ow_seg"),
-                #             "seg_content": transcript_string,
-                #             "timestamp": timestamp,
-                #             "id": video_id,
-                #             "audio_file": t_output_file.replace(
-                #                 f".{transcript_ext}", ".npy"
-                #             ).replace("ow_full", "ow_seg"),
-                #         }
-                #         segments_list.append(segment)
-                #         segment_count += 1
-                #         man_seg_idx += 1
                 a = b
                 if man_seg_idx < len(man_timestamps):
                     while True:
@@ -650,14 +603,6 @@ def get_seg_text(segment):
 
 def get_mach_seg_text(mach_segment):
     content = webvtt.from_string(mach_segment["seg_content"])
-    # print(mach_segment)
-    # for i, p in enumerate(content):
-    #     print(f"{i=}")
-    #     print(f"{p=}")
-    # print(f"{content[0]=}")
-    # print(f"{content[-1]=}")
-    # print(f"{content[1]=}")
-    # print(f"{len(content)=}")
     modified_content = []
     if len(content) > 0:
         if len(content) > 1:
@@ -680,7 +625,6 @@ def get_mach_seg_text(mach_segment):
         mach_segment_text = " ".join([caption.text for caption in modified_content])
     else:
         mach_segment_text = ""
-    # print(f"{mach_segment_text=}")
     return mach_segment_text
 
 
@@ -704,9 +648,6 @@ def merge_man_mach_segs(
         man_timestamps = [
             segment["timestamp"].split("_")
             for segment in segments
-            if not (
-                segment["seg_content"] == "" or segment["seg_content"] == "WEBVTT\n\n"
-            )
         ]
         mach_segments = chunk_mach_transcript(
             transcript_data=transcript,
@@ -729,88 +670,46 @@ def merge_man_mach_segs(
         else:
             mach_segments = deque(mach_segments)
             for segment in segments:
+                mach_segment = mach_segments.popleft()
                 seg_text = get_seg_text(segment)
-                if seg_text != "":
+                if segment["in_manifest"] is True:
                     if len(mach_segments) == 0:
                         norm_seg_text = normalizer(seg_text)
                         segment["seg_text"] = norm_seg_text
                         segment["mach_seg_text"] = ""
                         segment["mach_seg_content"] = ""
                         segment["mach_timestamp"] = ""
-                        # edit_dist = Levenshtein.distance(norm_seg_text, "")
                         if norm_seg_text != "":
                             edit_dist = jiwer.wer(norm_seg_text, "")
                         else:
                             edit_dist = jiwer.wer(seg_text, "")
                         segment["edit_dist"] = edit_dist
-                        new_segments.append(segment)
                     else:
-                        mach_segment = mach_segments.popleft()
-                        if mach_segment["seg_content"] == "WEBVTT\n\n":
-                            while mach_segment["seg_content"] == "WEBVTT\n\n":
-                                if len(mach_segments) == 0:
-                                    mach_segment = None
-                                    break
-                                else:
-                                    mach_segment = mach_segments.popleft()
-                        if segment["in_manifest"] is True:
-                            mach_seg_text = get_mach_seg_text(mach_segment)
-                            norm_mach_seg_text = normalizer(mach_seg_text)
-                            norm_seg_text = normalizer(seg_text)
-                            if norm_seg_text != "":
-                                segment["seg_text"] = norm_seg_text
-                                # edit_dist = Levenshtein.distance(norm_seg_text, norm_mach_seg_text)
-                                edit_dist = jiwer.wer(norm_seg_text, norm_mach_seg_text)
+                        mach_seg_text = get_mach_seg_text(mach_segment)
+                        norm_mach_seg_text = normalizer(mach_seg_text)
+                        norm_seg_text = normalizer(seg_text)
+                        if norm_seg_text != "":
+                            segment["seg_text"] = norm_seg_text
+                            edit_dist = jiwer.wer(norm_seg_text, norm_mach_seg_text)
+                        elif seg_text == "":
+                            if norm_mach_seg_text != "":
+                                segment["seg_text"] = seg_text
+                                edit_dist = jiwer.wer(norm_mach_seg_text, seg_text)
                             else:
                                 segment["seg_text"] = seg_text
-                                # edit_dist = Levenshtein.distance(seg_text, norm_mach_seg_text)
-                                edit_dist = jiwer.wer(seg_text, norm_mach_seg_text)
-                            segment["mach_seg_text"] = norm_mach_seg_text
-                            segment["mach_seg_content"] = mach_segment["seg_content"]
-                            segment["mach_timestamp"] = mach_segment["timestamp"]
-                            segment["edit_dist"] = edit_dist
-                            new_segments.append(segment)
-                elif seg_text == "":
-                    segment["seg_text"] = ""
-                    segment["mach_seg_text"] = ""
-                    segment["mach_seg_content"] = ""
-                    segment["mach_timestamp"] = ""
-                    segment["edit_dist"] = 0.0
+                                edit_dist = 0.0
+                        elif seg_text != "":
+                            segment["seg_text"] = seg_text
+                            edit_dist = jiwer.wer(seg_text, norm_mach_seg_text)
+                        segment["mach_seg_text"] = norm_mach_seg_text
+                        segment["mach_seg_content"] = mach_segment["seg_content"]
+                        segment["mach_timestamp"] = mach_segment["timestamp"]
+                        segment["edit_dist"] = edit_dist
+                    
                     new_segments.append(segment)
 
-                del segment["in_manifest"]
-
             if len(mach_segments) > 0:
-                for mach_segment in mach_segments:
-                    mach_seg_text = normalizer(mach_segment["seg_content"])
-                    new_segments.append(
-                        {
-                            "subtitle_file": "",
-                            "seg_content": "",
-                            "timestamp": "",
-                            "id": segments[0]["id"],
-                            "audio_file": "",
-                            "seg_text": "",
-                            "mach_seg_text": (
-                                mach_seg_text
-                                if mach_seg_text != ""
-                                else mach_segment["seg_content"]
-                            ),
-                            "mach_seg_content": mach_segment["seg_content"],
-                            "mach_timestamp": mach_segment["timestamp"],
-                            "edit_dist": jiwer.wer(
-                                (
-                                    mach_seg_text
-                                    if mach_seg_text != ""
-                                    else mach_segment["seg_content"]
-                                ),
-                                "",
-                            ),
-                            # "edit_dist": Levenshtein.distance(
-                            #     normalizer(mach_segment["seg_content"]), normalizer("")
-                            # ),
-                        }
-                    )
+                return None
 
         segments = new_segments
 
