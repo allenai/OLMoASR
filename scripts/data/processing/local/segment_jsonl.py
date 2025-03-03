@@ -442,9 +442,9 @@ def chunk_mach_transcript(
                 a += 1
             else:
                 break
-        
+
         a = a - 1
-        b = a    
+        b = a
         while (
             a < len(transcript) + 1
             and segment_count < SEGMENT_COUNT_THRESHOLD
@@ -523,7 +523,9 @@ def chunk_mach_transcript(
                 if man_seg_idx < len(man_timestamps):
                     while True:
                         start_man_mach_diff = np.absolute(
-                            utils.convert_to_milliseconds(man_timestamps[man_seg_idx][0])
+                            utils.convert_to_milliseconds(
+                                man_timestamps[man_seg_idx][0]
+                            )
                             - utils.convert_to_milliseconds(timestamps[a][0])
                         )
                         if start_man_mach_diff < max_start_man_mach_diff:
@@ -531,10 +533,9 @@ def chunk_mach_transcript(
                             a += 1
                         else:
                             break
-                        
-                    a = a - 1
-                    b = a   
 
+                    a = a - 1
+                    b = a
 
             if b == len(transcript):
                 over_ctx_len, res = utils.over_ctx_len(
@@ -645,10 +646,7 @@ def merge_man_mach_segs(
     if segments is not None:
         shard_mach_log_dir = shard_log_dir + "_mach"
         os.makedirs(shard_mach_log_dir, exist_ok=True)
-        man_timestamps = [
-            segment["timestamp"].split("_")
-            for segment in segments
-        ]
+        man_timestamps = [segment["timestamp"].split("_") for segment in segments]
         mach_segments = chunk_mach_transcript(
             transcript_data=transcript,
             log_dir=shard_mach_log_dir,
@@ -657,6 +655,10 @@ def merge_man_mach_segs(
         )
 
         new_segments = []
+        count_0 = 0
+        count_1 = 0
+        count_gt_1 = 0
+        count_lt_1 = 0
         if mach_segments is None:
             for segment in segments:
                 if segment["in_manifest"] is True:
@@ -665,6 +667,7 @@ def merge_man_mach_segs(
                     segment["mach_seg_text"] = "None"
                     segment["mach_timestamp"] = ""
                     segment["edit_dist"] = 0.0
+                    count_0 += 1
                     new_segments.append(segment)
         else:
             mach_segments = deque(mach_segments)
@@ -682,6 +685,7 @@ def merge_man_mach_segs(
                         else:
                             edit_dist = jiwer.wer(seg_text, "")
                         segment["edit_dist"] = edit_dist
+                        count_1 += 1
                 else:
                     mach_segment = mach_segments.popleft()
                     if segment["in_manifest"] is True:
@@ -689,36 +693,46 @@ def merge_man_mach_segs(
                         norm_mach_seg_text = normalizer(mach_seg_text)
                         norm_seg_text = normalizer(seg_text)
                         if norm_seg_text != "":
-                            segment["seg_text"] = norm_seg_text
                             edit_dist = jiwer.wer(norm_seg_text, norm_mach_seg_text)
                         elif seg_text == "":
                             if norm_mach_seg_text != "":
-                                segment["seg_text"] = seg_text
                                 edit_dist = jiwer.wer(norm_mach_seg_text, seg_text)
                             elif mach_seg_text != "":
-                                segment["seg_text"] = seg_text
                                 edit_dist = jiwer.wer(mach_seg_text, seg_text)
                             elif mach_seg_text == "":
-                                segment["seg_text"] = seg_text
                                 edit_dist = 0.0
                         elif seg_text != "":
-                            segment["seg_text"] = seg_text
                             edit_dist = jiwer.wer(seg_text, norm_mach_seg_text)
-                        segment["mach_seg_text"] = norm_mach_seg_text
+                        segment["seg_text"] = (
+                            norm_seg_text if norm_seg_text != "" else seg_text
+                        )
+                        segment["mach_seg_text"] = (
+                            norm_mach_seg_text
+                            if norm_mach_seg_text != ""
+                            else mach_seg_text
+                        )
                         segment["mach_seg_content"] = mach_segment["seg_content"]
                         segment["mach_timestamp"] = mach_segment["timestamp"]
                         segment["edit_dist"] = edit_dist
-                        
+                        if edit_dist == 0.0:
+                            count_0 += 1
+                        elif edit_dist == 1.0:
+                            count_1 += 1
+                        elif edit_dist > 1.0:
+                            count_gt_1 += 1
+                        elif edit_dist < 1.0 and edit_dist > 0.0:
+                            count_lt_1 += 1
+
                 new_segments.append(segment)
 
             if len(mach_segments) > 0:
-                return None
+                return None, None, None, None, None
 
         segments = new_segments
 
-        return segments
+        return segments, count_0, count_1, count_gt_1, count_lt_1
     else:
-        return None
+        return None, None, None, None, None
 
 
 def preprocess_jsonl(
@@ -766,23 +780,42 @@ def preprocess_jsonl(
                     for transcript in transcript_data
                 ]
             else:
-                segments_group = [
-                    merge_man_mach_segs(
-                        transcript=transcript,
-                        transcript_manifest=transcript_manifest,
-                        shard_log_dir=shard_log_dir,
-                        keep_tokens=keep_tokens,
-                        dolma_format=dolma_format,
-                        in_memory=in_memory,
-                    )
-                    for transcript in transcript_data
-                ]
+                segments_group, count_0, count_1, count_gt_1, count_lt_1 = zip(
+                    *[
+                        merge_man_mach_segs(
+                            transcript=transcript,
+                            transcript_manifest=transcript_manifest,
+                            shard_log_dir=shard_log_dir,
+                            keep_tokens=keep_tokens,
+                            dolma_format=dolma_format,
+                            in_memory=in_memory,
+                        )
+                        for transcript in transcript_data
+                    ]
+                )
 
             segments_group = [group for group in segments_group if group is not None]
 
             # Write the data to tar files
             segments_list = list(chain(*segments_group))
             seg_count = len(segments_list)
+
+            if seg_mach:
+                avg_0 = (
+                    sum([count for count in count_0 if count is not None]) / seg_count
+                )
+                avg_1 = (
+                    sum([count for count in count_1 if count is not None]) / seg_count
+                )
+                avg_gt_1 = (
+                    sum([count for count in count_gt_1 if count is not None])
+                    / seg_count
+                )
+                avg_lt_1 = (
+                    sum([count for count in count_lt_1 if count is not None])
+                    / seg_count
+                )
+
         else:
             with gzip.open(json_file, "rt", encoding="utf-8") as f:
                 segments_list = [json.loads(line.strip()) for line in f]
@@ -814,7 +847,14 @@ def preprocess_jsonl(
                     f.write(json.dumps(segment) + "\n")
 
         # return output_path, shard_log_dir, len(segments_list)
-        return seg_count, subsampled_count if subsample else 0
+        return (
+            seg_count,
+            subsampled_count if subsample else 0,
+            avg_0 if seg_mach else None,
+            avg_1 if seg_mach else None,
+            avg_gt_1 if seg_mach else None,
+            avg_lt_1 if seg_mach else None,
+        )
 
 
 def parallel_preprocess_jsonl(args):
@@ -850,7 +890,7 @@ def main(
     manifest_files = [f"{manifest_dir}/{shard}.txt" for shard in shards]
     logger.info(f"{manifest_files[:5]=}")
     with multiprocessing.Pool() as pool:
-        counts = list(
+        results = list(
             tqdm(
                 pool.imap_unordered(
                     parallel_preprocess_jsonl,
@@ -874,11 +914,29 @@ def main(
             )
         )
 
-    segment_counts, subsampled_counts = zip(*counts)
+    if not seg_mach:
+        segment_counts, subsampled_counts, *_ = zip(*results)
+    else:
+        segment_counts, subsampled_counts, avg_0, avg_1, avg_gt_1, avg_lt_1 = zip(
+            *results
+        )
 
     logger.info(
         f"Total segment count: {sum(segment_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours"
     )
+    if seg_mach:
+        logger.info(
+            f"Percentage of segments w/ edit distance 0: {sum(avg_0) / len(avg_0)}"
+        )
+        logger.info(
+            f"Percentage of segments w/ edit distance 1: {sum(avg_1) / len(avg_1)}"
+        )
+        logger.info(
+            f"Percentage of segments w/ edit distance > 1: {sum(avg_gt_1) / len(avg_gt_1)}"
+        )
+        logger.info(
+            f"Percentage of segments w/ edit distance < 1 and > 0: {sum(avg_lt_1) / len(avg_lt_1)}"
+        )
     if subsample:
         logger.info(
             f"Total subsampled segment count: {sum(subsampled_counts)}, total duration: {(sum(subsampled_counts) * 30) / (60 * 60)} hours"
