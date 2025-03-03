@@ -665,15 +665,13 @@ def merge_man_mach_segs(
                     segment["mach_seg_text"] = "None"
                     segment["mach_timestamp"] = ""
                     segment["edit_dist"] = 0.0
-                    del segment["in_manifest"]
                     new_segments.append(segment)
         else:
             mach_segments = deque(mach_segments)
             for segment in segments:
-                mach_segment = mach_segments.popleft()
                 seg_text = get_seg_text(segment)
-                if segment["in_manifest"] is True:
-                    if len(mach_segments) == 0:
+                if len(mach_segments) == 0:
+                    if segment["in_manifest"] is True:
                         norm_seg_text = normalizer(seg_text)
                         segment["seg_text"] = norm_seg_text
                         segment["mach_seg_text"] = ""
@@ -684,7 +682,9 @@ def merge_man_mach_segs(
                         else:
                             edit_dist = jiwer.wer(seg_text, "")
                         segment["edit_dist"] = edit_dist
-                    else:
+                else:
+                    mach_segment = mach_segments.popleft()
+                    if segment["in_manifest"] is True:
                         mach_seg_text = get_mach_seg_text(mach_segment)
                         norm_mach_seg_text = normalizer(mach_seg_text)
                         norm_seg_text = normalizer(seg_text)
@@ -695,7 +695,10 @@ def merge_man_mach_segs(
                             if norm_mach_seg_text != "":
                                 segment["seg_text"] = seg_text
                                 edit_dist = jiwer.wer(norm_mach_seg_text, seg_text)
-                            else:
+                            elif mach_seg_text != "":
+                                segment["seg_text"] = seg_text
+                                edit_dist = jiwer.wer(mach_seg_text, seg_text)
+                            elif mach_seg_text == "":
                                 segment["seg_text"] = seg_text
                                 edit_dist = 0.0
                         elif seg_text != "":
@@ -705,8 +708,8 @@ def merge_man_mach_segs(
                         segment["mach_seg_content"] = mach_segment["seg_content"]
                         segment["mach_timestamp"] = mach_segment["timestamp"]
                         segment["edit_dist"] = edit_dist
-                    
-                    new_segments.append(segment)
+                        
+                new_segments.append(segment)
 
             if len(mach_segments) > 0:
                 return None
