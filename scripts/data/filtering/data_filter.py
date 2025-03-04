@@ -287,7 +287,7 @@ def filter_unrelated(scores_dict: Dict, threshold: int, comparison: str):
 # text_heurs_2 filters
 def has_proper_capitalization_and_punctuation(content):
   # Sentence-ending punctuation followed by a lowercase letter, Punctuation surrounded by whitespace, Punctuation preceded by whitespace
-    pattern = r".[.?!]\s+[a-z]|\s[.,;:!?'\"-/]\s|\s[.,;:!?'-/]"
+    pattern = r".[.?!]\s+[a-z]|\s[.,;!?]\s"
 
     for caption in content:
         if re.search(pattern, caption.text):
@@ -527,7 +527,7 @@ def process_content(content, scores_dict, man_mach_dict, config):
 
     # multiple comparisons for filter_unrelated
     if content is not None and len(unrelated_keep) > 0:
-        if "False" in set(unrelated_keep):
+        if False in set(unrelated_keep):
             hitlist["filter_unrelated"] += 1
             return None, hitlist
         elif set(unrelated_keep) == {True}:
