@@ -682,10 +682,13 @@ def merge_man_mach_segs(
                         segment["mach_timestamp"] = ""
                         if norm_seg_text != "":
                             edit_dist = jiwer.wer(norm_seg_text, "")
-                        else:
+                        elif seg_text != "":
                             edit_dist = jiwer.wer(seg_text, "")
+                        elif seg_text == "":
+                            edit_dist = 0.0
                         segment["edit_dist"] = edit_dist
                         count_1 += 1
+                        new_segments.append(segment)
                 else:
                     mach_segment = mach_segments.popleft()
                     if segment["in_manifest"] is True:
@@ -723,7 +726,7 @@ def merge_man_mach_segs(
                         elif edit_dist < 1.0 and edit_dist > 0.0:
                             count_lt_1 += 1
 
-                new_segments.append(segment)
+                        new_segments.append(segment)
 
             if len(mach_segments) > 0:
                 return None, None, None, None, None
