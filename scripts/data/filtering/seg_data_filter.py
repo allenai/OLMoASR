@@ -412,7 +412,10 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
     process_hitlist(dict(total_hitlist), config_dict["pipeline"])
 
     with open(
-        os.path.join(output_dir, f"{config_path.split('.yaml')[0]}.log"), "w"
+        os.path.join(
+            output_dir, f"{os.path.basename(config_path).split('.yaml')[0]}.log"
+        ),
+        "w",
     ) as f:
         f.write(
             "Kept %s/%s Lines | %.04f survival rate\n"
