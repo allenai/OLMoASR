@@ -284,9 +284,22 @@ def filter_unrelated(scores_dict: Dict, threshold: int, comparison: str):
         return score < threshold
 
 
+def filter_bad_align_edit_dist(scores_dict: Dict, threshold: int, comparison: str):
+    edit_dist = scores_dict["edit_dist"]
+
+    if comparison == "ge":
+        return edit_dist >= threshold
+    elif comparison == "g":
+        return edit_dist > threshold
+    elif comparison == "le":
+        return edit_dist <= threshold
+    elif comparison == "l":
+        return edit_dist < threshold
+
+
 # text_heurs_2 filters
 def has_proper_capitalization_and_punctuation(content):
-  # Sentence-ending punctuation followed by a lowercase letter, Punctuation surrounded by whitespace, Punctuation preceded by whitespace
+    # Sentence-ending punctuation followed by a lowercase letter, Punctuation surrounded by whitespace, Punctuation preceded by whitespace
     pattern = r".[.?!]\s+[a-z]|\s[.,;!?]\s"
 
     for caption in content:
@@ -427,6 +440,7 @@ FILTER_DICT = {
     "has_proper_capitalization_after_punctuation_line": has_proper_capitalization_after_punctuation_line,
     "has_proper_punctuation_before_capitalization_line": has_proper_punctuation_before_capitalization_line,
     "empty_caption": empty_caption,
+    "filter_bad_align_edit_dist": filter_bad_align_edit_dist,
 }
 
 
@@ -458,7 +472,9 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
             "content": line["content"],
             "mach_content": line["mach_content"],
         }
-        scores_dict = {k: v for k, v in line.items() if "score" in k}
+        scores_dict = {
+            k: v for k, v in line.items() if "score" in k or "edit_dist" in k
+        }
         chars_seen += len(line["content"])  # TODO: Be more precise here
         dur_seen += line["length"]
         output_content, hitlist = process_content(
@@ -510,6 +526,10 @@ def process_content(content, scores_dict, man_mach_dict, config):
             unrelated_keep.append(keep)
             # if not keep:
             #     content = None
+        elif filter_dict["fxn"] == "filter_bad_align_edit_dist":
+            keep = filter_fxn(scores_dict, **kwargs)
+            if not keep:
+                content = None
         elif filter_dict["fxn"] == "modify_text":
             content, mod_count = filter_fxn(content, **kwargs)
             if mod_count > 0:
