@@ -62,7 +62,6 @@ def chunk_transcript(
     log_dir: str,
     keep_tokens: bool = False,
     dolma_format: bool = False,
-    mach_transcript: bool = False,
     merge_man_mach: bool = False,
     in_memory: bool = True,
 ) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
@@ -78,11 +77,7 @@ def chunk_transcript(
         Exception: If an error occurs during the chunking process
     """
     try:
-        transcript_string = (
-            transcript_data["content"]
-            if not mach_transcript
-            else transcript_data["mach_content"]
-        )
+        transcript_string = transcript_data["content"]
         transcript_file = transcript_data["subtitle_file"]
         if transcript_file.startswith("/weka"):
             video_id = transcript_file.split("/")[5]
@@ -93,11 +88,7 @@ def chunk_transcript(
         get_ext = lambda transcript_string: (
             "vtt" if transcript_string.startswith("WEBVTT") else "srt"
         )
-        transcript_ext = (
-            transcript_file.split(".")[-1]
-            if not mach_transcript
-            else get_ext(transcript_string)
-        )
+        transcript_ext = transcript_file.split(".")[-1]
         segment_count = 0
 
         transcript, *_ = utils.TranscriptReader(
@@ -334,32 +325,31 @@ def chunk_transcript(
         if len(segments_list) == 0:
             return None
 
-        if not mach_transcript:
-            if not merge_man_mach:
-                segments_list = [
-                    segment
-                    for segment in segments_list
+        if merge_man_mach == False:
+            segments_list = [
+                segment
+                for segment in segments_list
+                if "/".join(
+                    segment["subtitle_file"].split("/")[-2:]
+                    if dolma_format is False
+                    else segment["metadata"]["subtitle_file"].split("/")[-2:]
+                )
+                in transcript_manifest
+            ]
+        else:
+            segments_list = [
+                (
+                    {**segment, "in_manifest": True}
                     if "/".join(
                         segment["subtitle_file"].split("/")[-2:]
                         if dolma_format is False
                         else segment["metadata"]["subtitle_file"].split("/")[-2:]
                     )
                     in transcript_manifest
-                ]
-            else:
-                segments_list = [
-                    (
-                        {**segment, "in_manifest": True}
-                        if "/".join(
-                            segment["subtitle_file"].split("/")[-2:]
-                            if dolma_format is False
-                            else segment["metadata"]["subtitle_file"].split("/")[-2:]
-                        )
-                        in transcript_manifest
-                        else {**segment, "in_manifest": False}
-                    )
-                    for segment in segments_list
-                ]
+                    else {**segment, "in_manifest": False}
+                )
+                for segment in segments_list
+            ]
 
         return segments_list
     except ValueError as e:
@@ -638,7 +628,6 @@ def merge_man_mach_segs(
         log_dir=shard_log_dir,
         keep_tokens=keep_tokens,
         dolma_format=dolma_format,
-        mach_transcript=False,
         merge_man_mach=True,
         in_memory=in_memory,
     )
@@ -771,6 +760,7 @@ def preprocess_jsonl(
                 transcript_manifest = [line.strip() for line in f]
 
             if not seg_mach:
+                merge_man_mach = False
                 segments_group = [
                     chunk_transcript(
                         transcript,
@@ -778,6 +768,7 @@ def preprocess_jsonl(
                         shard_log_dir,
                         keep_tokens,
                         dolma_format,
+                        merge_man_mach,
                         in_memory,
                     )
                     for transcript in transcript_data
