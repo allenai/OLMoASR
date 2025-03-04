@@ -759,7 +759,7 @@ def preprocess_jsonl(
             with open(transcript_manifest_file, "r") as f:
                 transcript_manifest = [line.strip() for line in f]
 
-            if not seg_mach:
+            if seg_mach == False:
                 merge_man_mach = False
                 segments_group = [
                     chunk_transcript(
@@ -918,6 +918,11 @@ def main(
     logger.info(
         f"Total segment count: {sum(segment_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours"
     )
+    with open(f"{output_dir}/segment_stats.log", "w") as f:
+        f.write(
+            f"Total segment count: {sum(segment_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours\n"
+        )
+        
     if seg_mach:
         logger.info(
             f"Percentage of segments w/ edit distance 0: {sum(avg_0) / len(avg_0)}"
