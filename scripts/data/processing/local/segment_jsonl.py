@@ -918,7 +918,7 @@ def main(
     logger.info(
         f"Total segment count: {sum(segment_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours"
     )
-    with open(f"{output_dir}/segment_stats.log", "w") as f:
+    with open(f"{output_dir}/segment_stats.log", "a") as f:
         f.write(
             f"Total segment count: {sum(segment_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours\n"
         )
@@ -940,6 +940,11 @@ def main(
         logger.info(
             f"Total subsampled segment count: {sum(subsampled_counts)}, total duration: {(sum(subsampled_counts) * 30) / (60 * 60)} hours"
         )
+        
+        with open(f"{output_dir}/segment_stats.log", "a") as f:
+            f.write(
+                f"Total subsampled segment count: {sum(subsampled_counts)}, total duration: {(sum(subsampled_counts) * 30) / (60 * 60)} hours\n"
+            )
 
 
 if __name__ == "__main__":
