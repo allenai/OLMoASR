@@ -389,10 +389,11 @@ def chunk_mach_transcript(
     try:
         transcript_string = transcript_data["mach_content"]
         transcript_file = transcript_data["subtitle_file"]
-        if transcript_file.startswith("/weka"):
-            video_id = transcript_file.split("/")[5]
-        else:
-            video_id = transcript_file.split("/")[1]
+        video_id = transcript_data["id"]
+        # if transcript_file.startswith("/weka"):
+        #     video_id = transcript_file.split("/")[5]
+        # else:
+        #     video_id = transcript_file.split("/")[1]
 
         output_dir = os.path.dirname(transcript_file)
         get_ext = lambda transcript_string: (
