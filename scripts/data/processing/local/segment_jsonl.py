@@ -794,6 +794,8 @@ def preprocess_jsonl(
             # Write the data to tar files
             segments_list = list(chain(*segments_group))
             seg_count = len(segments_list)
+            pre_seg_video_id_count = len(transcript_data)
+            post_seg_video_id_count = len(segments_group)
 
             if seg_mach:
                 avg_0 = (
@@ -810,7 +812,6 @@ def preprocess_jsonl(
                     sum([count for count in count_lt_1 if count is not None])
                     / seg_count
                 )
-
         else:
             with gzip.open(json_file, "rt", encoding="utf-8") as f:
                 segments_list = [json.loads(line.strip()) for line in f]
@@ -844,11 +845,13 @@ def preprocess_jsonl(
         # return output_path, shard_log_dir, len(segments_list)
         return (
             seg_count,
+            pre_seg_video_id_count if not only_subsample else 0,
+            post_seg_video_id_count if not only_subsample else 0,
             subsampled_count if subsample else 0,
-            avg_0 if seg_mach else None,
-            avg_1 if seg_mach else None,
-            avg_gt_1 if seg_mach else None,
-            avg_lt_1 if seg_mach else None,
+            avg_0 if seg_mach else 0,
+            avg_1 if seg_mach else 0,
+            avg_gt_1 if seg_mach else 0,
+            avg_lt_1 if seg_mach else 0,
         )
 
 
@@ -910,20 +913,33 @@ def main(
         )
 
     if not seg_mach:
-        segment_counts, subsampled_counts, *_ = zip(*results)
+        (
+            segment_counts,
+            pre_seg_video_id_counts,
+            post_seg_video_id_counts,
+            subsampled_counts,
+            *_,
+        ) = zip(*results)
     else:
-        segment_counts, subsampled_counts, avg_0, avg_1, avg_gt_1, avg_lt_1 = zip(
-            *results
-        )
+        (
+            segment_counts,
+            pre_seg_video_id_counts,
+            post_seg_video_id_counts,
+            subsampled_counts,
+            avg_0,
+            avg_1,
+            avg_gt_1,
+            avg_lt_1,
+        ) = zip(*results)
 
     logger.info(
-        f"Total segment count: {sum(segment_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours"
+        f"Total segment count: {sum(segment_counts)}, total pre-seg ID count: {sum(pre_seg_video_id_counts)}, total post-seg ID count: {sum(post_seg_video_id_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours"
     )
     with open(f"{output_dir}/segment_stats.log", "a") as f:
         f.write(
-            f"Total segment count: {sum(segment_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours\n"
+            f"Total segment count: {sum(segment_counts)}, total pre-seg ID count: {sum(pre_seg_video_id_counts)}, total post-seg ID count: {sum(post_seg_video_id_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours\n"
         )
-        
+
     if seg_mach:
         logger.info(
             f"Percentage of segments w/ edit distance 0: {sum(avg_0) / len(avg_0)}"
@@ -941,7 +957,7 @@ def main(
         logger.info(
             f"Total subsampled segment count: {sum(subsampled_counts)}, total duration: {(sum(subsampled_counts) * 30) / (60 * 60)} hours"
         )
-        
+
         with open(f"{output_dir}/segment_stats.log", "a") as f:
             f.write(
                 f"Total subsampled segment count: {sum(subsampled_counts)}, total duration: {(sum(subsampled_counts) * 30) / (60 * 60)} hours\n"
