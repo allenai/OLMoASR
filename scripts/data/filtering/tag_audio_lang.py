@@ -119,7 +119,7 @@ def main(
     print(f"{len(ids_to_lang)} unique video ids")
 
     output_path = os.path.join(
-        output_dir, f"ids_to_lang_{job_start_shard_idx:08}_{job_end_shard_idx:08}.json"
+        output_dir, f"ids_to_lang_{job_start_shard_idx:08}_{job_end_shard_idx:08}.json.gz"
     )
 
     with gzip.open(output_path, "wt") as f:
