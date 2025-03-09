@@ -58,7 +58,7 @@ def main(
     job_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
     job_start_shard_idx = start_shard_idx + (job_idx * job_batch_size)
     job_end_shard_idx = start_shard_idx + ((job_idx + 1) * job_batch_size)
-    data_shard_paths = sorted(glob.glob(source_dir + "/*"))[
+    data_shard_paths = sorted(glob.glob(source_dir + "/*.jsonl.gz"))[
         job_start_shard_idx:job_end_shard_idx
     ]
     print(f"{len(data_shard_paths)=}")
