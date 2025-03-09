@@ -49,13 +49,12 @@ def modify_sample_dict(sample_dict, lang_id):
 def main(
     source_dir: str,
     output_dir: str,
+    start_shard_idx: int,
     job_batch_size: int,
     batch_size: int,
     num_workers: int,
 ) -> None:
     os.makedirs(output_dir, exist_ok=True)
-
-    start_shard_idx = int(os.getenv("START_SHARD_IDX"))
     job_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
     job_start_shard_idx = start_shard_idx + (job_idx * job_batch_size)
     job_end_shard_idx = start_shard_idx + ((job_idx + 1) * job_batch_size)
