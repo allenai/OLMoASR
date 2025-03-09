@@ -25,7 +25,7 @@ class SamplesDictsDataset(Dataset):
     def __getitem__(self, idx):
         audio_file = self.data[idx]["audio_file"].replace("ow_full", "ow_seg")
         video_id = self.data[idx]["id"]
-        content = self.data[idx]["content"]
+        content = self.data[idx]["seg_content"]
         audio_arr = self.load_audio(audio_file)
         return video_id, audio_arr, content
 
@@ -59,7 +59,7 @@ def main(
     job_start_shard_idx = start_shard_idx + (job_idx * job_batch_size)
     job_end_shard_idx = start_shard_idx + ((job_idx + 1) * job_batch_size)
     data_shard_paths = sorted(glob.glob(source_dir + "/*"))[
-        job_start_shard_idx : job_end_shard_idx
+        job_start_shard_idx:job_end_shard_idx
     ]
     print(f"{len(data_shard_paths)=}")
     print(f"{data_shard_paths[:5]=}")
@@ -86,16 +86,24 @@ def main(
 
     dataset = SamplesDictsDataset(data)
     dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=num_workers,
     )
 
     pred_lang_ids = []
     for _, batch in enumerate(tqdm(dataloader, total=len(dataloader))):
-        video_ids, audio_arr = batch
+        video_ids, audio_arr, content = batch
         audio_arr = audio_arr.to(device)
         results = model.classify_batch(audio_arr)
         pred_lang_ids.extend(
-            [(video_ids[i], res.split(": ")[0]) for i, res in enumerate(results[3])]
+            [
+                (video_ids[i], res.split(": ")[0])
+                for i, res in enumerate(results[3])
+                if content[i] != ""
+            ]
         )
 
     ids_to_lang_dist = defaultdict(list)
