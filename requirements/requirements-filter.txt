@@ -11,3 +11,5 @@ ray
 pandas
 pyarrow
 numpy
+speechbrain
+pycld2
