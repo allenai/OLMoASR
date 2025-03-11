@@ -435,6 +435,7 @@ FILTER_DICT = {
     "has_proper_punctuation_before_capitalization_line": has_proper_punctuation_before_capitalization_line,
     "empty_caption": empty_caption,
     "filter_bad_align_edit_dist": filter_bad_align_edit_dist,
+    "lang_align": lang_align,
 }
 
 
