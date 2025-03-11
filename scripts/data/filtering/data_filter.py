@@ -16,7 +16,6 @@ import pysrt
 import webvtt
 from io import StringIO
 import re
-import spacy
 import pycld2 as cld2
 from open_whisper.utils import TranscriptReader
 
@@ -319,38 +318,6 @@ def has_proper_capitalization_after_punctuation_line(content):
                         return None
     return content
 
-
-def proper_noun(string):
-    doc = NLP(string)
-    for token in doc:
-        if token.pos_ == "PROPN":
-            return True
-    return False
-
-
-# can be used for segment-level text heuristics (might be better because
-# this might remove cases where the word w/ first letter capitalized is a proper noun)
-def has_proper_punctuation_before_capitalization_line(content):
-    # pattern = r"[.!?](?:\s*)$"
-    pattern = r"[^\w\s]$"
-    pattern_2 = r"^I\s"
-    for i, caption in enumerate(content):
-        if i != len(content) - 1:
-            next_caption = content[i + 1]
-            if next_caption.text.strip() != "":
-                if (
-                    next_caption.text[0].isupper()
-                    and not proper_noun(next_caption.text.split(" ")[0])
-                    and not re.search(pattern_2, next_caption.text)
-                ):
-                    if not re.search(pattern, caption.text):
-                        # print(f"Line {i + 1} does not have proper punctuation")
-                        # print(f"Line {i + 1}: {caption.text}")
-                        # print(f"Line {i + 2}: {next_caption.text}")
-                        return None
-    return content
-
-
 def empty_caption(content):
     for caption in content:
         if caption.text.strip() == "":
@@ -432,7 +399,6 @@ FILTER_DICT = {
     "filter_unrelated": filter_unrelated,
     "has_proper_capitalization_and_punctuation": has_proper_capitalization_and_punctuation,
     "has_proper_capitalization_after_punctuation_line": has_proper_capitalization_after_punctuation_line,
-    "has_proper_punctuation_before_capitalization_line": has_proper_punctuation_before_capitalization_line,
     "empty_caption": empty_caption,
     "filter_bad_align_edit_dist": filter_bad_align_edit_dist,
     "lang_align": lang_align,
