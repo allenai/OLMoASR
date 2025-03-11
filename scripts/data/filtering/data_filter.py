@@ -173,7 +173,6 @@ def process_hitlist(hitlist, pipeline):
 # Some constants
 CONST_a2z = set([chr(ord("a") + i) for i in range(26)])
 CONST_A2Z = set(_.upper() for _ in CONST_a2z)
-NLP = spacy.load("en_core_web_sm")
 
 
 def _filter_stub(content, **kwargs):
