@@ -359,18 +359,12 @@ def empty_caption(content):
 
 
 # lang_align filter (en only)
-def lang_align(content, man_content, mach_content):
-    parsed_man_content = parse_man_content(man_content)
-    parsed_mach_content = parse_mach_content(mach_content)
-    *_, man_details = cld2.detect(parsed_man_content)
-    *_, mach_details = cld2.detect(parsed_mach_content)
-    man_lang = man_details[1]
-    mach_lang = mach_details[1]
-
-    if man_lang == "en" and mach_lang == "en":
-        return content
-    else:
-        return None
+def lang_align(lang_dict):
+    audio_lang = lang_dict["audio_lang"]
+    text_lang = lang_dict["text_lang"]
+    if audio_lang == "en" and text_lang == "en":
+        return True
+    return False
 
 
 # text_heurs_3 filters
@@ -468,9 +462,9 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     for line in lines:
         lines_seen += 1
         parsed_content = parse_into_iter(line["content"], line["subtitle_file"])
-        man_mach_dict = {
-            "content": line["content"],
-            "mach_content": line["mach_content"],
+        lang_dict = {
+            "audio_lang": line["audio_lang"],
+            "text_lang": line["text_lang"],
         }
         scores_dict = {
             k: v for k, v in line.items() if "score" in k or "edit_dist" in k
@@ -478,7 +472,7 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
         chars_seen += len(line["content"])  # TODO: Be more precise here
         dur_seen += line["length"]
         output_content, hitlist = process_content(
-            parsed_content, scores_dict, man_mach_dict, config_dict
+            parsed_content, scores_dict, lang_dict, config_dict
         )
         for k, v in hitlist.items():
             total_hitlist[k] += v
@@ -514,7 +508,7 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     )
 
 
-def process_content(content, scores_dict, man_mach_dict, config):
+def process_content(content, scores_dict, lang_dict, config):
     hitlist = defaultdict(int)
     unrelated_keep = []
     for filter_dict in config["pipeline"]:
@@ -535,9 +529,9 @@ def process_content(content, scores_dict, man_mach_dict, config):
             if mod_count > 0:
                 hitlist[filter_dict["fxn"]] += 1
         elif filter_dict["fxn"] == "lang_align":
-            content = filter_fxn(
-                content, man_mach_dict["content"], man_mach_dict["mach_content"]
-            )
+            keep = filter_fxn(lang_dict)
+            if not keep:
+                content = None
         else:
             content = filter_fxn(content, **kwargs)
 
