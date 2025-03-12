@@ -428,10 +428,11 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     for line in lines:
         lines_seen += 1
         parsed_content = parse_into_iter(line["content"], line["subtitle_file"])
-        lang_dict = {
-            "audio_lang": line["audio_lang"],
-            "text_lang": line["text_lang"],
-        }
+        if "audio_lang" in line.keys():
+            lang_dict = {
+                "audio_lang": line["audio_lang"],
+                "text_lang": line["text_lang"]
+            }
         scores_dict = {
             k: v for k, v in line.items() if "score" in k or "edit_dist" in k
         }
@@ -474,7 +475,7 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     )
 
 
-def process_content(content, scores_dict, lang_dict, config):
+def process_content(content, scores_dict, lang_dict: Optional[Dict], config):
     hitlist = defaultdict(int)
     unrelated_keep = []
     for filter_dict in config["pipeline"]:
