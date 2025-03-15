@@ -1,7 +1,5 @@
 from vllm import LLM
-import webvtt
 import os
-import sys
 from tqdm import tqdm
 import torch
 import json
@@ -10,10 +8,6 @@ import glob
 import multiprocessing
 from torch.utils.data import Dataset, DataLoader
 from typing import List, Dict
-
-sys.path.append(os.getcwd())
-from scripts.data.processing.local import segment_jsonl_utils as utils
-
 
 def open_file(file_path) -> List[Dict]:
     with gzip.open(file_path, "rt") as f:
