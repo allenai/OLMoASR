@@ -356,7 +356,7 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
 
     cum_process_stats = process_stats(cum_file_stats)
 
-    with open(f"{output_dir}/{config_dict["name"]}_cumulative_stats.log", "w") as f:
+    with open(f"{output_dir}/{config_dict['name']}_cumulative_stats.log", "w") as f:
         f.write(f"Number of lines seen: {sum(lines_seen)}\n")
         f.write(f"Number of characters seen: {sum(chars_seen)}\n")
         f.write(f"Total duration seen: {sum(dur_seen)}\n")
