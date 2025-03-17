@@ -271,11 +271,13 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     for line in lines:
         lines_seen += 1
         content_dict = {
-            "content_iter": parse_into_iter(
-                line["content"], line["subtitle_file"]
-            ),
+            "content_iter": parse_into_iter(line["content"], line["subtitle_file"]),
             "man_text": get_man_text(line["content"]),
-            "mach_text": get_mach_text(line["mach_content"]),
+            "mach_text": (
+                get_mach_text(line["mach_content"])
+                if line["mach_content"] != ""
+                else ""
+            ),
         }
         chars_seen += len(line["content"])
         dur_seen += line["length"]
