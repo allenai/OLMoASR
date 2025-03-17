@@ -132,23 +132,38 @@ def tag_edit_dist(content_dict, normalizer):
 
 
 def tag_text_lang(content_dict):
-    stats = {"en_count": 0, "non_en_count": 0}
+    stats = {
+        "text_en_count": 0,
+        "non_text_en_count": 0,
+        "text_en_dur": 0,
+        "non_text_en_dur": 0,
+    }
     man_text = content_dict["man_text"]
 
     *_, details = cld2.detect(man_text)
     lang_id = details[0][1]
 
     if lang_id == "en":
-        stats["en_count"] += 1
+        stats["text_en_count"] += 1
+        stats["text_en_dur"] += content_dict["length"]
+    else:
+        stats["non_text_en_dur"] += content_dict["length"]
 
-    stats["non_en_count"] = 1 - stats["en_count"]
+    stats["non_text_en_count"] = 1 - stats["text_en_count"]
 
     return lang_id, stats
 
 
 def tag_casing(content_dict):
     content_iter = content_dict["content_iter"]
-    stats = {"count_upper": 0, "count_lower": 0, "count_mixed": 0}
+    stats = {
+        "count_upper": 0,
+        "count_lower": 0,
+        "count_mixed": 0,
+        "dur_upper": 0,
+        "dur_lower": 0,
+        "dur_mixed": 0,
+    }
 
     casing = ""
     casing_dist = {"upper": 0, "lower": 0, "mixed": 0}
@@ -182,17 +197,20 @@ def tag_casing(content_dict):
 
     if casing == "upper":
         stats["count_upper"] += 1
+        stats["dur_upper"] += content_dict["length"]
     elif casing == "lower":
         stats["count_lower"] += 1
+        stats["dur_lower"] += content_dict["length"]
     elif casing == "mixed":
         stats["count_mixed"] += 1
+        stats["dur_mixed"] += content_dict["length"]
 
     return casing, stats
 
 
 def tag_has_comma_period(content_dict):
     content_iter = content_dict["content_iter"]
-    stats = {"count": 0}
+    stats = {"count": 0, "dur": 0}
     has_comma_period = False
     seen_period = seen_comma = False
     for caption in content_iter:
@@ -203,6 +221,7 @@ def tag_has_comma_period(content_dict):
         if seen_period and seen_comma:
             has_comma_period = True
             stats["count"] += 1
+            stats["dur"] += content_dict["length"]
             break
 
     return has_comma_period, stats
@@ -210,13 +229,14 @@ def tag_has_comma_period(content_dict):
 
 def tag_repeating_lines(content_dict):
     content_iter = content_dict["content_iter"]
-    stats = {"count": 0}
+    stats = {"count": 0, "dur": 0}
     repeating_lines = False
     textset = set()
     for caption in content_iter:
         if caption.text in textset:
             repeating_lines = True
             stats["count"] += 1
+            stats["dur"] += content_dict["length"]
             break
         textset.add(caption.text)
 
@@ -225,7 +245,7 @@ def tag_repeating_lines(content_dict):
 
 def tag_has_proper_cap_after_punct_line(content_dict):
     content_iter = content_dict["content_iter"]
-    stats = {"count": 0}
+    stats = {"count": 0, "dur": 0}
     has_proper_cap_after_punct_line = True
 
     pattern = r"[.!?](?:\s*)$"
@@ -237,9 +257,10 @@ def tag_has_proper_cap_after_punct_line(content_dict):
                     if not caption.text[0].isupper() and caption.text[0].isalpha():
                         has_proper_cap_after_punct_line = False
                         break
-    
+
     if has_proper_cap_after_punct_line:
         stats["count"] += 1
+        stats["dur"] += content_dict["length"]
 
     return has_proper_cap_after_punct_line, stats
 
@@ -280,6 +301,7 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
                 if line["mach_content"] != ""
                 else ""
             ),
+            "length": line["length"],
         }
         chars_seen += len(line["content"])
         dur_seen += line["length"]
@@ -335,9 +357,14 @@ def process_stats(stats_list):
         tag_stats = stats_list[0][tag].keys()
         cum_tag_stats = defaultdict(int)
         for tag_stat in tag_stats:
-            cum_tag_stats[tag_stat.replace("count", "avg")] = sum(
-                [ele_stats[tag][tag_stat] for ele_stats in stats_list]
-            ) / len(stats_list)
+            if "dur" not in tag_stat:
+                cum_tag_stats[tag_stat.replace("count", "avg")] = sum(
+                    [ele_stats[tag][tag_stat] for ele_stats in stats_list]
+                ) / len(stats_list)
+            else:
+                cum_tag_stats[tag_stat] = sum(
+                    [ele_stats[tag][tag_stat] for ele_stats in stats_list]
+                ) / (60 * 60)
 
         cum_stats[tag] = cum_tag_stats
 
@@ -364,13 +391,13 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
         f"{output_dir}/{os.path.basename(config_path).split('.yaml')[0]}_cumulative_stats.log",
         "w",
     ) as f:
-        f.write(f"Number of lines seen: {sum(lines_seen)}\n")
+        f.write(f"Number of lines/videos seen: {sum(lines_seen)}\n")
         f.write(f"Number of characters seen: {sum(chars_seen)}\n")
-        f.write(f"Total duration seen: {sum(dur_seen)}\n")
+        f.write(f"Total duration seen: {sum(dur_seen) / (60 * 60)}\n")
         for tag, tag_stats in cum_process_stats.items():
             f.write(f"{tag}:\n")
             for stat, val in tag_stats.items():
-                f.write(f"\t{stat}: {val}\n")
+                f.write(f" {stat}: {val}\n")
             f.write("\n")
 
 
