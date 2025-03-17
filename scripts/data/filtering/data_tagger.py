@@ -103,8 +103,8 @@ def tag_edit_dist(content_dict, normalizer):
     man_text = content_dict["man_text"]
     mach_text = content_dict["mach_text"]
 
-    norm_man_text = normalizer(man_text)
-    norm_mach_text = normalizer(mach_text)
+    norm_man_text = normalizer(man_text).strip()
+    norm_mach_text = normalizer(mach_text).strip()
 
     edit_dist = 0.0
     if norm_man_text != "":
@@ -226,7 +226,7 @@ def tag_repeating_lines(content_dict):
 def tag_has_proper_cap_after_punct_line(content_dict):
     content_iter = content_dict["content_iter"]
     stats = {"count": 0}
-    has_proper_cap_after_punct_line = False
+    has_proper_cap_after_punct_line = True
 
     pattern = r"[.!?](?:\s*)$"
     for i, caption in enumerate(content_iter):
@@ -235,9 +235,11 @@ def tag_has_proper_cap_after_punct_line(content_dict):
             if re.search(pattern, prev_caption.text):
                 if caption.text.strip() != "":
                     if not caption.text[0].isupper() and caption.text[0].isalpha():
-                        has_proper_cap_after_punct_line = True
-                        stats["count"] += 1
+                        has_proper_cap_after_punct_line = False
                         break
+    
+    if has_proper_cap_after_punct_line:
+        stats["count"] += 1
 
     return has_proper_cap_after_punct_line, stats
 
