@@ -100,8 +100,8 @@ def parse_into_iter(content, subtitle_file_name):
 
 def tag_edit_dist(content_dict, normalizer):
     stats = {"count_0": 0, "count_1": 0, "count_gt_1": 0, "count_lt_1": 0}
-    man_text = content_dict["man_text"]
-    mach_text = content_dict["mach_text"]
+    man_text = content_dict["man_text"].strip()
+    mach_text = content_dict["mach_text"].strip()
 
     norm_man_text = normalizer(man_text).strip()
     norm_mach_text = normalizer(mach_text).strip()
