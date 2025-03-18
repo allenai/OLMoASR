@@ -279,6 +279,9 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     """Processes a full jsonl file and writes the output processed jsonl file
     (or if the filtering kills all the lines, will output nothing)
     """
+    output_file = os.path.join(output_dir, os.path.basename(jsonl_path))
+    stats_file = os.path.join(output_dir, os.path.basename(jsonl_path).replace('.jsonl.gz', '_stats.json'))
+    
     # Read file
     lines = [
         json.loads(_)
@@ -288,41 +291,50 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     chars_seen = 0
     dur_seen = 0
 
-    # Process all lines
-    output_lines = []
-    file_stats = []
-    for line in lines:
-        lines_seen += 1
-        content_dict = {
-            "content_iter": parse_into_iter(line["content"], line["subtitle_file"]),
-            "man_text": get_man_text(line["content"]),
-            "mach_text": (
-                get_mach_text(line["mach_content"])
-                if line["mach_content"] != ""
-                else ""
-            ),
-            "length": line["length"],
-        }
-        chars_seen += len(line["content"])
-        dur_seen += line["length"]
-        tags, stats = process_content(content_dict, config_dict)
+    if not os.path.exists(output_file):
+        # Process all lines
+        output_lines = []
+        file_stats = []
+        for line in lines:
+            lines_seen += 1
+            content_dict = {
+                "content_iter": parse_into_iter(line["content"], line["subtitle_file"]),
+                "man_text": get_man_text(line["content"]),
+                "mach_text": (
+                    get_mach_text(line["mach_content"])
+                    if line["mach_content"] != ""
+                    else ""
+                ),
+                "length": line["length"],
+            }
+            chars_seen += len(line["content"])
+            dur_seen += line["length"]
+            tags, stats = process_content(content_dict, config_dict)
 
-        for tag, tag_val in tags.items():
-            line[tag] = tag_val
+            for tag, tag_val in tags.items():
+                line[tag] = tag_val
 
-        output_lines.append(line)
-        file_stats.append(stats)
+            output_lines.append(line)
+            file_stats.append(stats)
 
-    cum_file_stats = process_stats(file_stats)
-    # Save to output
-    output_file = os.path.join(output_dir, os.path.basename(jsonl_path))
-    with open(output_file, "wb") as f:
-        f.write(
-            gzip.compress(
-                b"\n".join([json.dumps(_).encode("utf-8") for _ in output_lines])
+        cum_file_stats = process_stats(file_stats)
+        # Save to output
+        with open(output_file, "wb") as f:
+            f.write(
+                gzip.compress(
+                    b"\n".join([json.dumps(_).encode("utf-8") for _ in output_lines])
+                )
             )
-        )
-
+            
+        with open(stats_file, "w") as f:
+            json.dump(cum_file_stats, f, indent=2)
+    else:
+        lines_seen = len(lines)
+        chars_seen = sum([len(line["content"]) for line in lines])
+        dur_seen = sum([line["length"] for line in lines])
+        
+        cum_file_stats = json.load(open(stats_file, "r"))
+        
     return (
         lines_seen,
         chars_seen,
@@ -352,10 +364,10 @@ def process_content(content_dict, config) -> Dict[str, Union[str, float, bool]]:
 
 def process_stats(stats_list):
     tags = stats_list[0].keys()
-    cum_stats = defaultdict(int)
+    cum_stats = defaultdict(dict)
     for tag in tags:
         tag_stats = stats_list[0][tag].keys()
-        cum_tag_stats = defaultdict(int)
+        cum_tag_stats = defaultdict(float)
         for tag_stat in tag_stats:
             if "dur" not in tag_stat:
                 cum_tag_stats[tag_stat.replace("count", "avg")] = sum(
