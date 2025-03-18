@@ -1,7 +1,6 @@
 import os
 from tqdm import tqdm
 from typing import List, Tuple, Optional, Dict
-import time
 import multiprocessing
 from fire import Fire
 from itertools import repeat, chain
@@ -12,7 +11,6 @@ import json
 import gzip
 from whisper.normalizers import EnglishTextNormalizer
 import jiwer
-import Levenshtein
 from collections import deque
 import webvtt
 
@@ -85,9 +83,9 @@ def chunk_transcript(
             video_id = transcript_file.split("/")[1]
 
         output_dir = os.path.dirname(transcript_file)
-        get_ext = lambda transcript_string: (
-            "vtt" if transcript_string.startswith("WEBVTT") else "srt"
-        )
+        # get_ext = lambda transcript_string: (
+        #     "vtt" if transcript_string.startswith("WEBVTT") else "srt"
+        # )
         transcript_ext = transcript_file.split(".")[-1]
         segment_count = 0
 
@@ -172,6 +170,7 @@ def chunk_transcript(
                                 "seg_content": transcript_string,
                                 "timestamp": timestamp,
                                 "id": video_id,
+                                "seg_id": f"{video_id}_{segment_count}",
                                 "audio_file": t_output_file.replace(
                                     f".{transcript_ext}", ".npy"
                                 ).replace("ow_full", "ow_seg"),
@@ -248,6 +247,7 @@ def chunk_transcript(
                                 "seg_content": transcript_string,
                                 "timestamp": timestamp,
                                 "id": video_id,
+                                "seg_id": f"{video_id}_{segment_count}",
                                 "audio_file": t_output_file.replace(
                                     f".{transcript_ext}", ".npy"
                                 ).replace("ow_full", "ow_seg"),
@@ -305,6 +305,7 @@ def chunk_transcript(
                                 "seg_content": transcript_string,
                                 "timestamp": timestamp,
                                 "id": video_id,
+                                "seg_id": f"{video_id}_{segment_count}",
                                 "audio_file": t_output_file.replace(
                                     f".{transcript_ext}", ".npy"
                                 ).replace("ow_full", "ow_seg"),
@@ -415,7 +416,6 @@ def chunk_mach_transcript(
         b = 0
 
         timestamps = list(transcript.keys())
-        diff = 0
         init_diff = 0
         man_seg_idx = 0
         max_man_mach_diff = np.inf
@@ -507,7 +507,6 @@ def chunk_mach_transcript(
                             f.write(f"{video_id}\tindex: {b}\n")
 
                 init_diff = 0
-                diff = 0
                 max_man_mach_diff = np.inf
                 max_start_man_mach_diff = np.inf
                 a = b
@@ -656,7 +655,7 @@ def merge_man_mach_segs(
                     segment["seg_text"] = "None"
                     segment["mach_seg_text"] = "None"
                     segment["mach_timestamp"] = ""
-                    segment["edit_dist"] = 0.0
+                    segment["seg_edit_dist"] = 0.0
                     count_0 += 1
                     new_segments.append(segment)
         else:
@@ -676,7 +675,7 @@ def merge_man_mach_segs(
                             edit_dist = jiwer.wer(seg_text, "")
                         elif seg_text == "":
                             edit_dist = 0.0
-                        segment["edit_dist"] = edit_dist
+                        segment["seg_edit_dist"] = edit_dist
                         count_1 += 1
                         new_segments.append(segment)
                 else:
@@ -706,7 +705,7 @@ def merge_man_mach_segs(
                         )
                         segment["mach_seg_content"] = mach_segment["seg_content"]
                         segment["mach_timestamp"] = mach_segment["timestamp"]
-                        segment["edit_dist"] = edit_dist
+                        segment["seg_edit_dist"] = edit_dist
                         if edit_dist == 0.0:
                             count_0 += 1
                         elif edit_dist == 1.0:
@@ -842,7 +841,6 @@ def preprocess_jsonl(
                 for segment in segments_list:
                     f.write(json.dumps(segment) + "\n")
 
-        # return output_path, shard_log_dir, len(segments_list)
         return (
             seg_count,
             pre_seg_video_id_count if not only_subsample else 0,
