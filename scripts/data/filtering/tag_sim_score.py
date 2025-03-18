@@ -8,10 +8,12 @@ import gzip
 import glob
 import multiprocessing
 from torch.utils.data import Dataset, DataLoader
-from typing import List, Dict
+from typing import List, Dict, Literal
 from fire import Fire
 import torch.nn.functional as F
 import numpy as np
+import webvtt
+from open_whisper.utils import TranscriptReader
 
 
 def normalize(x, p=2, axis=1, eps=1e-12):
@@ -33,15 +35,24 @@ def open_file(file_path) -> List[Dict]:
 
 
 class SamplesDictsDataset(Dataset):
-    def __init__(self, data):
+    def __init__(self, data, level):
         self.data = data
+        self.level = level
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        man_seg_text = self.data[idx]["seg_text"]
-        mach_seg_text = self.data[idx]["mach_seg_text"]
+        man_seg_text = (
+            self.data[idx]["seg_text"]
+            if self.level == "seg"
+            else self.get_man_text(self.data[idx]["content"])
+        )
+        mach_seg_text = (
+            self.data[idx]["mach_seg_text"]
+            if self.level == "seg"
+            else self.get_mach_text(self.data[idx]["mach_content"])
+        )
 
         if man_seg_text == "":
             man_seg_text = " "
@@ -51,9 +62,45 @@ class SamplesDictsDataset(Dataset):
 
         return man_seg_text, mach_seg_text
 
+    def get_man_text(self, man_content):
+        reader = TranscriptReader(
+            file_path=None,
+            transcript_string=man_content,
+            ext="vtt" if man_content.startswith("WEBVTT") else "srt",
+        )
+        t_dict, *_ = reader.read()
+        man_text = reader.extract_text(t_dict)
+        return man_text
 
-def process_jsonl(llm, data, batch_size, num_workers):
-    dataset = SamplesDictsDataset(data)
+    def get_mach_text(self, mach_content):
+        content = webvtt.from_string(mach_content)
+        modified_content = []
+        if len(content) > 0:
+            if len(content) > 1:
+                if content[0].text == content[1].text:
+                    modified_content.append(content[0])
+                    start = 2
+                else:
+                    start = 0
+            elif len(content) == 1:
+                start = 0
+
+            for i in range(start, len(content)):
+                caption = content[i]
+                if "\n" not in caption.text:
+                    modified_content.append(caption)
+                elif "\n" in caption.text and i == len(content) - 1:
+                    caption.text = caption.text.split("\n")[-1]
+                    modified_content.append(caption)
+
+            mach_text = " ".join([caption.text for caption in modified_content])
+        else:
+            mach_text = ""
+        return mach_text
+
+
+def process_jsonl(llm, data, batch_size, num_workers, level):
+    dataset = SamplesDictsDataset(data, level)
 
     dataloader = DataLoader(
         dataset,
@@ -74,12 +121,21 @@ def process_jsonl(llm, data, batch_size, num_workers):
         man_output = llm.embed(man_seg_text)
         mach_output = llm.embed(mach_seg_text)
 
-        man_embeds = F.normalize(torch.stack([
-            torch.tensor(output.outputs.embedding) for output in man_output
-        ], dim=0), p=2, dim=-1)
-        mach_embeds = F.normalize(torch.stack([
-            torch.tensor(output.outputs.embedding) for output in mach_output
-        ], dim=0), p=2, dim=-1)
+        man_embeds = F.normalize(
+            torch.stack(
+                [torch.tensor(output.outputs.embedding) for output in man_output], dim=0
+            ),
+            p=2,
+            dim=-1,
+        )
+        mach_embeds = F.normalize(
+            torch.stack(
+                [torch.tensor(output.outputs.embedding) for output in mach_output],
+                dim=0,
+            ),
+            p=2,
+            dim=-1,
+        )
 
         print(f"{man_embeds.shape=}, {mach_embeds.shape=}")
         print(f"{man_embeds[0]=}")
@@ -109,6 +165,7 @@ def main(
     # job_batch_size: int,
     batch_size: int,
     num_workers: int,
+    level: Literal["seg", "doc"],
 ):
     os.makedirs(output_dir, exist_ok=True)
     # job_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
@@ -144,7 +201,7 @@ def main(
     )
 
     new_all_data = [
-        process_jsonl(llm, data, batch_size, num_workers) for data in all_data
+        process_jsonl(llm, data, batch_size, num_workers, level) for data in all_data
     ]
 
     for shard_path, data in zip(shard_paths, new_all_data):
