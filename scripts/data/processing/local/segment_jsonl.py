@@ -427,7 +427,6 @@ def chunk_mach_transcript(
         b = 0
 
         timestamps = list(transcript.keys())
-        init_diff = 0
         man_seg_idx = 0
         max_man_mach_diff = np.inf
         max_start_man_mach_diff = np.inf
@@ -452,14 +451,11 @@ def chunk_mach_transcript(
             and segment_count < SEGMENT_COUNT_THRESHOLD
             and man_seg_idx < len(man_timestamps)
         ):
-            init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
-
             man_mach_diff = np.absolute(
                 utils.convert_to_milliseconds(man_timestamps[man_seg_idx][1])
                 - utils.convert_to_milliseconds(timestamps[b][1])
             )
             if man_mach_diff <= max_man_mach_diff:
-                diff = init_diff
                 max_man_mach_diff = man_mach_diff
                 b += 1
             elif man_mach_diff > max_man_mach_diff:
@@ -517,7 +513,6 @@ def chunk_mach_transcript(
                         with open(f"{log_dir}/over_ctx_len.txt", "a") as f:
                             f.write(f"{video_id}\tindex: {b}\n")
 
-                init_diff = 0
                 max_man_mach_diff = np.inf
                 max_start_man_mach_diff = np.inf
                 a = b
@@ -600,7 +595,7 @@ def get_seg_text(segment):
     )
     t_dict, *_ = reader.read()
     segment_text = reader.extract_text(t_dict)
-    return segment_text
+    return segment_text.strip()
 
 
 def get_mach_seg_text(mach_segment):
@@ -627,7 +622,7 @@ def get_mach_seg_text(mach_segment):
         mach_segment_text = " ".join([caption.text for caption in modified_content])
     else:
         mach_segment_text = ""
-    return mach_segment_text
+    return mach_segment_text.strip()
 
 
 def merge_man_mach_segs(
@@ -675,7 +670,10 @@ def merge_man_mach_segs(
                 seg_text = get_seg_text(segment)
                 if len(mach_segments) == 0:
                     if segment["in_manifest"] is True:
-                        norm_seg_text = normalizer(seg_text)
+                        try:
+                            norm_seg_text = normalizer(seg_text).strip()
+                        except Exception:
+                            norm_seg_text = seg_text
                         segment["seg_text"] = norm_seg_text
                         segment["mach_seg_text"] = ""
                         segment["mach_seg_content"] = ""
@@ -693,8 +691,15 @@ def merge_man_mach_segs(
                     mach_segment = mach_segments.popleft()
                     if segment["in_manifest"] is True:
                         mach_seg_text = get_mach_seg_text(mach_segment)
-                        norm_mach_seg_text = normalizer(mach_seg_text)
-                        norm_seg_text = normalizer(seg_text)
+                        try:
+                            norm_mach_seg_text = normalizer(mach_seg_text).strip()
+                        except Exception:
+                            norm_mach_seg_text = mach_seg_text
+                        try:
+                            norm_seg_text = normalizer(seg_text).strip()
+                        except Exception:
+                            norm_seg_text = seg_text
+                            
                         if norm_seg_text != "":
                             edit_dist = jiwer.wer(norm_seg_text, norm_mach_seg_text)
                         elif seg_text == "":
