@@ -77,10 +77,12 @@ def chunk_transcript(
     try:
         transcript_string = transcript_data["content"]
         transcript_file = transcript_data["subtitle_file"]
-        if transcript_file.startswith("/weka"):
-            video_id = transcript_file.split("/")[5]
+        video_id = transcript_data["id"]
+        
+        if len(transcript_data) > 6:
+            keys_to_keep = list(transcript_data.keys())[6:]
         else:
-            video_id = transcript_file.split("/")[1]
+            keys_to_keep = None
 
         output_dir = os.path.dirname(transcript_file)
         # get_ext = lambda transcript_string: (
@@ -175,6 +177,9 @@ def chunk_transcript(
                                     f".{transcript_ext}", ".npy"
                                 ).replace("ow_full", "ow_seg"),
                             }
+                            if keys_to_keep is not None:
+                                for key in keys_to_keep:
+                                    segment[key] = transcript_data[key]
                         if keep_tokens and res is not None:
                             segment["tokens"] = res
                         segments_list.append(segment)
@@ -252,6 +257,9 @@ def chunk_transcript(
                                     f".{transcript_ext}", ".npy"
                                 ).replace("ow_full", "ow_seg"),
                             }
+                            if keys_to_keep is not None:
+                                for key in keys_to_keep:
+                                    segment[key] = transcript_data[key]
                         if keep_tokens:
                             segment["tokens"] = [
                                 50257,
@@ -310,6 +318,9 @@ def chunk_transcript(
                                     f".{transcript_ext}", ".npy"
                                 ).replace("ow_full", "ow_seg"),
                             }
+                            if keys_to_keep is not None:
+                                for key in keys_to_keep:
+                                    segment[key] = transcript_data[key]
                         if keep_tokens and res is not None:
                             segment["tokens"] = res
                         segments_list.append(segment)
