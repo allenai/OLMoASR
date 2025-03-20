@@ -78,7 +78,7 @@ def chunk_transcript(
         transcript_string = transcript_data["content"]
         transcript_file = transcript_data["subtitle_file"]
         video_id = transcript_data["id"]
-        
+
         if len(transcript_data) > 6:
             keys_to_keep = list(transcript_data.keys())[6:]
         else:
@@ -699,7 +699,7 @@ def merge_man_mach_segs(
                             norm_seg_text = normalizer(seg_text).strip()
                         except Exception:
                             norm_seg_text = seg_text
-                            
+
                         if norm_seg_text != "":
                             edit_dist = jiwer.wer(norm_seg_text, norm_mach_seg_text)
                         elif seg_text == "":
@@ -733,14 +733,23 @@ def merge_man_mach_segs(
 
                         new_segments.append(segment)
 
+            # if there are remaining mach_segments, the manual transcript might not be good to use
             if len(mach_segments) > 0:
-                return None, None, None, None, None
-
+                return None, None, None, None, None, 0, 0, 1
         segments = new_segments
 
-        return segments, count_0, count_1, count_gt_1, count_lt_1
+        return (
+            segments,
+            count_0,
+            count_1,
+            count_gt_1,
+            count_lt_1,
+            0,
+            1 if mach_segments is None else 0,
+            0,
+        )
     else:
-        return None, None, None, None, None
+        return None, None, None, None, None, 1, 0, 0
 
 
 def preprocess_jsonl(
@@ -759,9 +768,17 @@ def preprocess_jsonl(
     in_memory: bool = True,
 ):
     output_path = f"{output_dir}/shard_seg_{shard}.jsonl.gz"
+    stats_path = f"{output_dir}/shard_seg_{shard}_stats.json"
     if os.path.exists(output_path):
-        return 0, 0
+        if not only_subsample:
+            with open(stats_path, "r") as f:
+                stats = json.load(f)
+            return stats
+        else:
+            return None
     else:
+        stats = {}
+
         if not only_subsample:
             shard_log_dir = os.path.join(log_dir, shard)
             os.makedirs(shard_log_dir, exist_ok=True)
@@ -790,7 +807,16 @@ def preprocess_jsonl(
                     for transcript in transcript_data
                 ]
             else:
-                segments_group, count_0, count_1, count_gt_1, count_lt_1 = zip(
+                (
+                    segments_group,
+                    count_0,
+                    count_1,
+                    count_gt_1,
+                    count_lt_1,
+                    count_failed_seg,
+                    count_failed_mach_seg,
+                    count_bad_man_transcripts,
+                ) = zip(
                     *[
                         merge_man_mach_segs(
                             transcript=transcript,
@@ -805,14 +831,15 @@ def preprocess_jsonl(
                 )
 
             segments_group = [group for group in segments_group if group is not None]
+            if seg_mach == False:
+                failed_seg_count = len(transcript_data) - len(segments_group)
+                stats["failed_seg_video_id_count"] = failed_seg_count
 
             # Write the data to tar files
             segments_list = list(chain(*segments_group))
             seg_count = len(segments_list)
-            pre_seg_video_id_count = len(transcript_data)
-            post_seg_video_id_count = len(segments_group)
 
-            if seg_mach:
+            if seg_mach == True:
                 avg_0 = (
                     sum([count for count in count_0 if count is not None]) / seg_count
                 )
@@ -827,10 +854,24 @@ def preprocess_jsonl(
                     sum([count for count in count_lt_1 if count is not None])
                     / seg_count
                 )
+                stats["avg_0"] = avg_0
+                stats["avg_1"] = avg_1
+                stats["avg_gt_1"] = avg_gt_1
+                stats["avg_lt_1"] = avg_lt_1
+                stats["failed_seg_video_id_count"] = sum(count_failed_seg)
+                stats["failed_mach_seg_video_id_count"] = sum(count_failed_mach_seg)
+                stats["bad_man_transcripts_video_id_count"] = sum(
+                    count_bad_man_transcripts
+                )
+
+            stats["pre_seg_video_id_count"] = len(transcript_data)
+            stats["post_seg_video_id_count"] = len(segments_group)
+            stats["count_seg"] = seg_count
         else:
             with gzip.open(json_file, "rt", encoding="utf-8") as f:
                 segments_list = [json.loads(line.strip()) for line in f]
             seg_count = len(segments_list)
+            stats["count_seg"] = seg_count
 
         if subsample:
             if len(segments_list) > subsample_size:
@@ -849,6 +890,8 @@ def preprocess_jsonl(
                         f"{shard} has less segments ({len(segments_list)}) than subsample size {subsample_size}"
                     )
 
+            stats["count_subsampled_seg"] = subsampled_count
+
             with gzip.open(output_path, "wt", encoding="utf-8") as f:
                 for segment in segments_list:
                     f.write(json.dumps(segment) + "\n")
@@ -857,16 +900,11 @@ def preprocess_jsonl(
                 for segment in segments_list:
                     f.write(json.dumps(segment) + "\n")
 
-        return (
-            seg_count,
-            pre_seg_video_id_count if not only_subsample else 0,
-            post_seg_video_id_count if not only_subsample else 0,
-            subsampled_count if subsample else 0,
-            avg_0 if seg_mach else 0,
-            avg_1 if seg_mach else 0,
-            avg_gt_1 if seg_mach else 0,
-            avg_lt_1 if seg_mach else 0,
-        )
+        if not only_subsample:
+            with open(stats_path, "w") as f:
+                json.dump(stats, f, indent=2)
+
+        return stats
 
 
 def parallel_preprocess_jsonl(args):
@@ -902,7 +940,7 @@ def main(
     manifest_files = [f"{manifest_dir}/{shard}.txt" for shard in shards]
     logger.info(f"{manifest_files[:5]=}")
     with multiprocessing.Pool() as pool:
-        results = list(
+        stats = list(
             tqdm(
                 pool.imap_unordered(
                     parallel_preprocess_jsonl,
@@ -926,56 +964,18 @@ def main(
             )
         )
 
-    if not seg_mach:
-        (
-            segment_counts,
-            pre_seg_video_id_counts,
-            post_seg_video_id_counts,
-            subsampled_counts,
-            *_,
-        ) = zip(*results)
-    else:
-        (
-            segment_counts,
-            pre_seg_video_id_counts,
-            post_seg_video_id_counts,
-            subsampled_counts,
-            avg_0,
-            avg_1,
-            avg_gt_1,
-            avg_lt_1,
-        ) = zip(*results)
-
-    logger.info(
-        f"Total segment count: {sum(segment_counts)}, total pre-seg ID count: {sum(pre_seg_video_id_counts)}, total post-seg ID count: {sum(post_seg_video_id_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours"
-    )
-    with open(f"{output_dir}/segment_stats.log", "a") as f:
-        f.write(
-            f"Total segment count: {sum(segment_counts)}, total pre-seg ID count: {sum(pre_seg_video_id_counts)}, total post-seg ID count: {sum(post_seg_video_id_counts)}, total duration: {(sum(segment_counts) * 30) / (60 * 60)} hours\n"
-        )
-
-    if seg_mach:
-        logger.info(
-            f"Percentage of segments w/ edit distance 0: {sum(avg_0) / len(avg_0)}"
-        )
-        logger.info(
-            f"Percentage of segments w/ edit distance 1: {sum(avg_1) / len(avg_1)}"
-        )
-        logger.info(
-            f"Percentage of segments w/ edit distance > 1: {sum(avg_gt_1) / len(avg_gt_1)}"
-        )
-        logger.info(
-            f"Percentage of segments w/ edit distance < 1 and > 0: {sum(avg_lt_1) / len(avg_lt_1)}"
-        )
-    if subsample:
-        logger.info(
-            f"Total subsampled segment count: {sum(subsampled_counts)}, total duration: {(sum(subsampled_counts) * 30) / (60 * 60)} hours"
-        )
-
-        with open(f"{output_dir}/segment_stats.log", "a") as f:
-            f.write(
-                f"Total subsampled segment count: {sum(subsampled_counts)}, total duration: {(sum(subsampled_counts) * 30) / (60 * 60)} hours\n"
-            )
+    with open(f"{output_dir}/segment_stats.log", "w") as f:
+        stat_keys = stats[0].keys()
+        for key in stat_keys:
+            if "avg" in key:
+                f.write(f"{key}: {sum([stat[key] for stat in stats]) / len(stats)}\n")
+            elif key.startswith("count"):
+                f.write(f"{key}: {sum([stat[key] for stat in stats])}\n")
+                f.write(
+                    f"dur_by_{key}: {(sum([stat[key] for stat in stats]) * 30) / (60 * 60)} hours\n"
+                )
+            else:
+                f.write(f"{key}: {sum([stat[key] for stat in stats])}\n")
 
 
 if __name__ == "__main__":
