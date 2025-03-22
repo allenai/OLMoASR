@@ -75,6 +75,15 @@ from whisper.model import (
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+VARIANT_TO_PARAMS = {
+    "tiny": 39 * 10**6,
+    "base": 74 * 10**6,
+    "small": 244 * 10**6,
+    "medium": 769 * 10**6,
+    "large": 1550 * 10**6,
+}
+
+HARDWARE_TO_FLOPS = {"H100": 900 * 10**12, "L40": 366 * 10**12, "A100": 312 * 10**12}
 
 
 class AudioTextDataset(Dataset):
@@ -176,9 +185,11 @@ class AudioTextDataset(Dataset):
 
             text_tokens = tokenizer.encode(transcript_text)
 
-        text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens
-
-        text_tokens.append(tokenizer.eot)
+        text_tokens = (
+            list(tokenizer.sot_sequence_including_notimestamps)
+            + text_tokens
+            + [tokenizer.eot]
+        )
 
         # offset
         text_input = text_tokens[:-1]
@@ -399,12 +410,12 @@ def prepare_sched(
         )  # Number of steps over which to accumulate gradients
     warmup_steps = np.ceil(0.002 * train_steps)
 
-    def lr_lambda(current_step: int) -> float:
-        if current_step < warmup_steps:
-            return float(current_step) / float(max(1, warmup_steps))
+    def lr_lambda(global_step: int) -> float:
+        if global_step < warmup_steps:
+            return float(global_step) / float(max(1, warmup_steps))
         return max(
             0.0,
-            float(train_steps - current_step)
+            float(train_steps - global_step)
             / float(max(1, train_steps - warmup_steps)),
         )
 
@@ -432,6 +443,7 @@ def setup_wandb(
     weight_decay: float,
     eff_batch_size: int,
     train_batch_size: int,
+    hardware: str,
     wandb_tags: List[str],
 ) -> Tuple[Optional[str], List[str], wandb.Artifact, wandb.Artifact, bool, bool]:
     """Sets up the Weights and Biases logging
@@ -483,6 +495,8 @@ def setup_wandb(
         "n_text_state": model_dims.n_text_state,
         "n_text_head": model_dims.n_text_head,
         "n_text_layer": model_dims.n_text_layer,
+        "model_params": VARIANT_TO_PARAMS[model_variant],
+        "peak_flops": HARDWARE_TO_FLOPS[hardware],
     }
 
     if run_id is None:
@@ -521,14 +535,15 @@ def setup_wandb(
 def train(
     rank: int,
     local_rank: int,
-    current_step: int,
+    global_step: int,
+    local_step: int,
     train_batch_size: int,
     train_dataloader: DataLoader,
     train_sampler: DistributedSampler,
     train_steps: int,
     epoch_steps: int,
     epoch: int,
-    scaler: Optional[GradScaler],
+    scaler: GradScaler,
     model,
     optimizer: torch.optim.Optimizer,
     scheduler: LambdaLR,
@@ -553,18 +568,10 @@ def train(
         with_stack=True,
         with_flops=True,
         with_modules=True,
-        experimental_config=torch._C._profiler._ExperimentalConfig(verbose=True)
+        experimental_config=torch._C._profiler._ExperimentalConfig(verbose=True),
     ) as prof:
         for batch_idx, batch in enumerate(train_dataloader):
             end_dl = time.time()
-            if rank == 0:
-                wandb.log(
-                    {
-                        "efficiency/dl_time": end_dl - start_dl,
-                        "local_step": batch_idx + 1,
-                    }
-                )
-
             model.train()
             
             if batch_idx % accumulation_steps == 0 or accumulation_steps == 1:
@@ -572,9 +579,7 @@ def train(
                 
             with autocast(device_type="cuda", dtype=precision):
                 (
-                    audio_files,
-                    transcript_files,
-                    padded_audio_arr,
+                    *_,
                     audio_input,
                     text_input,
                     text_y,
@@ -589,35 +594,10 @@ def train(
                 padding_mask = padding_mask.to(local_rank)
                 end_data_to_gpu = time.time()
 
-                if rank == 0:
-                    wandb.log(
-                        {
-                            "efficiency/data_to_gpu_time": end_data_to_gpu
-                            - start_data_to_gpu,
-                            "local_step": batch_idx + 1,
-                        }
-                    )
-
                 start_fwd = time.time()
                 logits = model(audio_input, text_input, padding_mask, verbose)
                 end_fwd = time.time()
 
-                if rank == 0:
-                    wandb.log(
-                        {
-                            "efficiency/fwd_time": end_fwd - start_fwd,
-                            "local_step": batch_idx + 1,
-                        }
-                    )
-                    wandb.log(
-                        {
-                            "efficiency/avg_preproc_time": sum(preproc_time)
-                            / len(preproc_time),
-                            "local_step": batch_idx + 1,
-                        }
-                    )
-
-                start_loss_calc = time.time()
                 train_loss = F.cross_entropy(
                     logits.view(-1, logits.shape[-1]),
                     text_y.view(-1),
@@ -626,26 +606,23 @@ def train(
                 train_loss = (
                     train_loss / accumulation_steps
                 )  # normalization of loss (gradient accumulation)
-                end_loss_calc = time.time()
-
-                if rank == 0:
-                    wandb.log(
-                        {
-                            "efficiency/loss_calc_time": end_loss_calc
-                            - start_loss_calc,
-                            "local_step": batch_idx + 1,
-                        }
-                    )
-
+                
             start_bwd = time.time()
             scaler.scale(train_loss).backward()
             end_bwd = time.time()
+            local_step += 1
 
             if rank == 0:
                 wandb.log(
                     {
                         "efficiency/bwd_time": end_bwd - start_bwd,
-                        "local_step": batch_idx + 1,
+                        "efficiency/dl_time": end_dl - start_dl,
+                        "efficiency/data_to_gpu_time": end_data_to_gpu
+                        - start_data_to_gpu,
+                        "efficiency/fwd_time": end_fwd - start_fwd,
+                        "efficiency/avg_preproc_time": sum(preproc_time)
+                        / len(preproc_time),
+                        "local_step": local_step,
                     }
                 )
 
@@ -668,11 +645,11 @@ def train(
                         {
                             "efficiency/optim_step_time": end_optim_step
                             - start_optim_step,
-                            "global_step": current_step,
+                            "global_step": global_step,
                         }
                     )
                 scaler.update()
-                current_step += 1
+                global_step += 1
                 end_step = time.time()
                 time_per_step = end_step - start_step
                 throughput = (
@@ -683,13 +660,13 @@ def train(
                     wandb.log(
                         {
                             "efficiency/time_per_step": time_per_step,
-                            "global_step": current_step,
+                            "global_step": global_step,
                         }
                     )
                     wandb.log(
                         {
                             "efficiency/audio_min_per_GPU_second_gpu": throughput,
-                            "global_step": current_step,
+                            "global_step": global_step,
                         }
                     )
 
@@ -697,26 +674,27 @@ def train(
                 # logging learning rate
                 if rank == 0:
                     wandb.log(
-                        {"train/learning_rate": current_lr, "global_step": current_step}
+                        {"train/learning_rate": current_lr, "global_step": global_step}
                     )
                 scheduler.step()  # Adjust learning rate based on accumulated steps
                 prof.step()
 
-                if current_step >= epoch_steps + (epoch_steps * epoch):
+                if global_step >= epoch_steps + (epoch_steps * epoch):
                     # logging
                     if rank == 0:
                         train_metrics = defaultdict(float)
                         print("Logging results at an epoch")
-                        print(f"current_step: {current_step}")
+                        print(f"global_step: {global_step}")
                         print(f"train_loss: {train_loss_all}")
 
                         train_metrics["train/train_loss"] = train_loss_all
-                        train_metrics["global_step"] = current_step
+                        train_metrics["global_step"] = global_step
 
                         wandb.log(train_metrics)
 
                     return (
-                        current_step,
+                        global_step,
+                        local_step,
                         epoch,
                         model,
                         optimizer,
@@ -724,21 +702,22 @@ def train(
                         scheduler,
                     )
 
-                if current_step >= train_steps:
+                if global_step >= train_steps:
                     # logging
                     if rank == 0:
                         train_metrics = defaultdict(float)
                         print("Logging final training results")
-                        print(f"current_step: {current_step}")
+                        print(f"global_step: {global_step}")
                         print(f"train_loss: {train_loss_all}")
 
                         train_metrics["train/train_loss"] = train_loss_all
-                        train_metrics["global_step"] = current_step
+                        train_metrics["global_step"] = global_step
 
                         wandb.log(train_metrics)
 
                     return (
-                        current_step,
+                        global_step,
+                        local_step,
                         epoch,
                         model,
                         optimizer,
@@ -751,11 +730,11 @@ def train(
 
                 if rank == 0:
                     train_metrics = defaultdict(float)
-                    print(f"current_step: {current_step}")
+                    print(f"global_step: {global_step}")
                     print(f"train_loss: {train_loss_all}")
 
                     train_metrics["train/train_loss"] = train_loss_all
-                    train_metrics["global_step"] = current_step
+                    train_metrics["global_step"] = global_step
 
                     wandb.log(train_metrics)
 
@@ -798,6 +777,7 @@ def main(
     persistent_workers: bool = True,
     verbose: bool = False,
     precision: ["bfloat16", "float16", "float32"] = "float16",
+    hardware: str = "H100",
     log_dir: str = "logs",
 ):
     run_id = None
@@ -889,7 +869,8 @@ def main(
 
     scaler = GradScaler()
 
-    current_step = 0
+    global_step = 0
+    local_step = 0
     epoch = 0
 
     # setting up wandb for logging
@@ -913,14 +894,16 @@ def main(
             weight_decay=weight_decay,
             eff_batch_size=eff_batch_size,
             train_batch_size=train_batch_size,
+            hardware=hardware,
             wandb_tags=tags,
         )
 
-    while current_step < train_steps:
-        current_step, epoch, model, optimizer, scaler, scheduler = train(
+    while global_step < train_steps:
+        global_step, local_step, epoch, model, optimizer, scaler, scheduler = train(
             rank=rank,
             local_rank=local_rank,
-            current_step=current_step,
+            global_step=global_step,
+            local_step=local_step,
             train_batch_size=train_batch_size,
             train_dataloader=train_dataloader,
             train_sampler=train_sampler,
