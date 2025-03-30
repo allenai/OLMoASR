@@ -102,12 +102,12 @@ def tag_edit_dist(content_dict, normalizer):
     stats = {"count_0": 0, "count_1": 0, "count_gt_1": 0, "count_lt_1": 0}
     man_text = content_dict["man_text"].strip()
     mach_text = content_dict["mach_text"].strip()
-    
+
     try:
         norm_man_text = normalizer(man_text).strip()
     except Exception as e:
         norm_man_text = man_text
-    
+
     try:
         norm_mach_text = normalizer(mach_text).strip()
     except Exception as e:
@@ -174,6 +174,7 @@ def tag_casing(content_dict):
 
     casing = ""
     casing_dist = {"upper": 0, "lower": 0, "mixed": 0}
+
     for caption in content_iter:
         if caption.text.strip() != "":
             seen_upper = seen_lower = False
@@ -195,7 +196,17 @@ def tag_casing(content_dict):
     max_value = max(casing_dist.values())
     max_keys = [k for k, v in casing_dist.items() if v == max_value]
     if len(max_keys) == 1:
-        casing = max_keys[0]
+        if max_keys[0] == "lower" and (
+            casing_dist["mixed"] / casing_dist[max_keys[0]] > 0.6
+        ):
+            casing = "mixed"
+        elif max_keys[0] == "mixed":
+            if casing_dist["upper"] / casing_dist[max_keys[0]] > 0.6:
+                casing = "upper"
+            else:
+                casing = max_keys[0]
+        else:
+            casing = max_keys[0]
     else:
         if "mixed" in max_keys:
             casing = "mixed"
@@ -238,16 +249,21 @@ def tag_repeating_lines(content_dict):
     content_iter = content_dict["content_iter"]
     stats = {"count": 0, "dur": 0}
     repeating_lines = False
-    textset = set()
+    text_stack = []
     for caption in content_iter:
-        if caption.text in textset:
-            repeating_lines = True
-            stats["count"] += 1
-            stats["dur"] += content_dict["length"]
-            break
-        textset.add(caption.text)
+        if len(text_stack) > 0:
+            if text_stack[-1] in caption.text:
+                if (
+                    len(caption.text.strip().split(" ")) > 1
+                    and len(text_stack[-1].strip().split(" ")) > 1
+                ):
+                    repeating_lines = True
+                    stats["count"] += 1
+                    stats["dur"] += content_dict["length"]
+                    break
+        text_stack.append(caption.text)
 
-    return repeating_lines, stats
+    return repeating_lines
 
 
 def tag_has_proper_cap_after_punct_line(content_dict):
@@ -282,13 +298,15 @@ TAG_DICT = {
 }
 
 
-def process_jsonl(jsonl_path, config_dict, output_dir):
+def process_jsonl(jsonl_path, config_dict, output_dir, append_to_existing=False):
     """Processes a full jsonl file and writes the output processed jsonl file
     (or if the filtering kills all the lines, will output nothing)
     """
     output_file = os.path.join(output_dir, os.path.basename(jsonl_path))
-    stats_file = os.path.join(output_dir, os.path.basename(jsonl_path).replace('.jsonl.gz', '_stats.json'))
-    
+    stats_file = os.path.join(
+        output_dir, os.path.basename(jsonl_path).replace(".jsonl.gz", "_stats.json")
+    )
+
     # Read file
     lines = [
         json.loads(_)
@@ -298,7 +316,10 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
     chars_seen = 0
     dur_seen = 0
 
-    if not os.path.exists(output_file):
+    if append_to_existing:
+        tag_dict = defaultdict(list)
+
+    if not os.path.exists(stats_file):
         # Process all lines
         output_lines = []
         file_stats = []
@@ -318,30 +339,46 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
             dur_seen += line["length"]
             tags, stats = process_content(content_dict, config_dict)
 
-            for tag, tag_val in tags.items():
-                line[tag] = tag_val
+            if append_to_existing:
+                [tag_dict[tag].append(tag_val) for tag, tag_val in tags.items()]
+            else:
+                for tag, tag_val in tags.items():
+                    line[tag] = tag_val
 
             output_lines.append(line)
             file_stats.append(stats)
 
         cum_file_stats = process_stats(file_stats)
-        # Save to output
-        with open(output_file, "wb") as f:
-            f.write(
-                gzip.compress(
-                    b"\n".join([json.dumps(_).encode("utf-8") for _ in output_lines])
+
+        if append_to_existing:
+            tags = tag_dict.keys()
+            id_to_new_tags = {
+                line["id"]: {tag: tag_dict[tag][i] for tag in tags}
+                for i, line in enumerate(lines)
+            }
+
+            with gzip.open(output_file, "wb") as f:
+                json.dump(id_to_new_tags, f, indent=2)
+        else:
+            # Save to output
+            with open(output_file, "wb") as f:
+                f.write(
+                    gzip.compress(
+                        b"\n".join(
+                            [json.dumps(_).encode("utf-8") for _ in output_lines]
+                        )
+                    )
                 )
-            )
-            
+
         with open(stats_file, "w") as f:
             json.dump(cum_file_stats, f, indent=2)
     else:
         lines_seen = len(lines)
         chars_seen = sum([len(line["content"]) for line in lines])
         dur_seen = sum([line["length"] for line in lines])
-        
+
         cum_file_stats = json.load(open(stats_file, "r"))
-        
+
     return (
         lines_seen,
         chars_seen,
@@ -383,14 +420,14 @@ def process_stats(stats_list):
             else:
                 cum_tag_stats[tag_stat] = sum(
                     [ele_stats[tag][tag_stat] for ele_stats in stats_list]
-                ) / (60 * 60)
+                )
 
         cum_stats[tag] = cum_tag_stats
 
     return cum_stats
 
 
-def main(config_path, input_dir, output_dir, num_cpus=None):
+def main(config_path, input_dir, output_dir, num_cpus=None, append_to_existing=False):
     if num_cpus is None:
         num_cpus = os.cpu_count()
 
@@ -399,7 +436,12 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
 
     config_dict = parse_config(config_path)
     print("CONFIG IS ", config_dict)
-    partial_fxn = partial(process_jsonl, config_dict=config_dict, output_dir=output_dir)
+    partial_fxn = partial(
+        process_jsonl,
+        config_dict=config_dict,
+        output_dir=output_dir,
+        append_to_existing=append_to_existing,
+    )
     output_numbers = run_imap_multiprocessing(partial_fxn, files, num_cpus)
 
     lines_seen, chars_seen, dur_seen, cum_file_stats = zip(*output_numbers)
@@ -416,7 +458,7 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
         for tag, tag_stats in cum_process_stats.items():
             f.write(f"{tag}:\n")
             for stat, val in tag_stats.items():
-                f.write(f" {stat}: {val}\n")
+                f.write(f" {stat}: {val / (60 * 60) if 'dur' in stat else val}\n")
             f.write("\n")
 
 
