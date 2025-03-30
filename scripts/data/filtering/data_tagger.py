@@ -288,6 +288,15 @@ def tag_has_proper_cap_after_punct_line(content_dict):
     return has_proper_cap_after_punct_line, stats
 
 
+def tag_num_words(content_dict):
+    content_iter = content_dict["content_iter"]
+    stats = {"count": 0, "dur": 0}
+    num_words = 0
+    num_words_list = [len(caption.text.strip().split(" ")) for caption in content_iter]
+    num_words = sum(num_words_list)
+
+    return num_words, None
+
 TAG_DICT = {
     "has_comma_period": tag_has_comma_period,
     "casing": tag_casing,
@@ -295,6 +304,7 @@ TAG_DICT = {
     "edit_dist": tag_edit_dist,
     "text_lang": tag_text_lang,
     "has_proper_cap_after_punct_line": tag_has_proper_cap_after_punct_line,
+    "num_words": tag_num_words,
 }
 
 
@@ -401,7 +411,8 @@ def process_content(content_dict, config) -> Dict[str, Union[str, float, bool]]:
             tag_val, tag_stats = tag_fxn(content_dict, **kwargs)
 
         tags[tag_dict["tag"]] = tag_val
-        stats[tag_dict["tag"]] = tag_stats
+        if tag_stats is not None:
+            stats[tag_dict["tag"]] = tag_stats
 
     return tags, stats
 
