@@ -263,7 +263,7 @@ def tag_repeating_lines(content_dict):
                     break
         text_stack.append(caption.text)
 
-    return repeating_lines
+    return repeating_lines, stats
 
 
 def tag_has_proper_cap_after_punct_line(content_dict):
@@ -290,12 +290,12 @@ def tag_has_proper_cap_after_punct_line(content_dict):
 
 def tag_num_words(content_dict):
     content_iter = content_dict["content_iter"]
-    stats = {"count": 0, "dur": 0}
     num_words = 0
     num_words_list = [len(caption.text.strip().split(" ")) for caption in content_iter]
     num_words = sum(num_words_list)
 
     return num_words, None
+
 
 TAG_DICT = {
     "has_comma_period": tag_has_comma_period,
@@ -308,7 +308,9 @@ TAG_DICT = {
 }
 
 
-def process_jsonl(jsonl_path, config_dict, output_dir, append_to_existing=False):
+def process_jsonl(
+    jsonl_path, config_dict, output_dir, append_to_existing=False, seg_level=False
+):
     """Processes a full jsonl file and writes the output processed jsonl file
     (or if the filtering kills all the lines, will output nothing)
     """
@@ -362,23 +364,24 @@ def process_jsonl(jsonl_path, config_dict, output_dir, append_to_existing=False)
 
         if append_to_existing:
             tags = tag_dict.keys()
-            id_to_new_tags = {
-                line["id"]: {tag: tag_dict[tag][i] for tag in tags}
-                for i, line in enumerate(lines)
-            }
+            if seg_level:
+                id_to_new_tags = {
+                    line["seg_id"]: {tag: tag_dict[tag][i] for tag in tags}
+                    for i, line in enumerate(lines)
+                }
+            else:
+                id_to_new_tags = {
+                    line["id"]: {tag: tag_dict[tag][i] for tag in tags}
+                    for i, line in enumerate(lines)
+                }
 
-            with gzip.open(output_file, "wb") as f:
+            with gzip.open(output_file, "wt") as f:
                 json.dump(id_to_new_tags, f, indent=2)
         else:
             # Save to output
-            with open(output_file, "wb") as f:
-                f.write(
-                    gzip.compress(
-                        b"\n".join(
-                            [json.dumps(_).encode("utf-8") for _ in output_lines]
-                        )
-                    )
-                )
+            with gzip.open(output_file, "wt") as f:
+                for line in output_lines:
+                    f.write(json.dumps(line) + "\n")
 
         with open(stats_file, "w") as f:
             json.dump(cum_file_stats, f, indent=2)
@@ -438,7 +441,14 @@ def process_stats(stats_list):
     return cum_stats
 
 
-def main(config_path, input_dir, output_dir, num_cpus=None, append_to_existing=False):
+def main(
+    config_path,
+    input_dir,
+    output_dir,
+    num_cpus=None,
+    append_to_existing=False,
+    seg_level=False,
+):
     if num_cpus is None:
         num_cpus = os.cpu_count()
 
