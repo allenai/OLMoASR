@@ -80,9 +80,7 @@ def filter_bool(tag_value, ref_value):
 
 def filter_cat(tag_value, ref_value):
     """Filters a categorical value based on the kwargs provided"""
-    if "," in ref_value:
-        ref_value = ref_value.split(",")
-    else:
+    if isinstance(ref_value, str):
         ref_value = [ref_value]
 
     if tag_value in ref_value:
@@ -224,15 +222,28 @@ def main(config_path, input_dir, output_dir, num_cpus=None):
 
     lines_seen = lines_kept = chars_seen = chars_kept = dur_seen = dur_kept = 0
     total_hitlist = defaultdict(int)
-    for ls, lk, cs, ck, ds, dk, hitlist in output_numbers:
-        lines_seen += ls
-        lines_kept += lk
-        chars_seen += cs
-        chars_kept += ck
-        dur_seen += ds
-        dur_kept += dk
+    
+    lines_seen_list, lines_kept_list, chars_seen_list, chars_kept_list, dur_seen_list, dur_kept_list, hitlist_list = zip(*output_numbers)
+    lines_seen = sum(lines_seen_list)
+    lines_kept = sum(lines_kept_list)
+    chars_seen = sum(chars_seen_list)
+    chars_kept = sum(chars_kept_list)
+    dur_seen = sum(dur_seen_list)
+    dur_kept = sum(dur_kept_list)
+    
+    for hitlist in hitlist_list:
         for k, v in hitlist.items():
             total_hitlist[k] += v
+    
+    # for ls, lk, cs, ck, ds, dk, hitlist in output_numbers:
+    #     lines_seen += ls
+    #     lines_kept += lk
+    #     chars_seen += cs
+    #     chars_kept += ck
+    #     dur_seen += ds
+    #     dur_kept += dk
+    #     for k, v in hitlist.items():
+    #         total_hitlist[k] += v
 
     print(
         "Processed %s files in %.02f seconds" % (len(files), time.time() - start_time)
