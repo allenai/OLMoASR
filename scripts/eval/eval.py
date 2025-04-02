@@ -70,31 +70,6 @@ class Librispeech:
         return list(audio_text.keys()), list(audio_text.values())
 
 
-class MLS:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
-
-    def load(self):
-        main_dir = f"{self.root_dir}/test"
-        transcript_fp = f"{main_dir}/transcripts.txt"
-        audio_dir = f"{main_dir}/audio"
-
-        with open(transcript_fp, "r") as f:
-            audio_text_tpl = [line.strip().split("\t") for line in f]
-
-        audio_text = {}
-        for audio_file, text in audio_text_tpl:
-            audio_fp = os.path.join(
-                audio_dir,
-                audio_file.split("_")[0],
-                audio_file.split("_")[1],
-                f"{audio_file}.opus",
-            )
-            audio_text[audio_fp] = text.strip()
-
-        return list(audio_text.keys()), list(audio_text.values())
-
-
 class ArtieBiasCorpus:
     def __init__(self, root_dir):
         self.root_dir = root_dir
@@ -358,6 +333,42 @@ class TEDLIUM_long(TEDLIUM):
         return self._load_tedlium_item(fileid, self._path)
 
 
+# Meanwhile
+
+# Rev16
+
+# Kincaid46
+
+# Earnings-21
+
+# CORAAL_long
+
+
+class MLS:
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+
+    def load(self):
+        main_dir = f"{self.root_dir}/test"
+        transcript_fp = f"{main_dir}/transcripts.txt"
+        audio_dir = f"{main_dir}/audio"
+
+        with open(transcript_fp, "r") as f:
+            audio_text_tpl = [line.strip().split("\t") for line in f]
+
+        audio_text = {}
+        for audio_file, text in audio_text_tpl:
+            audio_fp = os.path.join(
+                audio_dir,
+                audio_file.split("_")[0],
+                audio_file.split("_")[1],
+                f"{audio_file}.opus",
+            )
+            audio_text[audio_fp] = text.strip()
+
+        return list(audio_text.keys()), list(audio_text.values())
+
+
 class EvalDataset(Dataset):
     def __init__(
         self,
@@ -368,7 +379,6 @@ class EvalDataset(Dataset):
             "artie_bias_corpus",
             "fleurs",
             "tedlium",
-            "tedlium_long",
             "voxpopuli",
             "common_voice",
             "ami_ihm",
@@ -378,115 +388,162 @@ class EvalDataset(Dataset):
         hf_token: Optional[str] = None,
         eval_dir: str = "data/eval",
     ):
-        if eval_set == "librispeech_clean":
-            root_dir = f"{eval_dir}/librispeech_test_clean"
-            if not os.path.exists(root_dir):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+        if task == "eng_transcribe":
+            if eval_set == "librispeech_clean":
+                root_dir = f"{eval_dir}/librispeech_test_clean"
+                if not os.path.exists(root_dir):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = Librispeech(root_dir=root_dir)
-        elif eval_set == "librispeech_other":
-            root_dir = f"{eval_dir}/librispeech_test_other"
-            if not os.path.exists(root_dir):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+                self.dataset = Librispeech(root_dir=root_dir)
+            elif eval_set == "librispeech_other":
+                root_dir = f"{eval_dir}/librispeech_test_other"
+                if not os.path.exists(root_dir):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = Librispeech(root_dir=root_dir)
-        elif eval_set == "multilingual_librispeech":
-            root_dir = f"{eval_dir}/mls/mls_{lang}_opus"
-            if not os.path.exists(root_dir):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir, lang=lang)
+                self.dataset = Librispeech(root_dir=root_dir)
+            elif eval_set == "multilingual_librispeech":
+                root_dir = f"{eval_dir}/mls/mls_{lang}_opus"
+                if not os.path.exists(root_dir):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir, lang=lang)
 
-            self.dataset = MLS(root_dir=root_dir)
-        elif eval_set == "artie_bias_corpus":
-            root_dir = f"{eval_dir}/artie-bias-corpus"
-            if not os.path.exists(root_dir):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+                self.dataset = MLS(root_dir=root_dir)
+            elif eval_set == "artie_bias_corpus":
+                root_dir = f"{eval_dir}/artie-bias-corpus"
+                if not os.path.exists(root_dir):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-            self.dataset = ArtieBiasCorpus(root_dir=root_dir)
-        elif eval_set == "fleurs":
-            if not os.path.exists(f"{eval_dir}/google___fleurs"):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+                self.dataset = ArtieBiasCorpus(root_dir=root_dir)
+            elif eval_set == "fleurs":
+                if not os.path.exists(f"{eval_dir}/google___fleurs/en_us"):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+                self.dataset = load_dataset(
+                    path="google/fleurs",
+                    name="en_us",
+                    split="test",
+                    cache_dir=eval_dir,
+                    trust_remote_code=True,
+                    num_proc=15,
+                    save_infos=True,
+                )
+            elif eval_set == "tedlium":
+                if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+                self.dataset = TEDLIUM(
+                    root=f"{eval_dir}", release="release3", subset="test"
+                )
+            elif eval_set == "voxpopuli":
+                if not os.path.exists(f"{eval_dir}/facebook___voxpopuli"):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+                self.dataset = load_dataset(
+                    path="facebook/voxpopuli",
+                    name="en",
+                    split="test",
+                    cache_dir=eval_dir,
+                    trust_remote_code=True,
+                    num_proc=15,
+                    save_infos=True,
+                )
+            elif eval_set == "common_voice":
+                if not os.path.exists(
+                    f"{eval_dir}/mozilla-foundation___common_voice_5_1"
+                ):
+                    get_eval_set(
+                        eval_set=eval_set, eval_dir=eval_dir, hf_token=hf_token
+                    )
+
+                self.dataset = load_dataset(
+                    path="mozilla-foundation/common_voice_5_1",
+                    name="en",
+                    split="test",
+                    token=hf_token,
+                    cache_dir=eval_dir,
+                    trust_remote_code=True,
+                    num_proc=15,
+                    save_infos=True,
+                )
+            elif eval_set == "ami_ihm":
+                root_dir = f"{eval_dir}/ami/ihm"
+                if not os.path.exists(root_dir):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+                self.dataset = AMI(root_dir=root_dir)
+            elif eval_set == "ami_sdm":
+                root_dir = f"{eval_dir}/ami/sdm"
+                if not os.path.exists(root_dir):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+                self.dataset = AMI(root_dir=root_dir)
+            elif eval_set == "coraal":
+                root_dir = f"{eval_dir}/coraal"
+                if not os.path.exists(root_dir):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+                self.dataset = CORAAL(root_dir=root_dir)
+            elif eval_set == "chime6":
+                root_dir = f"{eval_dir}/chime6"
+                if not os.path.exists(root_dir):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+                self.dataset = chime6(root_dir=root_dir)
+        elif task == "long_form_transcribe":
+            if eval_set == "tedlium":
+                if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+                self.dataset = TEDLIUM_long(
+                    root=f"{eval_dir}", release="release3", subset="test"
+                )
+        elif task == "ml_transcribe":
+            if eval_set == "fleurs":
+                if len(os.listdir(f"{eval_dir}/google__fleurs")) < 102:
+                    get_eval_set(eval_set="fleurs", eval_dir=eval_dir)
+
+                self.dataset = load_dataset(
+                    path="google/fleurs",
+                    name="all",
+                    split="test",
+                    cache_dir=eval_dir,
+                    trust_remote_code=True,
+                    num_proc=15,
+                    save_infos=True,
+                )
+            else:
+                if not os.path.exists(f"{eval_dir}/google___fleurs/{lang}"):
+                    get_eval_set(eval_set="fleurs", eval_dir=eval_dir, lang=lang)
+
+                self.dataset = load_dataset(
+                    path="google/fleurs",
+                    name=lang,
+                    split="test",
+                    cache_dir=eval_dir,
+                    trust_remote_code=True,
+                    num_proc=15,
+                    save_infos=True,
+                )
+        elif task == "translate":
+            pass
+        elif task == "lang_id":
+            if not os.path.exists(f"{eval_dir}/google___fleurs/all"):
+                get_eval_set(eval_set="fleurs", lang="all", eval_dir=eval_dir)
 
             self.dataset = load_dataset(
                 path="google/fleurs",
-                name="en_us",
+                name="all",
                 split="test",
                 cache_dir=eval_dir,
                 trust_remote_code=True,
                 num_proc=15,
                 save_infos=True,
             )
-        elif eval_set == "tedlium":
-            if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-            self.dataset = TEDLIUM(
-                root=f"{eval_dir}", release="release3", subset="test"
-            )
-        elif eval_set == "tedlium_long":
-            eval_set = "tedlium"
-            if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-            self.dataset = TEDLIUM_long(
-                root=f"{eval_dir}", release="release3", subset="test"
-            )
-        elif eval_set == "voxpopuli":
-            if not os.path.exists(f"{eval_dir}/facebook___voxpopuli"):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-            self.dataset = load_dataset(
-                path="facebook/voxpopuli",
-                name="en",
-                split="test",
-                cache_dir=eval_dir,
-                trust_remote_code=True,
-                num_proc=15,
-                save_infos=True,
-            )
-        elif eval_set == "common_voice":
-            if not os.path.exists(f"{eval_dir}/mozilla-foundation___common_voice_5_1"):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir, hf_token=hf_token)
-
-            self.dataset = load_dataset(
-                path="mozilla-foundation/common_voice_5_1",
-                name="en",
-                split="test",
-                token=hf_token,
-                cache_dir=eval_dir,
-                trust_remote_code=True,
-                num_proc=15,
-                save_infos=True,
-            )
-        elif eval_set == "ami_ihm":
-            root_dir = f"{eval_dir}/ami/ihm"
-            if not os.path.exists(root_dir):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-            self.dataset = AMI(root_dir=root_dir)
-        elif eval_set == "ami_sdm":
-            root_dir = f"{eval_dir}/ami/sdm"
-            if not os.path.exists(root_dir):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-            self.dataset = AMI(root_dir=root_dir)
-        elif eval_set == "coraal":
-            root_dir = f"{eval_dir}/coraal"
-            if not os.path.exists(root_dir):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-            self.dataset = CORAAL(root_dir=root_dir)
-        elif eval_set == "chime6":
-            root_dir = f"{eval_dir}/chime6"
-            if not os.path.exists(root_dir):
-                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-            self.dataset = chime6(root_dir=root_dir)
 
         self.eval_set = eval_set
+        self.task = task
 
         if self.eval_set not in [
             "tedlium",
-            "tedlium_long",
             "common_voice",
             "fleurs",
             "voxpopuli",
@@ -498,7 +555,6 @@ class EvalDataset(Dataset):
     def __len__(self):
         if self.eval_set in [
             "tedlium",
-            "tedlium_long",
             "common_voice",
             "fleurs",
             "voxpopuli",
@@ -510,58 +566,81 @@ class EvalDataset(Dataset):
         audio_fp = ""
         audio_arr = ""
 
-        if self.eval_set == "tedlium":
-            waveform, _, text_y, *_ = self.dataset[index]
-            audio_arr = audio.pad_or_trim(waveform[0])
-            audio_input = audio.log_mel_spectrogram(audio_arr)
-        elif self.eval_set == "tedlium_long":
-            audio_arr, _, text_y, *_ = self.dataset[index]
-            audio_input = None
-        elif self.eval_set == "common_voice":
-            waveform = self.dataset[index]["audio"]["array"]
-            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-            text_y = self.dataset[index]["sentence"]
+        if self.task == "eng_transcribe":
+            if self.eval_set == "tedlium":
+                waveform, _, text_y, *_ = self.dataset[index]
+                audio_arr = audio.pad_or_trim(waveform[0])
+                audio_input = audio.log_mel_spectrogram(audio_arr)
+            elif self.eval_set == "common_voice":
+                waveform = self.dataset[index]["audio"]["array"]
+                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+                text_y = self.dataset[index]["sentence"]
 
-            if sampling_rate != 16000:
-                waveform = librosa.resample(
-                    waveform, orig_sr=sampling_rate, target_sr=16000
-                )
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
 
-            audio_arr = audio.pad_or_trim(waveform)
-            audio_arr = audio_arr.astype(np.float32)
-            audio_input = audio.log_mel_spectrogram(audio_arr)
-        elif self.eval_set == "fleurs":
-            waveform = self.dataset[index]["audio"]["array"]
-            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-            text_y = self.dataset[index]["transcription"]
+                audio_arr = audio.pad_or_trim(waveform)
+                audio_arr = audio_arr.astype(np.float32)
+                audio_input = audio.log_mel_spectrogram(audio_arr)
+            elif self.eval_set == "fleurs":
+                waveform = self.dataset[index]["audio"]["array"]
+                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+                text_y = self.dataset[index]["transcription"]
 
-            if sampling_rate != 16000:
-                waveform = librosa.resample(
-                    waveform, orig_sr=sampling_rate, target_sr=16000
-                )
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
 
-            audio_arr = audio.pad_or_trim(waveform)
-            audio_arr = audio_arr.astype(np.float32)
-            audio_input = audio.log_mel_spectrogram(audio_arr)
-        elif self.eval_set == "voxpopuli":
-            waveform = self.dataset[index]["audio"]["array"]
-            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-            text_y = self.dataset[index]["normalized_text"]
+                audio_arr = audio.pad_or_trim(waveform)
+                audio_arr = audio_arr.astype(np.float32)
+                audio_input = audio.log_mel_spectrogram(audio_arr)
+            elif self.eval_set == "voxpopuli":
+                waveform = self.dataset[index]["audio"]["array"]
+                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+                text_y = self.dataset[index]["normalized_text"]
 
-            if sampling_rate != 16000:
-                waveform = librosa.resample(
-                    waveform, orig_sr=sampling_rate, target_sr=16000
-                )
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
 
-            audio_arr = audio.pad_or_trim(waveform)
-            audio_arr = audio_arr.astype(np.float32)
-            audio_input = audio.log_mel_spectrogram(audio_arr)
-        else:
-            audio_fp = self.audio_files[index]
-            audio_arr, audio_input = self.preprocess_audio(audio_fp)
-            text_y = self.transcript_texts[index]
+                audio_arr = audio.pad_or_trim(waveform)
+                audio_arr = audio_arr.astype(np.float32)
+                audio_input = audio.log_mel_spectrogram(audio_arr)
+            else:
+                audio_fp = self.audio_files[index]
+                audio_arr, audio_input = self.preprocess_audio(audio_fp)
+                text_y = self.transcript_texts[index]
 
-        return audio_fp, audio_arr, audio_input, text_y
+            return audio_fp, audio_arr, audio_input, text_y
+        elif self.task == "long_form_transcribe":
+            if self.eval_set == "tedlium":
+                audio_arr, _, text_y, *_ = self.dataset[index]
+                audio_input = None
+        elif self.task == "ml_transcribe":
+            pass
+        elif self.task == "translate":
+            pass
+        elif self.task == "lang_id":
+            if self.eval_set == "fleurs":
+                waveform = self.dataset[index]["audio"]["array"]
+                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+                language = self.dataset[index]["language"]
+                lang_id = FLEURS_LANG_TO_ID[language]
+
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
+
+                audio_arr = audio.pad_or_trim(waveform)
+                audio_arr = audio_arr.astype(np.float32)
+                audio_input = audio.log_mel_spectrogram(audio_arr)
+
+            return audio_fp, audio_arr, audio_input, lang_id
 
     def preprocess_audio(self, audio_file):
         audio_arr = audio.load_audio(audio_file, sr=16000)
@@ -608,7 +687,9 @@ def short_form_eval(
 
     device = torch.device("cuda") if cuda else torch.device("cpu")
 
-    dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
+    dataset = EvalDataset(
+        task="eng_transcribe", eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir
+    )
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -757,7 +838,7 @@ def short_form_eval(
     avg_subs = avg_measures["substitutions"]
     avg_ins = avg_measures["insertions"]
     avg_dels = avg_measures["deletions"]
-    
+
     if bootstrap:
         with open(f"{log_dir}/{eval_set}_sample_wer.csv", "w") as f:
             writer = csv.writer(f)
@@ -800,7 +881,7 @@ def long_form_eval(
     batch_size: int,
     num_workers: int,
     ckpt: str,
-    eval_set: Literal["tedlium_long",],
+    eval_set: Literal["tedlium",],
     log_dir: str,
     current_step: Optional[int] = None,
     exp_name: Optional[str] = None,
@@ -819,7 +900,12 @@ def long_form_eval(
 
     device = torch.device("cuda")
 
-    dataset = EvalDataset(eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir)
+    dataset = EvalDataset(
+        task="long_form_transcribe",
+        eval_set=eval_set,
+        hf_token=hf_token,
+        eval_dir=eval_dir,
+    )
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -928,50 +1014,15 @@ def long_form_eval(
     avg_ins = avg_measures["insertions"]
     avg_dels = avg_measures["deletions"]
 
-    if wandb_log:
-        if wandb_run_id:
-            wandb.log(
-                {
-                    f"eval/{eval_set}_{lang}_wer": avg_wer,
-                    "custom_step": current_step,
-                }
-            )
-            wandb.log(
-                {
-                    f"eval/{eval_set}_{lang}_subs": avg_subs,
-                    "custom_step": current_step,
-                }
-            )
-            wandb.log(
-                {
-                    f"eval/{eval_set}_{lang}_ins": avg_ins,
-                    "custom_step": current_step,
-                }
-            )
-            wandb.log(
-                {
-                    f"eval/{eval_set}_{lang}_dels": avg_dels,
-                    "custom_step": current_step,
-                }
-            )
-        else:
-            wandb.run.summary[f"avg_{lang}_wer"] = avg_wer
-            wandb.run.summary[f"avg_{lang}_subs"] = avg_subs
-            wandb.run.summary[f"avg_{lang}_ins"] = avg_ins
-            wandb.run.summary[f"avg_{lang}_dels"] = avg_dels
-    else:
-        if exp_name is not None and wandb_run_id is not None:
-            path = f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt"
-        else:
-            path = f"{log_dir}/eval_results.txt"
-        with open(path, "a") as f:
-            f.write(
-                f"{eval_set} {lang} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
-            )
-
     print(
-        f"Language: {lang}, Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+        f"{eval_set} WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
     )
+
+    if wandb_log:
+        wandb.run.summary["avg_wer"] = avg_wer
+        wandb.run.summary["avg_subs"] = avg_subs
+        wandb.run.summary["avg_ins"] = avg_ins
+        wandb.run.summary["avg_dels"] = avg_dels
 
 
 def ml_eval(
