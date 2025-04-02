@@ -372,6 +372,13 @@ class MLS:
 class EvalDataset(Dataset):
     def __init__(
         self,
+        task: Literal[
+            "eng_transcribe",
+            "long_form_transcribe",
+            "ml_transcribe",
+            "translate",
+            "lang_id",
+        ],
         eval_set: Literal[
             "librispeech_clean",
             "librispeech_other",
@@ -883,10 +890,8 @@ def long_form_eval(
     ckpt: str,
     eval_set: Literal["tedlium",],
     log_dir: str,
-    current_step: Optional[int] = None,
     exp_name: Optional[str] = None,
     wandb_log: bool = False,
-    wandb_run_id: Optional[str] = None,
     wandb_log_dir: str = "wandb",
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
