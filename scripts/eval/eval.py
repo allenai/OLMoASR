@@ -938,42 +938,32 @@ def long_form_eval(
             "ins",
             "wer",
         ]
-        if wandb_run_id:
-            wandb_table_cols.append("run_id")
-            wandb.init(
-                id=wandb_run_id,
-                resume="allow",
-                project="open_whisper",
-                entity="dogml",
-                save_code=True,
-                settings=wandb.Settings(init_timeout=300, _service_wait=300),
-            )
-        else:
-            run_id = wandb.util.generate_id()
-            ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
-            exp_name = (
-                f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
-            )
-            model_sizes = ["tiny", "small", "base", "medium", "large"]
-            model_size = [
-                model_size for model_size in model_sizes if model_size in ckpt
-            ][0]
-            config = {
-                "ckpt": "/".join(ckpt.split("/")[-2:]),
-                "model": ow_or_w,
-                "model_size": model_size,
-            }
-            wandb.init(
-                id=run_id,
-                resume="allow",
-                project="open_whisper",
-                entity="dogml",
-                job_type="evals",
-                name=exp_name,
-                dir=wandb_log_dir,
-                config=config,
-                tags=["eval", eval_set, ow_or_w, model_size],
-            )
+        
+        run_id = wandb.util.generate_id()
+        ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
+        exp_name = (
+            f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
+        )
+        model_sizes = ["tiny", "small", "base", "medium", "large"]
+        model_size = [
+            model_size for model_size in model_sizes if model_size in ckpt
+        ][0]
+        config = {
+            "ckpt": "/".join(ckpt.split("/")[-2:]),
+            "model": ow_or_w,
+            "model_size": model_size,
+        }
+        wandb.init(
+            id=run_id,
+            resume="allow",
+            project="open_whisper",
+            entity="dogml",
+            job_type="evals",
+            name=exp_name,
+            dir=wandb_log_dir,
+            config=config,
+            tags=["eval", eval_set, ow_or_w, model_size],
+        )
         eval_table = wandb.Table(columns=wandb_table_cols)
         table_iter = 0
 
