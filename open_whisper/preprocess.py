@@ -241,7 +241,7 @@ def chunk_data(
                 if not over_ctx_len:
                     if transcript_only is True:
                         # writing transcript segment w/ timestamps[a][0] -> timestamps[b - 1][1]
-                        t_output_file, transcript_string = utils.write_segment(
+                        t_output_file, transcript_string, norm_end = utils.write_segment(
                             timestamps=timestamps[a:b],
                             transcript=transcript,
                             output_dir=segment_output_dir,
@@ -250,23 +250,24 @@ def chunk_data(
                         )
 
                         if not utils.too_short_audio_text(
-                            start=timestamps[a][0], end=timestamps[a][0] + 30000
+                            start=timestamps[a][0], end=utils.adjust_timestamp(timestamps[a][0], 30000)
                         ):
-                            timestamp = t_output_file.split("/")[-1].split(
-                                f".{transcript_ext}"
-                            )[0]
+                            audio_timestamp = f"{timestamps[a][0].replace('.', ',')}_{utils.adjust_timestamp(timestamps[a][0], 30000).replace('.', ',')}"
+                            text_timestamp = t_output_file.split("/")[-1].split(
+                                    f".{transcript_ext}"
+                                )[0]
                             if dolma_format is False:
                                 outputs = {
                                     "subtitle_file": t_output_file.replace(
                                         "ow_full", "ow_seg"
                                     ),
                                     "seg_content": transcript_string,
-                                    "timestamp": timestamp,
+                                    "text_timestamp": text_timestamp,
+                                    "audio_timestamp": audio_timestamp,
+                                    "norm_text_end": norm_end,
                                     "id": video_id,
                                     "seg_id": f"{video_id}_{segment_count}",
-                                    "audio_file": t_output_file.replace(
-                                        f".{transcript_ext}", ".npy"
-                                    ).replace("ow_full", "ow_seg"),
+                                    "audio_file": os.path.join(os.path.dirname(t_output_file), f"{audio_timestamp}.npy").replace("ow_full", "ow_seg"),
                                 }
                             else:
                                 outputs = {
@@ -277,10 +278,10 @@ def chunk_data(
                                         "subtitle_file": t_output_file.replace(
                                             "ow_full", "ow_seg"
                                         ),
-                                        "timestamp": timestamp,
-                                        "audio_file": t_output_file.replace(
-                                            f".{transcript_ext}", ".npy"
-                                        ).replace("ow_full", "ow_seg"),
+                                        "text_timestamp": text_timestamp,
+                                        "audio_timestamp": audio_timestamp,
+                                        "norm_text_end": norm_end,
+                                        "audio_file": os.path.join(os.path.dirname(t_output_file), f"{audio_timestamp}.npy").replace("ow_full", "ow_seg"),
                                     },
                                 }
 
@@ -291,13 +292,13 @@ def chunk_data(
                         a_output_file, audio_arr = utils.trim_audio(
                             audio_file=audio_file,
                             start=timestamps[a][0],
-                            end=timestamps[a][0] + 30000,
+                            end=utils.adjust_timestamp(timestamps[a][0], 30000),
                             output_dir=segment_output_dir,
                             in_memory=in_memory,
                         )
                     elif transcript_only is False and audio_only is False:
                         # writing transcript segment w/ timestamps[a][0] -> timestamps[b - 1][1]
-                        t_output_file, transcript_string = utils.write_segment(
+                        t_output_file, transcript_string, _ = utils.write_segment(
                             timestamps=timestamps[a:b],
                             transcript=transcript,
                             output_dir=segment_output_dir,
@@ -309,7 +310,7 @@ def chunk_data(
                         a_output_file, audio_arr = utils.trim_audio(
                             audio_file=audio_file,
                             start=timestamps[a][0],
-                            end=timestamps[a][0] + 30000,
+                            end=utils.adjust_timestamp(timestamps[a][0], 30000),
                             output_dir=segment_output_dir,
                             in_memory=in_memory,
                         )
@@ -377,7 +378,7 @@ def chunk_data(
                             end = utils.adjust_timestamp(start, 30000)
 
                         if transcript_only is True:
-                            t_output_file, transcript_string = utils.write_segment(
+                            t_output_file, transcript_string, _ = utils.write_segment(
                                 timestamps=[(start, end)],
                                 transcript=None,
                                 output_dir=segment_output_dir,
@@ -396,7 +397,9 @@ def chunk_data(
                                             "ow_full", "ow_seg"
                                         ),
                                         "seg_content": transcript_string,
-                                        "timestamp": timestamp,
+                                        "text_timestamp": timestamp,
+                                        "audio_timestamp": timestamp,
+                                        "norm_text_end": None,
                                         "id": video_id,
                                         "seg_id": f"{video_id}_{segment_count}",
                                         "audio_file": t_output_file.replace(
@@ -412,7 +415,9 @@ def chunk_data(
                                             "subtitle_file": t_output_file.replace(
                                                 "ow_full", "ow_seg"
                                             ),
-                                            "timestamp": timestamp,
+                                            "text_timestamp": timestamp,
+                                            "audio_timestamp": timestamp,
+                                            "norm_text_end": None,
                                             "audio_file": t_output_file.replace(
                                                 f".{transcript_ext}", ".npy"
                                             ).replace("ow_full", "ow_seg"),
@@ -429,7 +434,7 @@ def chunk_data(
                                 in_memory=in_memory,
                             )
                         elif transcript_only is False and audio_only is False:
-                            t_output_file, transcript_string = utils.write_segment(
+                            t_output_file, transcript_string, _ = utils.write_segment(
                                 timestamps=[(start, end)],
                                 transcript=None,
                                 output_dir=segment_output_dir,
@@ -482,7 +487,7 @@ def chunk_data(
                 )
                 if not over_ctx_len:
                     if transcript_only is True:
-                        t_output_file, transcript_string = utils.write_segment(
+                        t_output_file, transcript_string, norm_end = utils.write_segment(
                             timestamps=timestamps[a:b],
                             transcript=transcript,
                             output_dir=segment_output_dir,
@@ -502,7 +507,9 @@ def chunk_data(
                                         "ow_full", "ow_seg"
                                     ),
                                     "seg_content": transcript_string,
-                                    "timestamp": timestamp,
+                                    "text_timestamp": timestamp,
+                                    "audio_timestamp": timestamp,
+                                    "norm_text_end": norm_end,
                                     "id": video_id,
                                     "seg_id": f"{video_id}_{segment_count}",
                                     "audio_file": t_output_file.replace(
@@ -518,7 +525,9 @@ def chunk_data(
                                         "subtitle_file": t_output_file.replace(
                                             "ow_full", "ow_seg"
                                         ),
-                                        "timestamp": timestamp,
+                                        "text_timestamp": timestamp,
+                                        "audio_timestamp": timestamp,
+                                        "norm_text_end": norm_end,
                                         "audio_file": t_output_file.replace(
                                             f".{transcript_ext}", ".npy"
                                         ).replace("ow_full", "ow_seg"),
@@ -535,7 +544,7 @@ def chunk_data(
                             in_memory=in_memory,
                         )
                     elif transcript_only is False and audio_only is False:
-                        t_output_file, transcript_string = utils.write_segment(
+                        t_output_file, transcript_string, _ = utils.write_segment(
                             timestamps=timestamps[a:b],
                             transcript=transcript,
                             output_dir=segment_output_dir,
@@ -633,8 +642,8 @@ def chunk_local(
 ):
     language = None  # temporarily
     os.makedirs(output_dir, exist_ok=True)
-    local_output_dir = "/".join(os.path.dirname(transcript_file).split("/")[-2:])
-    segment_output_dir = os.path.join(output_dir, local_output_dir)
+    video_id = os.path.dirname(transcript_file).split("/")[-1]
+    segment_output_dir = os.path.join(output_dir, video_id)
     os.makedirs(segment_output_dir, exist_ok=True)
     transcript_ext = transcript_file.split(".")[-1]
 
@@ -724,8 +733,7 @@ def chunk_transcript_only(
     else:
         keys_to_keep = None
 
-    local_output_dir = "/".join(os.path.dirname(transcript_file).split("/")[-2:])
-    segment_output_dir = os.path.join(output_dir, local_output_dir)
+    segment_output_dir = os.path.dirname(transcript_file)
     transcript_ext = transcript_file.split(".")[-1]
 
     transcript, *_ = utils.TranscriptReader(
@@ -749,39 +757,40 @@ def chunk_transcript_only(
     )
 
     segments_list, *counts = result
-
-    if merge_man_mach is False:
-        segments_list = [
-            segment
-            for segment in segments_list
-            if "/".join(
-                segment["subtitle_file"].split("/")[-2:]
-                if dolma_format is False
-                else segment["metadata"]["subtitle_file"].split("/")[-2:]
-            )
-            in transcript_manifest
-        ]
-    else:
-        segments_list = [
-            (
-                {**segment, "in_manifest": True}
+ 
+    if segments_list is not None:
+        if merge_man_mach is False:
+            segments_list = [
+                segment
+                for segment in segments_list
                 if "/".join(
-                    segment["subtitle_file"].split("/")[-2:]
+                    segment["audio_file"].split("/")[-2:]
                     if dolma_format is False
-                    else segment["metadata"]["subtitle_file"].split("/")[-2:]
+                    else segment["metadata"]["audio_file"].split("/")[-2:]
                 )
                 in transcript_manifest
-                else {**segment, "in_manifest": False}
-            )
-            for segment in segments_list
-        ]
+            ]
+        else:
+            segments_list = [
+                (
+                    {**segment, "in_manifest": True}
+                    if "/".join(
+                        segment["audio_file"].split("/")[-2:]
+                        if dolma_format is False
+                        else segment["metadata"]["audio_file"].split("/")[-2:]
+                    )
+                    in transcript_manifest
+                    else {**segment, "in_manifest": False}
+                )
+                for segment in segments_list
+            ]
 
-    if keys_to_keep is not None:
-        for segment in segments_list:
-            for key in keys_to_keep:
-                segment[key] = transcript_data[key]
+        if keys_to_keep is not None:
+            for segment in segments_list:
+                for key in keys_to_keep:
+                    segment[key] = transcript_data[key]
 
-    result = (segments_list, *counts)
+        result = (segments_list, *counts)
 
     return result
 
@@ -891,7 +900,7 @@ def chunk_mach_transcript(
                     timestamps=timestamps[a:b], transcript=transcript, language=None
                 )
                 if not over_ctx_len:
-                    t_output_file, transcript_string = utils.write_segment(
+                    t_output_file, transcript_string, _ = utils.write_segment(
                         timestamps=timestamps[a:b],
                         transcript=transcript,
                         output_dir=output_dir,
@@ -954,7 +963,7 @@ def chunk_mach_transcript(
                     timestamps=timestamps[a:b], transcript=transcript, language=None
                 )
                 if not over_ctx_len:
-                    t_output_file, transcript_string = utils.write_segment(
+                    t_output_file, transcript_string, _ = utils.write_segment(
                         timestamps=timestamps[a:b],
                         transcript=transcript,
                         output_dir=output_dir,
@@ -1001,6 +1010,7 @@ def chunk_mach_transcript(
                 over_ctx_len_segment_count,
                 faulty_audio_segment_count,
                 faulty_transcript_count,
+                failed_transcript_count
             )
 
         return (
@@ -1010,19 +1020,20 @@ def chunk_mach_transcript(
             over_ctx_len_segment_count,
             faulty_audio_segment_count,
             faulty_transcript_count,
+            failed_transcript_count
         )
     except ValueError as e:
         failed_transcript_count += 1
         if on_gcs:
             with open(f"{log_dir}/failed_chunking.txt", "a") as f:
                 f.write(f"{video_id}\t{e}\n")
-        return None, failed_transcript_count
+        return None, 0, 0, 0, 0, 0, failed_transcript_count
     except Exception as e:
         failed_transcript_count += 1
         if on_gcs:
             with open(f"{log_dir}/failed_chunking.txt", "a") as f:
                 f.write(f"{video_id}\t{e}\n")
-        return None, failed_transcript_count
+        return None, 0, 0, 0, 0, 0, failed_transcript_count
 
 
 # deprecated
