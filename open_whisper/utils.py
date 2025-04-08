@@ -303,7 +303,7 @@ def write_segment(
         if not in_memory:
             with open(output_file, "w") as f:
                 f.write(transcript_string)
-        return output_file, transcript_string
+        return output_file, transcript_string, ""
 
     for i in range(len(timestamps)):
         start = adjust_timestamp(
@@ -328,7 +328,7 @@ def write_segment(
         with open(output_file, "w") as f:
             f.write(transcript_string)
 
-    return output_file, transcript_string
+    return output_file, transcript_string, end.replace(",", ".")
 
 
 def calculate_wer(pair: Tuple[str, str]) -> float:
@@ -347,7 +347,9 @@ def calculate_wer(pair: Tuple[str, str]) -> float:
         return jiwer.wer(pair[0], pair[1]) * 100.0
 
 
-def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> bool:
+def over_ctx_len(
+    timestamps: List, transcript: Optional[Dict], language: Optional[str]
+) -> Tuple[bool, Optional[str]]:
     """Check if transcript text exceeds model context length
 
     Check if the total number of tokens in the transcript text exceeds the model context length
@@ -362,23 +364,34 @@ def over_ctx_len(timestamps: List, transcript: Optional[Dict]) -> bool:
     try:
         text_lines = [transcript[timestamps[i]].strip() for i in range(len(timestamps))]
         text = " ".join(text_lines)
-
-        tokenizer = get_tokenizer(multilingual=False)
+        if language is None:
+            tokenizer = get_tokenizer(multilingual=False)
+        else:
+            tokenizer = get_tokenizer(language=language, multilingual=True)
 
         text_tokens = tokenizer.encode(text)
         text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens
         text_tokens.append(tokenizer.eot)
 
         if len(text_tokens) > 448:
-            return True
+            return True, None
         else:
-            return False
+            return False, None
+    except RuntimeError:
+        return True, "error"
     except Exception as e:
-        return True
+        return True, "error"
 
 
 def too_short_audio(audio_arr: np.ndarray, sample_rate: int = 16000) -> bool:
     duration = len(audio_arr) / sample_rate
+    if duration < 0.015:
+        return True
+    return False
+
+
+def too_short_audio_text(start: str, end: str) -> bool:
+    duration = calculate_difference(start, end) / 1000
     if duration < 0.015:
         return True
     return False
