@@ -247,6 +247,7 @@ def preprocess(
 
         # writing manifest file
         if transcript_only is False:
+            os.makedirs(manifest_dir, exist_ok=True)
             with open(f"{manifest_dir}/{data_shard_idx}.txt", "w") as f:
                 [
                     f.write(f"{'/'.join(segment[-2].split('/')[-2:])}\n")
