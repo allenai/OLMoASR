@@ -1,10 +1,12 @@
 import os
 import tarfile
 import shutil
+import gzip
+import json
 import glob
 from tqdm import tqdm
-from typing import List, Tuple
-from open_whisper.preprocess import parallel_chunk_audio_transcript
+from typing import List, Tuple, Union, Dict, Optional
+from open_whisper.preprocess import chunk_local, chunk_transcript_only
 import time
 import multiprocessing
 from fire import Fire
@@ -17,114 +19,186 @@ import logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(funcName)s - line %(lineno)d - %(message)s",
-    handlers=[logging.FileHandler("main.log"), logging.StreamHandler()],
+    handlers=[logging.StreamHandler()],
 )
 
 logger = logging.getLogger(__name__)
 
 
-def write_to_disk(segment: Tuple[str, str, str, np.ndarray]) -> None:
-    t_output_file, transcript_string, a_output_file, audio_arr = segment
-    os.makedirs(os.path.dirname(t_output_file), exist_ok=True)
-    # Write transcript
-    with open(t_output_file, "w") as f:
-        f.write(transcript_string)
+def write_to_disk(
+    segment: Union[Tuple[str, np.ndarray], Tuple[str, str, str, np.ndarray]],
+) -> None:
+    if len(segment) == 2:
+        a_output_file, audio_arr = segment
+    else:
+        t_output_file, transcript_string, a_output_file, audio_arr = segment
+
+    os.makedirs(os.path.dirname(a_output_file), exist_ok=True)
+
+    if len(segment) == 4:
+        # Write transcript
+        with open(t_output_file, "w") as f:
+            f.write(transcript_string)
     # Write audio
     np.save(a_output_file, audio_arr)
+
+
+def parallel_chunk_local(args):
+    return chunk_local(*args)
+
+
+def parallel_chunk_transcript_only(args):
+    return chunk_transcript_only(*args)
 
 
 def preprocess(
     output_dir: str,
     source_dir: str,
     log_dir: str,
-    preproc_fail_dir: str,
-    missing_pair_dir: str,
     jobs_batch_size: int,
     start_shard_idx: int,
     end_shard_idx: int,
+    missing_pair_dir: Optional[str] = None,
+    manifest_dir: Optional[str] = None,
+    audio_only: bool = False,
+    transcript_only: bool = False,
     in_memory: bool = True,
 ) -> None:
-    job_batch_idx = int(os.getenv("JOB_BATCH_IDX"))
-    job_idx = int(os.getenv("BEAKER_REPLICA_RANK"))
+    job_batch_idx = int(os.getenv("JOB_BATCH_IDX", 0))
+    job_idx = int(os.getenv("BEAKER_REPLICA_RANK", 0))
     data_shard_path = sorted(glob.glob(source_dir + "/*"))[
         start_shard_idx : end_shard_idx + 1
     ][job_idx + (job_batch_idx * jobs_batch_size)]
 
-    output_dir = os.path.join(output_dir, f"{data_shard_path.split('/')[-1]}")
-    os.makedirs(output_dir, exist_ok=True)
-    log_dir = os.path.join(log_dir, f"{data_shard_path.split('/')[-1]}")
-    os.makedirs(log_dir, exist_ok=True)
-    preproc_fail_dir = os.path.join(
-        preproc_fail_dir, f"{data_shard_path.split('/')[-1]}"
-    )
-    os.makedirs(preproc_fail_dir, exist_ok=True)
-    missing_pair_dir = os.path.join(
-        missing_pair_dir, f"{data_shard_path.split('/')[-1]}"
-    )
-    os.makedirs(missing_pair_dir, exist_ok=True)
-    logger.info(f"{output_dir=}, {log_dir=}, {preproc_fail_dir=}, {missing_pair_dir=}")
-
-    logger.info(f"Preprocessing {data_shard_path}")
-    audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
-    transcript_files = sorted(glob.glob(data_shard_path + "/*/*.vtt"))
-
-    logger.info(f"{len(audio_files)} audio files")
-    logger.info(f"{len(transcript_files)} transcript files")
-
-    if len(audio_files) != len(transcript_files):
-        logger.info(f"Uneven number of audio and transcript files in {data_shard_path}")
-        if len(audio_files) > len(transcript_files):
-            missing_pairs = [
-                "/".join(p.split("/")[:6])
-                for p in (
-                    set([p.split(".")[0] for p in audio_files])
-                    - set([p.split(".")[0] for p in transcript_files])
-                )
-            ]
-            new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs]
-        elif len(audio_files) < len(transcript_files):
-            missing_pairs = [
-                "/".join(p.split("/")[:6])
-                for p in (
-                    set([p.split(".")[0] for p in transcript_files])
-                    - set([p.split(".")[0] for p in audio_files])
-                )
-            ]
-            new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs] 
+    data_shard_idx = ""
+    if data_shard_path.endswith(".jsonl.gz"):
+        data_shard_idx = os.path.basename(data_shard_path).split("_")[-1].split(".")[0]
         
-        logger.info(f"{new_paths[:5]=}")
-        
-        with open(
-            os.path.join(log_dir, f"uneven_data_shards.txt"),
-            "a",
-        ) as f:
-            f.write(f"{len(audio_files)}\t{len(transcript_files)}\n")
-        
-        audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
-        transcript_files = sorted(glob.glob(data_shard_path + "/*/*.vtt"))
-
-    # Chunk the audio and transcript files
-    logger.info("Chunking audio and transcript files")
-    start = time.time()
-    with multiprocessing.Pool(multiprocessing.cpu_count() * 7) as pool:
-        segments_group = list(
-            tqdm(
-                pool.imap_unordered(
-                    parallel_chunk_audio_transcript,
-                    zip(
-                        transcript_files,
-                        audio_files,
-                        repeat(output_dir),
-                        repeat(log_dir),
-                        repeat(preproc_fail_dir),
-                        repeat(in_memory),
-                    ),
-                ),
-                total=len(transcript_files),
+        if transcript_only is False:
+            output_dir = os.path.join(
+                output_dir,
+                f"{data_shard_idx}",
             )
+    else:
+        data_shard_idx = data_shard_path.split("/")[-1]
+        output_dir = os.path.join(output_dir, f"{data_shard_idx}")
+    
+    print(f"{data_shard_path=}, {data_shard_idx=}, {output_dir=}")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    if not data_shard_path.endswith(".jsonl.gz"):
+        # dealing w/ missing pairs
+        missing_pair_dir = os.path.join(
+            missing_pair_dir, f"{data_shard_path.split('/')[-1]}"
         )
-    logger.info(segments_group[:5])
-    # segments group is [[(t_output_file, transcript_string, a_output_file, audio_arr), ...], ...]
+        os.makedirs(missing_pair_dir, exist_ok=True)
+        logger.info(f"{output_dir=}, {missing_pair_dir=}")
+
+        logger.info(f"Preprocessing {data_shard_path}")
+        audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
+        transcript_files = sorted(glob.glob(data_shard_path + "/*/*.*t"))
+
+        logger.info(f"{len(audio_files)} audio files")
+        logger.info(f"{len(transcript_files)} transcript files")
+
+        if len(audio_files) != len(transcript_files):
+            logger.info(
+                f"Uneven number of audio and transcript files in {data_shard_path}"
+            )
+            if len(audio_files) > len(transcript_files):
+                missing_pairs = [
+                    "/".join(p.split("/")[:6])
+                    for p in (
+                        set([p.split(".")[0] for p in audio_files])
+                        - set([p.split(".")[0] for p in transcript_files])
+                    )
+                ]
+                new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs]
+            elif len(audio_files) < len(transcript_files):
+                missing_pairs = [
+                    "/".join(p.split("/")[:6])
+                    for p in (
+                        set([p.split(".")[0] for p in transcript_files])
+                        - set([p.split(".")[0] for p in audio_files])
+                    )
+                ]
+                new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs]
+
+            logger.info(f"{new_paths[:5]=}")
+
+            audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
+            transcript_files = sorted(glob.glob(data_shard_path + "/*/*.*t"))
+    else:
+        if transcript_only is False:
+            with gzip.open(data_shard_path, "rt") as f:
+                data = [json.loads(line.strip()) for line in f]
+
+            audio_files = sorted([d["audio_file"] for d in data])
+            transcript_files = sorted([d["subtitle_file"] for d in data])
+
+            assert len(audio_files) == len(
+                transcript_files
+            ), f"Uneven number of audio and transcript files in {data_shard_path}"
+        else:
+            with gzip.open(data_shard_path, "rt") as f:
+                data = [json.loads(line.strip()) for line in f]
+
+            manifest_file = os.path.join(manifest_dir, f"{data_shard_idx}_manifest.txt")
+            with open(manifest_file, "r") as f:
+                transcript_manifest = [line.strip() for line in f]
+
+    # debug
+    # print(f"{audio_files[0]=}")
+    # print(f"{transcript_files[0]=}")
+    # chunk_local(transcript_file=transcript_files[0], audio_file=audio_files[0], output_dir=output_dir, audio_only=audio_only, transcript_only=transcript_only, in_memory=in_memory)
+    # chunk_transcript_only(data[10], transcript_manifest, output_dir)
+
+    # Chunk data
+    logger.info("Chunking data")
+    start = time.time()
+    if transcript_only is False:
+        with multiprocessing.Pool(multiprocessing.cpu_count() * 7) as pool:
+            results = list(
+                tqdm(
+                    pool.imap_unordered(
+                        parallel_chunk_local,
+                        zip(
+                            transcript_files,
+                            audio_files,
+                            repeat(output_dir),
+                            repeat(audio_only),
+                            repeat(transcript_only),
+                            repeat(in_memory),
+                        ),
+                    ),
+                    total=len(transcript_files),
+                )
+            )
+    else:
+        with multiprocessing.Pool(multiprocessing.cpu_count() * 7) as pool:
+            results = list(
+                tqdm(
+                    pool.imap_unordered(
+                        parallel_chunk_transcript_only,
+                        zip(data, repeat(transcript_manifest), repeat(output_dir)),
+                    ),
+                    total=len(data),
+                )
+            )
+
+    (
+        segments_group,
+        over_30_line_segment_count,
+        bad_text_segment_count,
+        over_ctx_len_segment_count,
+        faulty_audio_segment_count,
+        faulty_transcript_count,
+        failed_transcript_count,
+    ) = zip(*results)
+
+    logger.info(f"{segments_group[:5]=}")
+    # segments group is [[(t_output_file, transcript_string, a_output_file, audio_arr), ...], ...] or [[(a_output_file, audio_arr), ...], ...]
     # where each inner list is a group of segments from one audio-transcript file, and each tuple is a segment
     segments_group = [group for group in segments_group if group is not None]
     logger.info(f"Time taken to segment: {(time.time() - start) / 60} minutes")
@@ -134,20 +208,67 @@ def preprocess(
     segments_list = list(chain(*segments_group))
 
     start = time.time()
-    with multiprocessing.Pool() as pool:
-        res = list(
-            tqdm(
-                pool.imap_unordered(
-                    write_to_disk,
-                    segments_list,
-                ),
-                total=len(segments_list),
+    if transcript_only is False:
+        with multiprocessing.Pool() as pool:
+            _ = list(
+                tqdm(
+                    pool.imap_unordered(
+                        write_to_disk,
+                        segments_list,
+                    ),
+                    total=len(segments_list),
+                )
             )
-        )
+    else:
+        with gzip.open(
+            os.path.join(output_dir, f"{data_shard_idx}.jsonl.gz"), "wt"
+        ) as f:
+            [f.write(f"{json.dumps(segment)}\n") for segment in segments_list]
     logger.info(f"Time taken to write to disk: {(time.time() - start) / 60} minutes")
 
     logger.info(f"Completed processing data shard {data_shard_path}")
 
+    # logging process stats
+    os.makedirs(log_dir, exist_ok=True)
+    with open(f"{log_dir}/{data_shard_idx}.json", "w") as f:
+        log_data = {
+            "over_30_line_segment_count": sum(over_30_line_segment_count),
+            "bad_text_segment_count": sum(bad_text_segment_count),
+            "over_ctx_len_segment_count": sum(over_ctx_len_segment_count),
+            "faulty_audio_segment_count": sum(faulty_audio_segment_count),
+            "faulty_transcript_count": sum(faulty_transcript_count),
+            "failed_transcript_count": sum(failed_transcript_count),
+        }
+        f.write(json.dumps(log_data, indent=4))
+
+    # writing manifest file
+    if transcript_only is False:
+        with open(f"{log_dir}/{data_shard_idx}_manifest.txt", "w") as f:
+            [f.write(f"{'/'.join(segment[-2].split('/')[-2:])}\n") for segment in segments_list]
+
 
 if __name__ == "__main__":
     Fire(preprocess)
+    # preprocess(
+    #     output_dir="temp",
+    #     source_dir="intermediate_data/text_heurs_1_manmach_0.9_editdist_0.28_feb_25",
+    #     log_dir="temp_logs",
+    #     jobs_batch_size=1,
+    #     start_shard_idx=0,
+    #     end_shard_idx=0,
+    #     audio_only=True,
+    #     transcript_only=False,
+    #     in_memory=True,
+    # )
+    # preprocess(
+    #     output_dir="temp_jsonl",
+    #     source_dir="intermediate_data/text_heurs_1_manmach_0.9_editdist_0.28_feb_25",
+    #     log_dir="temp_jsonl_logs",
+    #     jobs_batch_size=1,
+    #     start_shard_idx=0,
+    #     end_shard_idx=0,
+    #     manifest_dir="temp_logs",
+    #     transcript_only=True,
+    #     in_memory=True,
+    # )
+
