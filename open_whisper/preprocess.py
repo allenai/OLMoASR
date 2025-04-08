@@ -389,10 +389,12 @@ def chunk_data(
                                 norm_end = utils.adjust_timestamp(
                                     end, -utils.convert_to_milliseconds(start)
                                 )
+                                audio_timestamp = f"{start.replace('.', ',')}_{utils.adjust_timestamp(start, 30000).replace('.', ',')}"
                         else:
                             end = utils.adjust_timestamp(start, 30000)
                             next_start = end
                             norm_end = 30000
+                            audio_timestamp = f"{start.replace('.', ',')}_{utils.adjust_timestamp(start, 30000).replace('.', ',')}"
 
                         if transcript_only is True:
                             t_output_file, transcript_string, _ = utils.write_segment(
@@ -415,13 +417,14 @@ def chunk_data(
                                         ),
                                         "seg_content": transcript_string,
                                         "text_timestamp": timestamp,
-                                        "audio_timestamp": timestamp,
+                                        "audio_timestamp": audio_timestamp,
                                         "next_start": next_start,
                                         "norm_end": norm_end,
                                         "id": video_id,
                                         "seg_id": f"{video_id}_{segment_count}",
-                                        "audio_file": t_output_file.replace(
-                                            f".{transcript_ext}", ".npy"
+                                        "audio_file": os.path.join(
+                                            os.path.dirname(t_output_file),
+                                            f"{audio_timestamp}.npy",
                                         ).replace("ow_full", "ow_seg"),
                                     }
                                 else:
@@ -434,11 +437,12 @@ def chunk_data(
                                                 "ow_full", "ow_seg"
                                             ),
                                             "text_timestamp": timestamp,
-                                            "audio_timestamp": timestamp,
+                                            "audio_timestamp": audio_timestamp,
                                             "next_start": next_start,
                                             "norm_end": norm_end,
-                                            "audio_file": t_output_file.replace(
-                                                f".{transcript_ext}", ".npy"
+                                            "audio_file": os.path.join(
+                                                os.path.dirname(t_output_file),
+                                                f"{audio_timestamp}.npy",
                                             ).replace("ow_full", "ow_seg"),
                                         },
                                     }
@@ -448,7 +452,9 @@ def chunk_data(
                             a_output_file, audio_arr = utils.trim_audio(
                                 audio_file=audio_file,
                                 start=start,
-                                end=utils.adjust_timestamp(start, 30000), # like speech segments
+                                end=utils.adjust_timestamp(
+                                    start, 30000
+                                ),  # like speech segments
                                 output_dir=segment_output_dir,
                                 in_memory=in_memory,
                             )
@@ -464,7 +470,9 @@ def chunk_data(
                             a_output_file, audio_arr = utils.trim_audio(
                                 audio_file=audio_file,
                                 start=start,
-                                end=utils.adjust_timestamp(start, 30000), # like speech segments
+                                end=utils.adjust_timestamp(
+                                    start, 30000
+                                ),  # like speech segments
                                 output_dir=segment_output_dir,
                                 in_memory=in_memory,
                             )
@@ -741,7 +749,6 @@ def chunk_gcs(
 def chunk_transcript_only(
     transcript_data: Dict,
     transcript_manifest: Optional[List[str]],
-    output_dir: str,
     dolma_format: bool = False,
     merge_man_mach: bool = False,
     in_memory: bool = True,
