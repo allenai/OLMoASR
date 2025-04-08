@@ -14,6 +14,7 @@ import jiwer
 from collections import deque
 import webvtt
 
+from open_whisper.preprocess import chunk_transcript_only
 
 sys.path.append(os.getcwd())
 import segment_jsonl_utils as utils
@@ -628,20 +629,30 @@ def get_mach_seg_text(mach_segment):
 def merge_man_mach_segs(
     transcript, transcript_manifest, shard_log_dir, keep_tokens, dolma_format, in_memory
 ):
-    segments = chunk_transcript(
+    # segments = chunk_transcript(
+    #     transcript_data=transcript,
+    #     transcript_manifest=transcript_manifest,
+    #     log_dir=shard_log_dir,
+    #     keep_tokens=keep_tokens,
+    #     dolma_format=dolma_format,
+    #     merge_man_mach=True,
+    #     in_memory=in_memory,
+    # )
+
+    result = chunk_transcript_only(
         transcript_data=transcript,
         transcript_manifest=transcript_manifest,
-        log_dir=shard_log_dir,
-        keep_tokens=keep_tokens,
         dolma_format=dolma_format,
         merge_man_mach=True,
         in_memory=in_memory,
     )
 
+    segments, *_ = result
+
     if segments is not None:
         shard_mach_log_dir = shard_log_dir + "_mach"
         os.makedirs(shard_mach_log_dir, exist_ok=True)
-        man_timestamps = [segment["timestamp"].split("_") for segment in segments]
+        man_timestamps = [segment["text_timestamp"].split("_") for segment in segments]
         mach_segments = chunk_mach_transcript(
             transcript_data=transcript,
             log_dir=shard_mach_log_dir,
@@ -794,18 +805,30 @@ def preprocess_jsonl(
 
             if seg_mach == False:
                 merge_man_mach = False
-                segments_group = [
-                    chunk_transcript(
-                        transcript,
-                        transcript_manifest,
-                        shard_log_dir,
-                        keep_tokens,
-                        dolma_format,
-                        merge_man_mach,
-                        in_memory,
-                    )
-                    for transcript in transcript_data
-                ]
+                # segments_group = [
+                # chunk_transcript(
+                #     transcript,
+                #     transcript_manifest,
+                #     shard_log_dir,
+                #     keep_tokens,
+                #     dolma_format,
+                #     merge_man_mach,
+                #     in_memory,
+                # )
+                #     for transcript in transcript_data
+                # ]
+                segments_group, *_ = zip(
+                    *[
+                        chunk_transcript_only(
+                            transcript,
+                            transcript_manifest,
+                            dolma_format,
+                            merge_man_mach,
+                            in_memory,
+                        )
+                        for transcript in transcript_data
+                    ]
+                )
             else:
                 (
                     segments_group,
