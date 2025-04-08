@@ -75,21 +75,22 @@ def preprocess(
 
     for data_shard_path in data_shard_paths:
         data_shard_idx = ""
+        segment_output_dir = ""
         if data_shard_path.endswith(".jsonl.gz"):
             data_shard_idx = os.path.basename(data_shard_path).split("_")[-1].split(".")[0]
 
             if transcript_only is False:
-                output_dir = os.path.join(
+                segment_output_dir = os.path.join(
                     output_dir,
                     f"{data_shard_idx}",
                 )
         else:
             data_shard_idx = data_shard_path.split("/")[-1]
-            output_dir = os.path.join(output_dir, f"{data_shard_idx}")
+            segment_output_dir = os.path.join(output_dir, f"{data_shard_idx}")
 
-        print(f"{data_shard_path=}, {data_shard_idx=}, {output_dir=}")
+        print(f"{data_shard_path=}, {data_shard_idx=}, {segment_output_dir=}")
 
-        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(segment_output_dir, exist_ok=True)
 
         if not data_shard_path.endswith(".jsonl.gz"):
             # dealing w/ missing pairs
@@ -97,7 +98,7 @@ def preprocess(
                 missing_pair_dir, f"{data_shard_path.split('/')[-1]}"
             )
             os.makedirs(missing_pair_dir, exist_ok=True)
-            logger.info(f"{output_dir=}, {missing_pair_dir=}")
+            logger.info(f"{segment_output_dir=}, {missing_pair_dir=}")
 
             logger.info(f"Preprocessing {data_shard_path}")
             audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
@@ -155,8 +156,8 @@ def preprocess(
         # debug
         # print(f"{audio_files[0]=}")
         # print(f"{transcript_files[0]=}")
-        # chunk_local(transcript_file=transcript_files[0], audio_file=audio_files[0], output_dir=output_dir, audio_only=audio_only, transcript_only=transcript_only, in_memory=in_memory)
-        # chunk_transcript_only(data[10], transcript_manifest, output_dir)
+        # chunk_local(transcript_file=transcript_files[0], audio_file=audio_files[0], output_dir=segment_output_dir, audio_only=audio_only, transcript_only=transcript_only, in_memory=in_memory)
+        # chunk_transcript_only(data[10], transcript_manifest, segment_output_dir)
 
         # Chunk data
         logger.info("Chunking data")
@@ -170,7 +171,7 @@ def preprocess(
                             zip(
                                 transcript_files,
                                 audio_files,
-                                repeat(output_dir),
+                                repeat(segment_output_dir),
                                 repeat(audio_only),
                                 repeat(transcript_only),
                                 repeat(in_memory),
@@ -185,7 +186,7 @@ def preprocess(
                     tqdm(
                         pool.imap_unordered(
                             parallel_chunk_transcript_only,
-                            zip(data, repeat(transcript_manifest), repeat(output_dir)),
+                            zip(data, repeat(transcript_manifest), repeat(segment_output_dir)),
                         ),
                         total=len(data),
                     )
@@ -225,7 +226,7 @@ def preprocess(
                 )
         else:
             with gzip.open(
-                os.path.join(output_dir, f"{data_shard_idx}.jsonl.gz"), "wt"
+                os.path.join(segment_output_dir, f"{data_shard_idx}.jsonl.gz"), "wt"
             ) as f:
                 [f.write(f"{json.dumps(segment)}\n") for segment in segments_list]
         logger.info(f"Time taken to write to disk: {(time.time() - start) / 60} minutes")
