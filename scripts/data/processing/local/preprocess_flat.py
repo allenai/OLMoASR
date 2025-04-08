@@ -243,7 +243,7 @@ def preprocess(
 
     # writing manifest file
     if transcript_only is False:
-        with open(f"{log_dir}/{data_shard_idx}_manifest.txt", "w") as f:
+        with open(f"{manifest_dir}/{data_shard_idx}_manifest.txt", "w") as f:
             [f.write(f"{'/'.join(segment[-2].split('/')[-2:])}\n") for segment in segments_list]
 
 
