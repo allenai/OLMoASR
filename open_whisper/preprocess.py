@@ -448,7 +448,7 @@ def chunk_data(
                             a_output_file, audio_arr = utils.trim_audio(
                                 audio_file=audio_file,
                                 start=start,
-                                end=utils.adjust_timestamp(start, 30000),
+                                end=utils.adjust_timestamp(start, 30000), # like speech segments
                                 output_dir=segment_output_dir,
                                 in_memory=in_memory,
                             )
@@ -464,7 +464,7 @@ def chunk_data(
                             a_output_file, audio_arr = utils.trim_audio(
                                 audio_file=audio_file,
                                 start=start,
-                                end=utils.adjust_timestamp(start, 30000),
+                                end=utils.adjust_timestamp(start, 30000), # like speech segments
                                 output_dir=segment_output_dir,
                                 in_memory=in_memory,
                             )
