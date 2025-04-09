@@ -737,7 +737,7 @@ def short_form_eval(
         else:
             run_id = wandb.util.generate_id()
 
-        ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
+        ow_or_w = "open-whisper" if ckpt.split("/")[3] == "ow_ckpts" else "whisper"
         exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
         model_sizes = ["tiny", "small", "base", "medium", "large"]
         model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
