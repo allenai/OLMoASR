@@ -143,7 +143,7 @@ class AudioTextDataset(Dataset):
         transcript_string: str,
         transcript_file: str,
         tokenizer: whisper.tokenizer.Tokenizer,
-        next_start_ms: int,
+        next_start_ms: Union[int, str],
         ts_mode: bool,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool]:
         """Preprocesses the text data for the model.
@@ -165,6 +165,7 @@ class AudioTextDataset(Dataset):
         transcript, *_ = reader.read()
         timestamp_mode = False
         if not transcript:
+            next_start_ms = ow.utils.convert_to_milliseconds(next_start_ms)
             if next_start_ms > 30000:
                 next_start_token_idx = [tokenizer.timestamp_begin + (30000 // 20)]
             else:
