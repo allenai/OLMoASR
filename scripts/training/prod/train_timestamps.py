@@ -165,7 +165,9 @@ class AudioTextDataset(Dataset):
         transcript, *_ = reader.read()
         timestamp_mode = False
         if not transcript:
-            next_start_ms = ow.utils.convert_to_milliseconds(next_start_ms)
+            if isinstance(next_start_ms, str):
+                next_start_ms = ow.utils.convert_to_milliseconds(next_start_ms)
+                
             if next_start_ms > 30000:
                 next_start_token_idx = [tokenizer.timestamp_begin + (30000 // 20)]
             else:
