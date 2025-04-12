@@ -232,6 +232,8 @@ class AudioTextDataset(Dataset):
                         next_start_token_idx = [
                             tokenizer.timestamp_begin + (30000 // 20)
                         ]
+                    elif next_start_ms is None:
+                        next_start_token_idx = []
                     else:
                         next_start_token_idx = [
                             tokenizer.timestamp_begin + (next_start_ms // 20)
