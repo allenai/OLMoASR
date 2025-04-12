@@ -111,7 +111,7 @@ class AudioTextDataset(Dataset):
         )
 
     def preprocess_audio(
-        self, audio_file: str, norm_end: Optional[str]
+        self, audio_file: str, norm_end: Optional[Union[str, int]]
     ) -> Tuple[str, torch.Tensor]:
         """Preprocesses the audio data for the model.
 
@@ -126,7 +126,10 @@ class AudioTextDataset(Dataset):
         audio_arr = np.load(audio_file).astype(np.float32) / 32768.0
         if norm_end:
             # number of samples to trim until
-            length = ow.utils.convert_to_milliseconds(norm_end) * 16
+            if isinstance(norm_end, str):
+                norm_end = ow.utils.convert_to_milliseconds(norm_end)
+                
+            length = norm_end * 16
             # trim until end of text segment
             audio_arr = audio.pad_or_trim(audio_arr, length=length)
             # pad w/ silence
