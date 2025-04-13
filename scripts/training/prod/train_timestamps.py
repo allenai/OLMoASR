@@ -1,4 +1,6 @@
 import os
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["TORCH_USE_CUDA_DSA"] = "1"
 import glob
 import json
 import numpy as np
@@ -48,9 +50,6 @@ VARIANT_TO_PARAMS = {
 }
 
 HARDWARE_TO_FLOPS = {"H100": 900 * 10**12, "L40": 366 * 10**12, "A100": 312 * 10**12}
-
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["TORCH_USE_CUDA_DSA"] = "1"
 
 class AudioTextDataset(Dataset):
     """Dataset for audio and transcript segments
@@ -180,7 +179,7 @@ class AudioTextDataset(Dataset):
                     tokenizer.timestamp_begin + (next_start_ms // 20)
                 ]
 
-            if np.random.rand() > 1:
+            if np.random.rand() >= 0.5:
                 tokens = (
                     [tokenizer.sot_sequence[0]]
                     + [tokenizer.timestamp_begin]
@@ -206,7 +205,6 @@ class AudioTextDataset(Dataset):
 
             if np.random.rand() >= 0.5:
                 if ts_mode is True:
-
                     def convert_to_token_idx(timestamp, timestamp_begin):
                         return timestamp_begin + (
                             ow.utils.convert_to_milliseconds(timestamp) // 20
