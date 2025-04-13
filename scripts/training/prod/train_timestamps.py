@@ -196,9 +196,7 @@ class AudioTextDataset(Dataset):
         else:
             tokens = [
                 (
-                    tokenizer.encode(text.strip() + " ")
-                    if i < len(transcript) - 1
-                    else tokenizer.encode(text.strip())
+                    tokenizer.encode(" " + text.strip())
                 )
                 for i, (_, text) in enumerate(transcript.items())
             ]
@@ -264,6 +262,22 @@ class AudioTextDataset(Dataset):
         # offset
         text_input = tokens[:-1]
         text_y = tokens[1:]
+
+        if len(text_input) > self.n_text_ctx:
+            print(f"{transcript_file=}")
+            print(f"{timestamp_mode=}")
+            print(f"{next_start_ms=}")
+            print(f"{transcript_string=}")
+            print(f"{len(text_input)=}")
+            print(f"{text_input=}")
+        
+        if len(text_y) > self.n_text_ctx:
+            print(f"{transcript_file=}")
+            print(f"{timestamp_mode=}")
+            print(f"{next_start_ms=}")
+            print(f"{transcript_string=}")
+            print(f"{len(text_y)=}")
+            print(f"{text_y=}")
 
         if max(tokens) >= 51864:
             print(f"{transcript_file=}")
