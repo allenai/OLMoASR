@@ -266,6 +266,7 @@ class AudioTextDataset(Dataset):
         text_y = tokens[1:]
 
         if max(tokens) >= 51864:
+            print(f"{transcript_file=}")
             print(f"{timestamp_mode=}")
             print(f"{next_start_ms=}")
             print(f"{transcript_string=}")
