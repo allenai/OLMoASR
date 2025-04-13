@@ -49,6 +49,8 @@ VARIANT_TO_PARAMS = {
 
 HARDWARE_TO_FLOPS = {"H100": 900 * 10**12, "L40": 366 * 10**12, "A100": 312 * 10**12}
 
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["TORCH_USE_CUDA_DSA"] = "1"
 
 class AudioTextDataset(Dataset):
     """Dataset for audio and transcript segments
