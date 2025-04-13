@@ -265,6 +265,12 @@ class AudioTextDataset(Dataset):
         text_input = tokens[:-1]
         text_y = tokens[1:]
 
+        if tokens.max() >= 51864:
+            print(f"{timestamp_mode=}")
+            print(f"{next_start_ms=}")
+            print(f"{transcript_string=}")
+            print("Invalid token index found:", tokens.max().item(), "vs max allowed: 51863")
+
         padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
         padding_mask[:, len(text_input) :] = -np.inf
         # causal_mask = (
