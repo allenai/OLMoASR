@@ -185,6 +185,7 @@ class AudioTextDataset(Dataset):
                     + [tokenizer.timestamp_begin]
                     + [tokenizer.no_speech]
                     + next_start_token_idx
+                    + next_start_token_idx
                     + [tokenizer.eot]
                 )
             else:
