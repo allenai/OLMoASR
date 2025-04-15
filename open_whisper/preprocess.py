@@ -405,7 +405,7 @@ def chunk_data(
                 over_ctx_len, res = utils.over_ctx_len(
                     timestamps=(
                         timestamps[a:b]  # directly starting when speech starts
-                        if a == 0 or start_in_no_speech is None
+                        if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
                         else timestamps[a + 1 : b]  # starting when there's no speech
                     ),
                     transcript=transcript,
@@ -414,7 +414,7 @@ def chunk_data(
                 valid_timestamps = utils.timestamps_valid(
                     timestamps=(
                         timestamps[a:b]
-                        if a == 0 or start_in_no_speech is None
+                        if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
                         else timestamps[a + 1 : b]
                     ),
                     global_start=timestamps[0][0],
@@ -429,7 +429,7 @@ def chunk_data(
                                 audio_begin=local_start,
                                 timestamps=(
                                     timestamps[a:b]
-                                    if a == 0 or start_in_no_speech is None
+                                    if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
                                     else timestamps[a + 1 : b]
                                 ),
                                 transcript=transcript,
@@ -511,7 +511,7 @@ def chunk_data(
                             audio_begin=local_start,
                             timestamps=(
                                 timestamps[a:b]
-                                if a == 0 or start_in_no_speech is None
+                                if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
                                 else timestamps[a + 1 : b]
                             ),
                             transcript=transcript,
@@ -580,7 +580,7 @@ def chunk_data(
                 over_ctx_len, res = utils.over_ctx_len(
                     timestamps=(
                         timestamps[a:b]
-                        if a == 0 or start_in_no_speech is None
+                        if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
                         else timestamps[a + 1 : b]
                     ),
                     transcript=transcript,
@@ -590,7 +590,7 @@ def chunk_data(
                 valid_timestamps = utils.timestamps_valid(
                     timestamps=(
                         timestamps[a:b]
-                        if a == 0 or start_in_no_speech is None
+                        if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
                         else timestamps[a + 1 : b]
                     ),
                     global_start=timestamps[0][0],
@@ -603,7 +603,7 @@ def chunk_data(
                                 audio_begin=local_start,
                                 timestamps=(
                                     timestamps[a:b]
-                                    if a == 0 or start_in_no_speech is None
+                                    if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
                                     else timestamps[a + 1 : b]
                                 ),
                                 transcript=transcript,
@@ -678,7 +678,7 @@ def chunk_data(
                             audio_begin=local_start,
                             timestamps=(
                                 timestamps[a:b]
-                                if a == 0 or start_in_no_speech is None
+                                if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
                                 else timestamps[a + 1 : b]
                             ),
                             transcript=transcript,
