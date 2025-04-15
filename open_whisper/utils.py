@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from itertools import chain
 import re
 from typing import Dict, Union, Tuple, List, Optional, Literal
 import subprocess
@@ -275,6 +276,7 @@ class TranscriptReader:
 
 
 def write_segment(
+    audio_begin: str,
     timestamps: List,
     transcript: Optional[Dict],
     output_dir: str,
@@ -293,7 +295,7 @@ def write_segment(
     Returns:
         Path to the output transcript file
     """
-    output_file = f"{output_dir}/{timestamps[0][0].replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
+    output_file = f"{output_dir}/{audio_begin.replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
     transcript_string = ""
 
     if ext == "vtt":
@@ -308,11 +310,11 @@ def write_segment(
     for i in range(len(timestamps)):
         start = adjust_timestamp(
             timestamp=timestamps[i][0],
-            milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+            milliseconds=-convert_to_milliseconds(audio_begin),
         )
         end = adjust_timestamp(
             timestamp=timestamps[i][1],
-            milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+            milliseconds=-convert_to_milliseconds(audio_begin),
         )
 
         if ext == "srt":
@@ -329,6 +331,64 @@ def write_segment(
             f.write(transcript_string)
 
     return output_file, transcript_string, end.replace(",", ".")
+
+
+# old write_segment
+# def write_segment(
+#     timestamps: List,
+#     transcript: Optional[Dict],
+#     output_dir: str,
+#     ext: str,
+#     in_memory: bool,
+# ) -> Tuple[str, str]:
+#     """Write a segment of the transcript to a file
+
+#     Args:
+#         timestamps: List of timestamps
+#         transcript: Transcript as a dictionary
+#         output_dir: Directory to save the transcript file
+#         ext: File extension
+#         in_memory: Whether to save the transcript in memory or to a file
+
+#     Returns:
+#         Path to the output transcript file
+#     """
+#     output_file = f"{output_dir}/{timestamps[0][0].replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
+#     transcript_string = ""
+
+#     if ext == "vtt":
+#         transcript_string += "WEBVTT\n\n"
+
+#     if transcript is None:
+#         if not in_memory:
+#             with open(output_file, "w") as f:
+#                 f.write(transcript_string)
+#         return output_file, transcript_string, ""
+
+#     for i in range(len(timestamps)):
+#         start = adjust_timestamp(
+#             timestamp=timestamps[i][0],
+#             milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+#         )
+#         end = adjust_timestamp(
+#             timestamp=timestamps[i][1],
+#             milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+#         )
+
+#         if ext == "srt":
+#             start = start.replace(".", ",")
+#             end = end.replace(".", ",")
+#             transcript_string += f"{i + 1}\n"
+
+#         transcript_string += (
+#             f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
+#         )
+
+#     if not in_memory:
+#         with open(output_file, "w") as f:
+#             f.write(transcript_string)
+
+#     return output_file, transcript_string, end.replace(",", ".")
 
 
 def calculate_wer(pair: Tuple[str, str]) -> float:
@@ -348,7 +408,10 @@ def calculate_wer(pair: Tuple[str, str]) -> float:
 
 
 def over_ctx_len(
-    timestamps: List, transcript: Optional[Dict], language: Optional[str]
+    timestamps: List,
+    transcript: Optional[Dict],
+    language: Optional[str],
+    last_seg: bool = False,
 ) -> Tuple[bool, Optional[str]]:
     """Check if transcript text exceeds model context length
 
@@ -362,25 +425,90 @@ def over_ctx_len(
         True if the transcript text exceeds the model context length, False otherwise
     """
     try:
-        text_lines = [transcript[timestamps[i]].strip() for i in range(len(timestamps))]
-        text = " ".join(text_lines)
         if language is None:
             tokenizer = get_tokenizer(multilingual=False)
         else:
             tokenizer = get_tokenizer(language=language, multilingual=True)
 
-        text_tokens = tokenizer.encode(text)
-        text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens
-        text_tokens.append(tokenizer.eot)
+        text_tokens = [
+            (tokenizer.encode(" " + transcript[timestamp].strip()))
+            for i, timestamp in enumerate(timestamps)
+        ]
 
-        if len(text_tokens) > 448:
+        # text_tokens = list(chain(*text_tokens))
+
+        num_timestamp_tokens = (
+            (len(timestamps) * 2) + 1 if not last_seg else (len(timestamps) * 2)
+        )  # next_start timestamp (+1) when not last_seg
+        num_text_tokens = sum([len(token_group) for token_group in text_tokens])
+        num_tokens_ts_mode = num_timestamp_tokens + num_text_tokens + 2  # sot + eot
+        num_tokens_no_ts_mode = num_text_tokens + 3  # sot + notimestamps + eot
+
+        if num_tokens_ts_mode > 448 and num_tokens_no_ts_mode > 448:
             return True, None
+        elif num_tokens_ts_mode > 448 and num_tokens_no_ts_mode <= 448:
+            return False, {
+                "ts_mode": False,
+                "no_ts_mode": True,
+                "num_tokens_no_ts_mode": num_tokens_no_ts_mode,
+                "num_tokens_ts_mode": num_tokens_ts_mode,
+            }
+        elif num_tokens_ts_mode <= 448 and num_tokens_no_ts_mode > 448:
+            return False, {
+                "ts_mode": True,
+                "no_ts_mode": False,
+                "num_tokens_no_ts_mode": num_tokens_no_ts_mode,
+                "num_tokens_ts_mode": num_tokens_ts_mode,
+            }
         else:
-            return False, None
+            return False, {
+                "ts_mode": True,
+                "no_ts_mode": True,
+                "num_tokens_no_ts_mode": num_tokens_no_ts_mode,
+                "num_tokens_ts_mode": num_tokens_ts_mode,
+            }
+
+        # text_lines = [transcript[timestamps[i]].strip() for i in range(len(timestamps))]
+        # text = " ".join(text_lines)
+
+        # text_tokens = tokenizer.encode(text)
+        # text_tokens = list(tokenizer.sot_sequence_including_notimestamps) + text_tokens
+        # text_tokens.append(tokenizer.eot)
+
+        # if len(text_tokens) > 448:
+        #     return True, None
+        # else:
+        #     return False, None
     except RuntimeError:
         return True, "error"
     except Exception as e:
         return True, "error"
+
+
+def timestamps_valid(timestamps: List, global_start: str, global_end: str) -> bool:
+    if not timestamps:
+        return False
+
+    to_ms = convert_to_milliseconds
+    start, end = to_ms(timestamps[0][0]), to_ms(timestamps[-1][1])
+    g_start, g_end = to_ms(global_start), to_ms(global_end)
+
+    # Global bounds and duration check
+    if start < g_start or end > g_end or (end - start) > 30000:
+        return False
+
+    for t0, t1 in timestamps:
+        t0_ms, t1_ms = to_ms(t0), to_ms(t1)
+        if (
+            t0_ms > t1_ms
+            or t0_ms < g_start
+            or t1_ms > g_end
+            or t0_ms < start
+            or t1_ms > end
+        ):
+            return False
+
+    return True
 
 
 def too_short_audio(audio_arr: np.ndarray, sample_rate: int = 16000) -> bool:
