@@ -796,6 +796,7 @@ def chunk_local(
         transcript_ext=transcript_ext,
         audio_file=audio_file,
         segment_output_dir=segment_output_dir,
+        video_id=video_id,
         language=language,
         audio_only=audio_only,
         transcript_only=transcript_only,

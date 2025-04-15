@@ -1,4 +1,5 @@
 import os
+import gc
 import tarfile
 import shutil
 import gzip
@@ -75,7 +76,7 @@ def preprocess(
 
     for data_shard_path in data_shard_paths:
         data_shard_idx = ""
-        segment_output_dir = ""
+        segment_output_dir = output_dir
         if data_shard_path.endswith(".jsonl.gz"):
             data_shard_idx = os.path.basename(data_shard_path).split("_")[-1].split(".")[0]
 
@@ -255,6 +256,13 @@ def preprocess(
                     for segment in segments_list
                 ]
 
+        del audio_files
+        del transcript_files
+        del results
+        del segments_group
+        del segments_list
+        
+        gc.collect()
 
 if __name__ == "__main__":
     Fire(preprocess)
