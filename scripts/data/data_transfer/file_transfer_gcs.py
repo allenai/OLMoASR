@@ -20,19 +20,18 @@ def upload_dir(local_dir, bucket_name, bucket_prefix, service_account, key_file)
     try:
         cmd = f"gcloud auth activate-service-account '{service_account}' --key-file='{key_file}'"
         result = subprocess.run(cmd, shell=True, capture_output=True)
-        logger.info(result.stdout)
-        logger.info(result.stderr)
+        logger.info(result.stdout.decode())
+        logger.info(result.stderr.decode())
     except Exception as e:
-        logger.info(result.stderr)
         logger.error(e)
 
-    cmd = f"gsutil -m cp -r {local_dir} gs://{bucket_name}/{bucket_prefix}"
+    # Use `gsutil -m cp -n` to avoid overwriting existing files on GCS
+    cmd = f"gsutil -m cp -n -r {local_dir} gs://{bucket_name}/{bucket_prefix}"
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True)
-        logger.info(result.stdout)
-        logger.info(result.stderr)
+        logger.info(result.stdout.decode())
+        logger.info(result.stderr.decode())
     except Exception as e:
-        logger.info(result.stderr)
         logger.error(e)
     
 def download_file(
