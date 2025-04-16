@@ -193,39 +193,16 @@ def preprocess(
                     future.result()
                     for future in tqdm(as_completed(futures), total=len(futures))
                 ]
-
-            # with multiprocessing.Pool(multiprocessing.cpu_count() * 7) as pool:
-            #     results = list(
-            #         tqdm(
-            #             pool.imap_unordered(
-            #                 parallel_chunk_local,
-            #                 zip(
-            #                     transcript_files,
-            #                     audio_files,
-            #                     repeat(segment_output_dir),
-            #                     repeat(audio_only),
-            #                     repeat(transcript_only),
-            #                     repeat(in_memory),
-            #                 ),
-            #             ),
-            #             total=len(transcript_files),
-            #         )
-            #     )
         else:
-            with multiprocessing.Pool(multiprocessing.cpu_count() * 7) as pool:
-                results = list(
-                    tqdm(
-                        pool.imap_unordered(
-                            parallel_chunk_transcript_only,
-                            zip(
-                                data,
-                                repeat(transcript_manifest),
-                                repeat(segment_output_dir),
-                            ),
-                        ),
-                        total=len(data),
-                    )
-                )
+            with ProcessPoolExecutor() as executor:
+                futures = [
+                    executor.submit(parallel_chunk_transcript_only, args)
+                    for args in zip(data, repeat(transcript_manifest))
+                ]
+                results = [
+                    future.result()
+                    for future in tqdm(as_completed(futures), total=len(futures))
+                ]
 
         (
             segments_group,
@@ -292,8 +269,9 @@ def preprocess(
                     for segment in segments_list
                 ]
 
-        del audio_files
-        del transcript_files
+        if transcript_only is False:
+            del audio_files
+            del transcript_files
         del results
         del segments_group
         del segments_list
