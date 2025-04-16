@@ -214,7 +214,7 @@ def chunk_data(
                 local_start = timestamps[a][
                     0
                 ]  # starting from the beginning of the transcript
-            elif from_no_speech is True:
+            elif from_no_speech is True or a == b:
                 if start_in_no_speech is not None:
                     local_start = start_in_no_speech  # starting from no speech < 30s that is extracted from a > 30s no speech segment
                 else:
@@ -246,6 +246,7 @@ def chunk_data(
 
                     a += 1
                     b += 1
+                    start_in_no_speech = None
 
                     # if reach end of transcript or trancscript only has 1 line
                     if a == b == len(transcript):
@@ -275,6 +276,7 @@ def chunk_data(
                             if start == timestamps[b][0]:
                                 a = b
                                 from_no_speech = True
+                                start_in_no_speech = None
                                 continue
                             else:
                                 start_in_no_speech = start
@@ -406,6 +408,11 @@ def chunk_data(
                     < 30000
                     and (local_start, timestamps[b][0]) not in timestamps
                 ):
+                    if timestamps[b][0] == local_start:
+                        a = b
+                        from_no_speech = True
+                        start_in_no_speech = None
+                        continue
                     end = timestamps[b][0]
                     norm_end = utils.adjust_timestamp(
                         end, -utils.convert_to_milliseconds(local_start)
@@ -422,7 +429,7 @@ def chunk_data(
                             in_memory=in_memory,
                         )
 
-                        if not utils.too_short_audio_text(start=start, end=end):
+                        if not utils.too_short_audio_text(start=local_start, end=end):
                             timestamp = t_output_file.split("/")[-1].split(
                                 f".{transcript_ext}"
                             )[0]
