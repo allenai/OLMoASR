@@ -5,7 +5,7 @@ import shutil
 import gzip
 import json
 import glob
-from tqdm import tqdm
+from tqdm import tqdm as tqdm_
 from typing import List, Tuple, Union, Dict, Optional
 from open_whisper.preprocess import chunk_local, chunk_transcript_only
 import time
@@ -16,6 +16,7 @@ from itertools import repeat, chain
 import numpy as np
 from io import BytesIO
 import logging
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,6 +25,12 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+class tqdm(tqdm_):
+    def __init__(self, *args, **kwargs):
+        kwargs["bar_format"] = "{l_bar}{bar}{r_bar}\n"
+        super().__init__(*args, **kwargs)
 
 
 def write_to_disk(
@@ -78,7 +85,9 @@ def preprocess(
         data_shard_idx = ""
         segment_output_dir = output_dir
         if data_shard_path.endswith(".jsonl.gz"):
-            data_shard_idx = os.path.basename(data_shard_path).split("_")[-1].split(".")[0]
+            data_shard_idx = (
+                os.path.basename(data_shard_path).split("_")[-1].split(".")[0]
+            )
 
             if transcript_only is False:
                 segment_output_dir = os.path.join(
@@ -120,7 +129,9 @@ def preprocess(
                             - set([p.split(".")[0] for p in transcript_files])
                         )
                     ]
-                    new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs]
+                    new_paths = [
+                        shutil.move(d, missing_pair_dir) for d in missing_pairs
+                    ]
                 elif len(audio_files) < len(transcript_files):
                     missing_pairs = [
                         "/".join(p.split("/")[:6])
@@ -129,7 +140,9 @@ def preprocess(
                             - set([p.split(".")[0] for p in audio_files])
                         )
                     ]
-                    new_paths = [shutil.move(d, missing_pair_dir) for d in missing_pairs]
+                    new_paths = [
+                        shutil.move(d, missing_pair_dir) for d in missing_pairs
+                    ]
 
                 logger.info(f"{new_paths[:5]=}")
 
@@ -164,30 +177,51 @@ def preprocess(
         logger.info("Chunking data")
         start = time.time()
         if transcript_only is False:
-            with multiprocessing.Pool(multiprocessing.cpu_count() * 7) as pool:
-                results = list(
-                    tqdm(
-                        pool.imap_unordered(
-                            parallel_chunk_local,
-                            zip(
-                                transcript_files,
-                                audio_files,
-                                repeat(segment_output_dir),
-                                repeat(audio_only),
-                                repeat(transcript_only),
-                                repeat(in_memory),
-                            ),
-                        ),
-                        total=len(transcript_files),
+            with ProcessPoolExecutor() as executor:
+                futures = [
+                    executor.submit(parallel_chunk_local, args)
+                    for args in zip(
+                        transcript_files,
+                        audio_files,
+                        repeat(segment_output_dir),
+                        repeat(audio_only),
+                        repeat(transcript_only),
+                        repeat(in_memory),
                     )
-                )
+                ]
+                results = [
+                    future.result()
+                    for future in tqdm(as_completed(futures), total=len(futures))
+                ]
+
+            # with multiprocessing.Pool(multiprocessing.cpu_count() * 7) as pool:
+            #     results = list(
+            #         tqdm(
+            #             pool.imap_unordered(
+            #                 parallel_chunk_local,
+            #                 zip(
+            #                     transcript_files,
+            #                     audio_files,
+            #                     repeat(segment_output_dir),
+            #                     repeat(audio_only),
+            #                     repeat(transcript_only),
+            #                     repeat(in_memory),
+            #                 ),
+            #             ),
+            #             total=len(transcript_files),
+            #         )
+            #     )
         else:
             with multiprocessing.Pool(multiprocessing.cpu_count() * 7) as pool:
                 results = list(
                     tqdm(
                         pool.imap_unordered(
                             parallel_chunk_transcript_only,
-                            zip(data, repeat(transcript_manifest), repeat(segment_output_dir)),
+                            zip(
+                                data,
+                                repeat(transcript_manifest),
+                                repeat(segment_output_dir),
+                            ),
                         ),
                         total=len(data),
                     )
@@ -230,7 +264,9 @@ def preprocess(
                 os.path.join(segment_output_dir, f"{data_shard_idx}.jsonl.gz"), "wt"
             ) as f:
                 [f.write(f"{json.dumps(segment)}\n") for segment in segments_list]
-        logger.info(f"Time taken to write to disk: {(time.time() - start) / 60} minutes")
+        logger.info(
+            f"Time taken to write to disk: {(time.time() - start) / 60} minutes"
+        )
 
         logger.info(f"Completed processing data shard {data_shard_path}")
 
@@ -261,8 +297,9 @@ def preprocess(
         del results
         del segments_group
         del segments_list
-        
+
         gc.collect()
+
 
 if __name__ == "__main__":
     Fire(preprocess)
