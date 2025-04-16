@@ -275,66 +275,9 @@ class TranscriptReader:
         return transcript_text.strip()
 
 
-def write_segment(
-    audio_begin: str,
-    timestamps: List,
-    transcript: Optional[Dict],
-    output_dir: str,
-    ext: str,
-    in_memory: bool,
-) -> Tuple[str, str]:
-    """Write a segment of the transcript to a file
-
-    Args:
-        timestamps: List of timestamps
-        transcript: Transcript as a dictionary
-        output_dir: Directory to save the transcript file
-        ext: File extension
-        in_memory: Whether to save the transcript in memory or to a file
-
-    Returns:
-        Path to the output transcript file
-    """
-    output_file = f"{output_dir}/{audio_begin.replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
-    transcript_string = ""
-
-    if ext == "vtt":
-        transcript_string += "WEBVTT\n\n"
-
-    if transcript is None:
-        if not in_memory:
-            with open(output_file, "w") as f:
-                f.write(transcript_string)
-        return output_file, transcript_string, ""
-
-    for i in range(len(timestamps)):
-        start = adjust_timestamp(
-            timestamp=timestamps[i][0],
-            milliseconds=-convert_to_milliseconds(audio_begin),
-        )
-        end = adjust_timestamp(
-            timestamp=timestamps[i][1],
-            milliseconds=-convert_to_milliseconds(audio_begin),
-        )
-
-        if ext == "srt":
-            start = start.replace(".", ",")
-            end = end.replace(".", ",")
-            transcript_string += f"{i + 1}\n"
-
-        transcript_string += (
-            f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
-        )
-
-    if not in_memory:
-        with open(output_file, "w") as f:
-            f.write(transcript_string)
-
-    return output_file, transcript_string, end.replace(",", ".")
-
-
 # old write_segment
 # def write_segment(
+#     audio_begin: str,
 #     timestamps: List,
 #     transcript: Optional[Dict],
 #     output_dir: str,
@@ -353,7 +296,7 @@ def write_segment(
 #     Returns:
 #         Path to the output transcript file
 #     """
-#     output_file = f"{output_dir}/{timestamps[0][0].replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
+#     output_file = f"{output_dir}/{audio_begin.replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
 #     transcript_string = ""
 
 #     if ext == "vtt":
@@ -368,11 +311,11 @@ def write_segment(
 #     for i in range(len(timestamps)):
 #         start = adjust_timestamp(
 #             timestamp=timestamps[i][0],
-#             milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+#             milliseconds=-convert_to_milliseconds(audio_begin),
 #         )
 #         end = adjust_timestamp(
 #             timestamp=timestamps[i][1],
-#             milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+#             milliseconds=-convert_to_milliseconds(audio_begin),
 #         )
 
 #         if ext == "srt":
@@ -389,6 +332,63 @@ def write_segment(
 #             f.write(transcript_string)
 
 #     return output_file, transcript_string, end.replace(",", ".")
+
+
+def write_segment(
+    timestamps: List,
+    transcript: Optional[Dict],
+    output_dir: str,
+    ext: str,
+    in_memory: bool,
+) -> Tuple[str, str]:
+    """Write a segment of the transcript to a file
+
+    Args:
+        timestamps: List of timestamps
+        transcript: Transcript as a dictionary
+        output_dir: Directory to save the transcript file
+        ext: File extension
+        in_memory: Whether to save the transcript in memory or to a file
+
+    Returns:
+        Path to the output transcript file
+    """
+    output_file = f"{output_dir}/{timestamps[0][0].replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
+    transcript_string = ""
+
+    if ext == "vtt":
+        transcript_string += "WEBVTT\n\n"
+
+    if transcript is None:
+        if not in_memory:
+            with open(output_file, "w") as f:
+                f.write(transcript_string)
+        return output_file, transcript_string, ""
+
+    for i in range(len(timestamps)):
+        start = adjust_timestamp(
+            timestamp=timestamps[i][0],
+            milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+        )
+        end = adjust_timestamp(
+            timestamp=timestamps[i][1],
+            milliseconds=-convert_to_milliseconds(timestamps[0][0]),
+        )
+
+        if ext == "srt":
+            start = start.replace(".", ",")
+            end = end.replace(".", ",")
+            transcript_string += f"{i + 1}\n"
+
+        transcript_string += (
+            f"{start} --> {end}\n{transcript[(timestamps[i][0], timestamps[i][1])]}\n\n"
+        )
+
+    if not in_memory:
+        with open(output_file, "w") as f:
+            f.write(transcript_string)
+
+    return output_file, transcript_string, end.replace(",", ".")
 
 
 def calculate_wer(pair: Tuple[str, str]) -> float:
