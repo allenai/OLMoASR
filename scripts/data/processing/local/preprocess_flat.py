@@ -77,7 +77,7 @@ def preprocess(
     print(f"{job_start_shard_idx=}")
     print(f"{job_end_shard_idx=}")
     data_shard_paths = sorted(glob.glob(source_dir + "/*"))[
-        job_start_shard_idx : job_end_shard_idx + 1
+        job_start_shard_idx : job_end_shard_idx
     ]
     print(f"{data_shard_paths=}")
 
