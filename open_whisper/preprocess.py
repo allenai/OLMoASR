@@ -204,10 +204,32 @@ def chunk_data(
     diff = 0
     init_diff = 0
     segments_list = []
+    from_no_speech = False
+    start_in_no_speech = None
+    local_start = None
 
     try:
         while a < len(transcript) + 1 and segment_count < SEGMENT_COUNT_THRESHOLD:
-            init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
+            if a == 0:
+                local_start = timestamps[a][
+                    0
+                ]  # starting from the beginning of the transcript
+            elif from_no_speech is True:
+                if start_in_no_speech is not None:
+                    local_start = start_in_no_speech  # starting from no speech < 30s that is extracted from a > 30s no speech segment
+                else:
+                    local_start = timestamps[a][
+                        0
+                    ]  # starting immediately after no speech segment, when speech starts
+            else:
+                local_start = timestamps[a][
+                    1
+                ]  # starting immediately after previous segment speech ended
+
+            init_diff = utils.calculate_difference(
+                local_start,
+                timestamps[b][1],
+            )
 
             if init_diff <= 30000:
                 diff = init_diff
@@ -234,21 +256,327 @@ def chunk_data(
 
                     continue
 
+                # no speech segment >= 30s and consecutive no speech for >= 30s
+                if (
+                    b - a == 1
+                    and utils.calculate_difference(local_start, timestamps[b][0])
+                    >= 30000
+                    and (local_start, timestamps[b][0]) not in timestamps
+                ):
+                    no_speech_segments = (
+                        utils.calculate_difference(local_start, timestamps[b][0])
+                        // 30000
+                    )
+
+                    for i in range(0, no_speech_segments + 1):
+                        start = utils.adjust_timestamp(local_start, (i * 30000))
+
+                        if i == no_speech_segments:
+                            if start == timestamps[b][0]:
+                                a = b
+                                from_no_speech = True
+                                continue
+                            else:
+                                start_in_no_speech = start
+                                from_no_speech = True
+                                continue
+                        else:
+                            end = utils.adjust_timestamp(start, 30000)
+                            norm_end = 30000
+                            audio_timestamp = (
+                                f"{start.replace('.', ',')}_{end.replace('.', ',')}"
+                            )
+
+                        if transcript_only is True:
+                            t_output_file, transcript_string, _ = utils.write_segment(
+                                audio_begin=start,
+                                timestamps=[(start, end)],
+                                transcript=None,
+                                output_dir=segment_output_dir,
+                                ext=transcript_ext,
+                                in_memory=in_memory,
+                            )
+
+                            if not utils.too_short_audio_text(start=start, end=end):
+                                timestamp = t_output_file.split("/")[-1].split(
+                                    f".{transcript_ext}"
+                                )[0]
+
+                                if dolma_format is False:
+                                    outputs = {
+                                        "subtitle_file": t_output_file.replace(
+                                            "ow_full", "ow_seg"
+                                        ),
+                                        "seg_content": transcript_string,
+                                        "text_timestamp": timestamp,
+                                        "audio_timestamp": audio_timestamp,
+                                        "norm_end": norm_end,
+                                        "id": video_id,
+                                        "seg_id": f"{video_id}_{segment_count}",
+                                        "audio_file": os.path.join(
+                                            os.path.dirname(t_output_file),
+                                            f"{audio_timestamp}.npy",
+                                        ).replace("ow_full", "ow_seg"),
+                                        "ts_mode": True,
+                                        "no_ts_mode": True,
+                                        "num_tokens_no_ts_mode": 0,
+                                        "num_tokens_ts_mode": 0,
+                                    }
+                                else:
+                                    outputs = {
+                                        "id": f"{video_id}_{segment_count}",
+                                        "text": transcript_string,
+                                        "source": "OW",
+                                        "metadata": {
+                                            "subtitle_file": t_output_file.replace(
+                                                "ow_full", "ow_seg"
+                                            ),
+                                            "text_timestamp": timestamp,
+                                            "audio_timestamp": audio_timestamp,
+                                            "norm_end": norm_end,
+                                            "audio_file": os.path.join(
+                                                os.path.dirname(t_output_file),
+                                                f"{audio_timestamp}.npy",
+                                            ).replace("ow_full", "ow_seg"),
+                                            "ts_mode": True,
+                                            "no_ts_mode": True,
+                                            "num_tokens_no_ts_mode": 0,
+                                            "num_tokens_ts_mode": 0,
+                                        },
+                                    }
+                                segments_list.append(outputs)
+                                segment_count += 1
+                        elif audio_only is True:
+                            a_output_file, audio_arr = utils.trim_audio(
+                                audio_file=audio_file,
+                                start=start,
+                                end=end,  # like speech segments
+                                output_dir=segment_output_dir,
+                                in_memory=in_memory,
+                            )
+                        elif transcript_only is False and audio_only is False:
+                            t_output_file, transcript_string, _ = utils.write_segment(
+                                audio_begin=start,
+                                timestamps=[(start, end)],
+                                transcript=None,
+                                output_dir=segment_output_dir,
+                                ext=transcript_ext,
+                                in_memory=in_memory,
+                            )
+
+                            a_output_file, audio_arr = utils.trim_audio(
+                                audio_file=audio_file,
+                                start=start,
+                                end=end,  # like speech segments
+                                output_dir=segment_output_dir,
+                                in_memory=in_memory,
+                            )
+
+                        if audio_only is True or (
+                            transcript_only is False and audio_only is False
+                        ):
+                            if audio_arr is not None and not utils.too_short_audio(
+                                audio_arr=audio_arr
+                            ):
+                                if audio_only:
+                                    outputs = (a_output_file, audio_arr)
+                                else:
+                                    outputs = (
+                                        t_output_file,
+                                        transcript_string,
+                                        a_output_file,
+                                        audio_arr,
+                                    )
+
+                                segments_list.append(outputs)
+                                segment_count += 1
+                            else:
+                                if audio_arr is None:
+                                    if on_gcs:
+                                        with open(
+                                            f"{log_dir}/faulty_audio.txt", "a"
+                                        ) as f:
+                                            f.write(f"{video_id}\tindex: {b}\n")
+                                    else:
+                                        faulty_audio_segment_count += 1
+                    continue
+                elif (
+                    b - a == 1
+                    and utils.calculate_difference(local_start, timestamps[b][0])
+                    < 30000
+                    and (local_start, timestamps[b][0]) not in timestamps
+                ):
+                    end = timestamps[b][0]
+                    norm_end = utils.adjust_timestamp(
+                        end, -utils.convert_to_milliseconds(local_start)
+                    )
+                    audio_timestamp = f"{local_start.replace('.', ',')}_{utils.adjust_timestamp(local_start, 30000).replace('.', ',')}"
+
+                    if transcript_only is True:
+                        t_output_file, transcript_string, _ = utils.write_segment(
+                            audio_begin=local_start,
+                            timestamps=[(local_start, end)],
+                            transcript=None,
+                            output_dir=segment_output_dir,
+                            ext=transcript_ext,
+                            in_memory=in_memory,
+                        )
+
+                        if not utils.too_short_audio_text(start=start, end=end):
+                            timestamp = t_output_file.split("/")[-1].split(
+                                f".{transcript_ext}"
+                            )[0]
+
+                            if dolma_format is False:
+                                outputs = {
+                                    "subtitle_file": t_output_file.replace(
+                                        "ow_full", "ow_seg"
+                                    ),
+                                    "seg_content": transcript_string,
+                                    "text_timestamp": timestamp,
+                                    "audio_timestamp": audio_timestamp,
+                                    "norm_end": norm_end,
+                                    "id": video_id,
+                                    "seg_id": f"{video_id}_{segment_count}",
+                                    "audio_file": os.path.join(
+                                        os.path.dirname(t_output_file),
+                                        f"{audio_timestamp}.npy",
+                                    ).replace("ow_full", "ow_seg"),
+                                    "ts_mode": True,
+                                    "no_ts_mode": True,
+                                    "num_tokens_no_ts_mode": 0,
+                                    "num_tokens_ts_mode": 0,
+                                }
+                            else:
+                                outputs = {
+                                    "id": f"{video_id}_{segment_count}",
+                                    "text": transcript_string,
+                                    "source": "OW",
+                                    "metadata": {
+                                        "subtitle_file": t_output_file.replace(
+                                            "ow_full", "ow_seg"
+                                        ),
+                                        "text_timestamp": timestamp,
+                                        "audio_timestamp": audio_timestamp,
+                                        "norm_end": norm_end,
+                                        "audio_file": os.path.join(
+                                            os.path.dirname(t_output_file),
+                                            f"{audio_timestamp}.npy",
+                                        ).replace("ow_full", "ow_seg"),
+                                        "ts_mode": True,
+                                        "no_ts_mode": True,
+                                        "num_tokens_no_ts_mode": 0,
+                                        "num_tokens_ts_mode": 0,
+                                    },
+                                }
+                            segments_list.append(outputs)
+                            segment_count += 1
+                    elif audio_only is True:
+                        a_output_file, audio_arr = utils.trim_audio(
+                            audio_file=audio_file,
+                            start=local_start,
+                            end=utils.adjust_timestamp(
+                                local_start, 30000
+                            ),  # like speech segments
+                            output_dir=segment_output_dir,
+                            in_memory=in_memory,
+                        )
+                    elif transcript_only is False and audio_only is False:
+                        t_output_file, transcript_string, _ = utils.write_segment(
+                            audio_begin=local_start,
+                            timestamps=[(local_start, end)],
+                            transcript=None,
+                            output_dir=segment_output_dir,
+                            ext=transcript_ext,
+                            in_memory=in_memory,
+                        )
+
+                        a_output_file, audio_arr = utils.trim_audio(
+                            audio_file=audio_file,
+                            start=local_start,
+                            end=utils.adjust_timestamp(
+                                local_start, 30000
+                            ),  # like speech segments
+                            output_dir=segment_output_dir,
+                            in_memory=in_memory,
+                        )
+
+                    if audio_only is True or (
+                        transcript_only is False and audio_only is False
+                    ):
+                        if audio_arr is not None and not utils.too_short_audio(
+                            audio_arr=audio_arr
+                        ):
+                            if audio_only:
+                                outputs = (a_output_file, audio_arr)
+                            else:
+                                outputs = (
+                                    t_output_file,
+                                    transcript_string,
+                                    a_output_file,
+                                    audio_arr,
+                                )
+
+                            segments_list.append(outputs)
+                            segment_count += 1
+                        else:
+                            if audio_arr is None:
+                                if on_gcs:
+                                    with open(f"{log_dir}/faulty_audio.txt", "a") as f:
+                                        f.write(f"{video_id}\tindex: {b}\n")
+                                else:
+                                    faulty_audio_segment_count += 1
+                    a = b
+                    from_no_speech = True
+                    start_in_no_speech = None
+                    continue
+
+                # a + 1 is the beginning of the text line ([a + 1][0] can be == a[-1] in terms of timestamps, but we don't want to include text in a b/c a == b - 1. [a + 1][0] can also be == a[-1] )
                 over_ctx_len, res = utils.over_ctx_len(
-                    timestamps=timestamps[a:b], transcript=transcript, language=language
+                    timestamps=(
+                        timestamps[a:b]  # directly starting when speech starts
+                        if a == 0
+                        or (
+                            start_in_no_speech is None
+                            and a > 0
+                            and from_no_speech is True
+                        )
+                        else timestamps[a + 1 : b]  # starting when there's no speech
+                    ),
+                    transcript=transcript,
+                    language=language,
                 )
                 valid_timestamps = utils.timestamps_valid(
-                    timestamps=timestamps[a:b],
+                    timestamps=(
+                        timestamps[a:b]
+                        if a == 0
+                        or (
+                            start_in_no_speech is None
+                            and a > 0
+                            and from_no_speech is True
+                        )
+                        else timestamps[a + 1 : b]
+                    ),
                     global_start=timestamps[0][0],
                     global_end=timestamps[-1][1],
                 )
                 # check if segment text goes over model context length
                 if not over_ctx_len and valid_timestamps:
                     if transcript_only is True:
-                        # writing transcript segment w/ timestamps[a][0] -> timestamps[b - 1][1]
+                        # writing transcript segment w/ timestamps[a + 1][0] -> timestamps[b - 1][1]
                         t_output_file, transcript_string, norm_end = (
                             utils.write_segment(
-                                timestamps=timestamps[a:b],
+                                audio_begin=local_start,
+                                timestamps=(
+                                    timestamps[a:b]
+                                    if a == 0
+                                    or (
+                                        start_in_no_speech is None
+                                        and a > 0
+                                        and from_no_speech is True
+                                    )
+                                    else timestamps[a + 1 : b]
+                                ),
                                 transcript=transcript,
                                 output_dir=segment_output_dir,
                                 ext=transcript_ext,
@@ -257,10 +585,10 @@ def chunk_data(
                         )
 
                         if not utils.too_short_audio_text(
-                            start=timestamps[a][0],
-                            end=utils.adjust_timestamp(timestamps[a][0], 30000),
+                            start=local_start,
+                            end=utils.adjust_timestamp(local_start, 30000),
                         ):
-                            audio_timestamp = f"{timestamps[a][0].replace('.', ',')}_{utils.adjust_timestamp(timestamps[a][0], 30000).replace('.', ',')}"
+                            audio_timestamp = f"{local_start.replace('.', ',')}_{utils.adjust_timestamp(local_start, 30000).replace('.', ',')}"
                             text_timestamp = t_output_file.split("/")[-1].split(
                                 f".{transcript_ext}"
                             )[0]
@@ -272,10 +600,6 @@ def chunk_data(
                                     "seg_content": transcript_string,
                                     "text_timestamp": text_timestamp,
                                     "audio_timestamp": audio_timestamp,
-                                    "next_start": timestamps[b][0],
-                                    "norm_next_start": utils.calculate_difference(
-                                        timestamps[a][0], timestamps[b][0]
-                                    ),
                                     "norm_end": norm_end,
                                     "id": video_id,
                                     "seg_id": f"{video_id}_{segment_count}",
@@ -301,10 +625,6 @@ def chunk_data(
                                         ),
                                         "text_timestamp": text_timestamp,
                                         "audio_timestamp": audio_timestamp,
-                                        "next_start": timestamps[b][0],
-                                        "norm_next_start": utils.calculate_difference(
-                                            timestamps[a][0], timestamps[b][0]
-                                        ),
                                         "norm_end": norm_end,
                                         "audio_file": os.path.join(
                                             os.path.dirname(t_output_file),
@@ -322,29 +642,39 @@ def chunk_data(
                             segments_list.append(outputs)
                             segment_count += 1
                     elif audio_only is True:
-                        # writing audio segment w/ timestamps[a][0] -> timestamps[a][0] + 30s
+                        # writing audio segment w/ local_start -> local_start + 30s
                         a_output_file, audio_arr = utils.trim_audio(
                             audio_file=audio_file,
-                            start=timestamps[a][0],
-                            end=utils.adjust_timestamp(timestamps[a][0], 30000),
+                            start=local_start,
+                            end=utils.adjust_timestamp(local_start, 30000),
                             output_dir=segment_output_dir,
                             in_memory=in_memory,
                         )
                     elif transcript_only is False and audio_only is False:
-                        # writing transcript segment w/ timestamps[a][0] -> timestamps[b - 1][1]
+                        # writing transcript segment w/ timestamps[a + 1][0] or timestamps[a][0] -> timestamps[b - 1][1]
                         t_output_file, transcript_string, _ = utils.write_segment(
-                            timestamps=timestamps[a:b],
+                            audio_begin=local_start,
+                            timestamps=(
+                                timestamps[a:b]
+                                if a == 0
+                                or (
+                                    start_in_no_speech is None
+                                    and a > 0
+                                    and from_no_speech is True
+                                )
+                                else timestamps[a + 1 : b]
+                            ),
                             transcript=transcript,
                             output_dir=segment_output_dir,
                             ext=transcript_ext,
                             in_memory=in_memory,
                         )
 
-                        # writing audio segment w/ timestamps[a][0] -> timestamps[b - 1][1]
+                        # writing audio segment w/ local_start -> local_start + 30s
                         a_output_file, audio_arr = utils.trim_audio(
                             audio_file=audio_file,
-                            start=timestamps[a][0],
-                            end=utils.adjust_timestamp(timestamps[a][0], 30000),
+                            start=local_start,
+                            end=utils.adjust_timestamp(local_start, 30000),
                             output_dir=segment_output_dir,
                             in_memory=in_memory,
                         )
@@ -388,171 +718,41 @@ def chunk_data(
 
                 init_diff = 0
                 diff = 0
+                # moving pointer a to b - 1
+                a = b - 1
 
-                # checking for no-speech segments
-                if timestamps[b][0] > timestamps[b - 1][1] and (
-                    utils.convert_to_milliseconds(timestamps[b][0])
-                    < utils.convert_to_milliseconds(timestamps[-1][1])
-                ):
-                    no_speech_segments = (
-                        utils.calculate_difference(
-                            timestamps[b - 1][1], timestamps[b][0]
-                        )
-                        // 30000
-                    )
-
-                    for i in range(0, no_speech_segments + 1):
-                        start = utils.adjust_timestamp(
-                            timestamps[b - 1][1], (i * 30000)
-                        )
-
-                        if i == no_speech_segments:
-                            if start == timestamps[b][0]:
-                                continue
-                            else:
-                                end = timestamps[b][0]
-                                next_start = end
-                                norm_end = utils.adjust_timestamp(
-                                    end, -utils.convert_to_milliseconds(start)
-                                )
-                                audio_timestamp = f"{start.replace('.', ',')}_{utils.adjust_timestamp(start, 30000).replace('.', ',')}"
-                        else:
-                            end = utils.adjust_timestamp(start, 30000)
-                            next_start = end
-                            norm_end = 30000
-                            audio_timestamp = f"{start.replace('.', ',')}_{utils.adjust_timestamp(start, 30000).replace('.', ',')}"
-
-                        if transcript_only is True:
-                            t_output_file, transcript_string, _ = utils.write_segment(
-                                timestamps=[(start, end)],
-                                transcript=None,
-                                output_dir=segment_output_dir,
-                                ext=transcript_ext,
-                                in_memory=in_memory,
-                            )
-
-                            if not utils.too_short_audio_text(start=start, end=end):
-                                timestamp = t_output_file.split("/")[-1].split(
-                                    f".{transcript_ext}"
-                                )[0]
-
-                                if dolma_format is False:
-                                    outputs = {
-                                        "subtitle_file": t_output_file.replace(
-                                            "ow_full", "ow_seg"
-                                        ),
-                                        "seg_content": transcript_string,
-                                        "text_timestamp": timestamp,
-                                        "audio_timestamp": audio_timestamp,
-                                        "next_start": next_start,
-                                        "norm_next_start": norm_end,
-                                        "norm_end": norm_end,
-                                        "id": video_id,
-                                        "seg_id": f"{video_id}_{segment_count}",
-                                        "audio_file": os.path.join(
-                                            os.path.dirname(t_output_file),
-                                            f"{audio_timestamp}.npy",
-                                        ).replace("ow_full", "ow_seg"),
-                                        "ts_mode": True,
-                                        "no_ts_mode": True,
-                                        "num_tokens_no_ts_mode": 0,
-                                        "num_tokens_ts_mode": 0,
-                                    }
-                                else:
-                                    outputs = {
-                                        "id": f"{video_id}_{segment_count}",
-                                        "text": transcript_string,
-                                        "source": "OW",
-                                        "metadata": {
-                                            "subtitle_file": t_output_file.replace(
-                                                "ow_full", "ow_seg"
-                                            ),
-                                            "text_timestamp": timestamp,
-                                            "audio_timestamp": audio_timestamp,
-                                            "next_start": next_start,
-                                            "norm_next_start": norm_end,
-                                            "norm_end": norm_end,
-                                            "audio_file": os.path.join(
-                                                os.path.dirname(t_output_file),
-                                                f"{audio_timestamp}.npy",
-                                            ).replace("ow_full", "ow_seg"),
-                                            "ts_mode": True,
-                                            "no_ts_mode": True,
-                                            "num_tokens_no_ts_mode": 0,
-                                            "num_tokens_ts_mode": 0,
-                                        },
-                                    }
-                                segments_list.append(outputs)
-                                segment_count += 1
-                        elif audio_only is True:
-                            a_output_file, audio_arr = utils.trim_audio(
-                                audio_file=audio_file,
-                                start=start,
-                                end=utils.adjust_timestamp(
-                                    start, 30000
-                                ),  # like speech segments
-                                output_dir=segment_output_dir,
-                                in_memory=in_memory,
-                            )
-                        elif transcript_only is False and audio_only is False:
-                            t_output_file, transcript_string, _ = utils.write_segment(
-                                timestamps=[(start, end)],
-                                transcript=None,
-                                output_dir=segment_output_dir,
-                                ext=transcript_ext,
-                                in_memory=in_memory,
-                            )
-
-                            a_output_file, audio_arr = utils.trim_audio(
-                                audio_file=audio_file,
-                                start=start,
-                                end=utils.adjust_timestamp(
-                                    start, 30000
-                                ),  # like speech segments
-                                output_dir=segment_output_dir,
-                                in_memory=in_memory,
-                            )
-
-                        if audio_only is True or (
-                            transcript_only is False and audio_only is False
-                        ):
-                            if audio_arr is not None and not utils.too_short_audio(
-                                audio_arr=audio_arr
-                            ):
-                                if audio_only:
-                                    outputs = (a_output_file, audio_arr)
-                                else:
-                                    outputs = (
-                                        t_output_file,
-                                        transcript_string,
-                                        a_output_file,
-                                        audio_arr,
-                                    )
-
-                                segments_list.append(outputs)
-                                segment_count += 1
-                            else:
-                                if audio_arr is None:
-                                    if on_gcs:
-                                        with open(
-                                            f"{log_dir}/faulty_audio.txt", "a"
-                                        ) as f:
-                                            f.write(f"{video_id}\tindex: {b}\n")
-                                    else:
-                                        faulty_audio_segment_count += 1
-                # moving pointer a to b
-                a = b
+                # resetting
+                from_no_speech = False
+                start_in_no_speech = None
 
             # at the end of transcript
             if b == len(transcript) and diff <= 30000:
                 over_ctx_len, res = utils.over_ctx_len(
-                    timestamps=timestamps[a:b],
+                    timestamps=(
+                        timestamps[a:b]
+                        if a == 0
+                        or (
+                            start_in_no_speech is None
+                            and a > 0
+                            and from_no_speech is True
+                        )
+                        else timestamps[a + 1 : b]
+                    ),
                     transcript=transcript,
                     language=language,
                     last_seg=True,
                 )
                 valid_timestamps = utils.timestamps_valid(
-                    timestamps=timestamps[a:b],
+                    timestamps=(
+                        timestamps[a:b]
+                        if a == 0
+                        or (
+                            start_in_no_speech is None
+                            and a > 0
+                            and from_no_speech is True
+                        )
+                        else timestamps[a + 1 : b]
+                    ),
                     global_start=timestamps[0][0],
                     global_end=timestamps[-1][1],
                 )
@@ -560,7 +760,17 @@ def chunk_data(
                     if transcript_only is True:
                         t_output_file, transcript_string, norm_end = (
                             utils.write_segment(
-                                timestamps=timestamps[a:b],
+                                audio_begin=local_start,
+                                timestamps=(
+                                    timestamps[a:b]
+                                    if a == 0
+                                    or (
+                                        start_in_no_speech is None
+                                        and a > 0
+                                        and from_no_speech is True
+                                    )
+                                    else timestamps[a + 1 : b]
+                                ),
                                 transcript=transcript,
                                 output_dir=segment_output_dir,
                                 ext=transcript_ext,
@@ -569,7 +779,7 @@ def chunk_data(
                         )
 
                         if not utils.too_short_audio_text(
-                            start=timestamps[a][0], end=timestamps[b - 1][1]
+                            start=local_start, end=timestamps[b - 1][1]
                         ):
                             timestamp = t_output_file.split("/")[-1].split(
                                 f".{transcript_ext}"
@@ -582,8 +792,6 @@ def chunk_data(
                                     "seg_content": transcript_string,
                                     "text_timestamp": timestamp,
                                     "audio_timestamp": timestamp,
-                                    "next_start": None,
-                                    "norm_next_start": None,
                                     "norm_end": norm_end,
                                     "id": video_id,
                                     "seg_id": f"{video_id}_{segment_count}",
@@ -608,8 +816,6 @@ def chunk_data(
                                         ),
                                         "text_timestamp": timestamp,
                                         "audio_timestamp": timestamp,
-                                        "next_start": None,
-                                        "norm_next_start": None,
                                         "norm_end": norm_end,
                                         "audio_file": t_output_file.replace(
                                             f".{transcript_ext}", ".npy"
@@ -627,14 +833,24 @@ def chunk_data(
                     elif audio_only is True:
                         a_output_file, audio_arr = utils.trim_audio(
                             audio_file=audio_file,
-                            start=timestamps[a][0],
+                            start=local_start,
                             end=timestamps[b - 1][1],
                             output_dir=segment_output_dir,
                             in_memory=in_memory,
                         )
                     elif transcript_only is False and audio_only is False:
                         t_output_file, transcript_string, _ = utils.write_segment(
-                            timestamps=timestamps[a:b],
+                            audio_begin=local_start,
+                            timestamps=(
+                                timestamps[a:b]
+                                if a == 0
+                                or (
+                                    start_in_no_speech is None
+                                    and a > 0
+                                    and from_no_speech is True
+                                )
+                                else timestamps[a + 1 : b]
+                            ),
                             transcript=transcript,
                             output_dir=segment_output_dir,
                             ext=transcript_ext,
@@ -643,7 +859,7 @@ def chunk_data(
 
                         a_output_file, audio_arr = utils.trim_audio(
                             audio_file=audio_file,
-                            start=timestamps[a][0],
+                            start=local_start,
                             end=timestamps[b - 1][1],
                             output_dir=segment_output_dir,
                             in_memory=in_memory,
@@ -744,7 +960,7 @@ def chunk_local(
     if len(transcript.keys()) == 0:
         empty_transcript += 1
         return None, empty_transcript
-
+    
     result = chunk_data(
         transcript=transcript,
         transcript_ext=transcript_ext,
@@ -1125,6 +1341,553 @@ def chunk_mach_transcript(
         return None, 0, 0, 0, 0, 0, failed_transcript_count
 
 
+# old chunk_data
+# def chunk_data(
+#     transcript: Dict,
+#     transcript_ext: str,
+#     audio_file: Optional[str] = None,
+#     segment_output_dir: Optional[str] = None,
+#     video_id: Optional[str] = None,
+#     language: Optional[str] = None,
+#     audio_only: bool = False,
+#     transcript_only: bool = False,
+#     dolma_format: bool = False,
+#     in_memory: bool = True,
+#     on_gcs: bool = False,
+#     log_dir: Optional[str] = None,
+# ) -> Optional[Tuple[List, int, int, int, int, int]]:
+#     a = 0
+#     b = 0
+
+#     segment_count = 0
+#     over_30_line_segment_count = 0
+#     bad_text_segment_count = 0
+#     over_ctx_len_segment_count = 0
+#     faulty_audio_segment_count = 0
+#     faulty_transcript_count = 0
+#     failed_transcript_count = 0
+
+#     timestamps = list(transcript.keys())
+#     diff = 0
+#     init_diff = 0
+#     segments_list = []
+
+#     try:
+#         while a < len(transcript) + 1 and segment_count < SEGMENT_COUNT_THRESHOLD:
+#             init_diff = utils.calculate_difference(timestamps[a][0], timestamps[b][1])
+
+#             if init_diff <= 30000:
+#                 diff = init_diff
+#                 b += 1
+#             # init_diff > 30000
+#             else:
+#                 # edge case (when transcript line is > 30s), not included in segment group
+#                 if b == a:
+#                     over_30_line_segment_count += 1
+
+#                     if on_gcs:
+#                         with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
+#                             f.write(f"{video_id}\tindex: {b}\n")
+
+#                     a += 1
+#                     b += 1
+
+#                     # if reach end of transcript or trancscript only has 1 line
+#                     if a == b == len(transcript):
+#                         # if transcript has only 1 line that is > 30s, stop processing
+#                         if segment_count == 0:
+#                             faulty_transcript_count += 1
+#                         break
+
+#                     continue
+
+#                 over_ctx_len, res = utils.over_ctx_len(
+#                     timestamps=timestamps[a:b], transcript=transcript, language=language
+#                 )
+#                 valid_timestamps = utils.timestamps_valid(
+#                     timestamps=timestamps[a:b],
+#                     global_start=timestamps[0][0],
+#                     global_end=timestamps[-1][1],
+#                 )
+#                 # check if segment text goes over model context length
+#                 if not over_ctx_len and valid_timestamps:
+#                     if transcript_only is True:
+#                         # writing transcript segment w/ timestamps[a][0] -> timestamps[b - 1][1]
+#                         t_output_file, transcript_string, norm_end = (
+#                             utils.write_segment(
+#                                 timestamps=timestamps[a:b],
+#                                 transcript=transcript,
+#                                 output_dir=segment_output_dir,
+#                                 ext=transcript_ext,
+#                                 in_memory=in_memory,
+#                             )
+#                         )
+
+#                         if not utils.too_short_audio_text(
+#                             start=timestamps[a][0],
+#                             end=utils.adjust_timestamp(timestamps[a][0], 30000),
+#                         ):
+#                             audio_timestamp = f"{timestamps[a][0].replace('.', ',')}_{utils.adjust_timestamp(timestamps[a][0], 30000).replace('.', ',')}"
+#                             text_timestamp = t_output_file.split("/")[-1].split(
+#                                 f".{transcript_ext}"
+#                             )[0]
+#                             if dolma_format is False:
+#                                 outputs = {
+#                                     "subtitle_file": t_output_file.replace(
+#                                         "ow_full", "ow_seg"
+#                                     ),
+#                                     "seg_content": transcript_string,
+#                                     "text_timestamp": text_timestamp,
+#                                     "audio_timestamp": audio_timestamp,
+#                                     "next_start": timestamps[b][0],
+#                                     "norm_next_start": utils.calculate_difference(
+#                                         timestamps[a][0], timestamps[b][0]
+#                                     ),
+#                                     "norm_end": norm_end,
+#                                     "id": video_id,
+#                                     "seg_id": f"{video_id}_{segment_count}",
+#                                     "audio_file": os.path.join(
+#                                         os.path.dirname(t_output_file),
+#                                         f"{audio_timestamp}.npy",
+#                                     ).replace("ow_full", "ow_seg"),
+#                                     "ts_mode": res["ts_mode"],
+#                                     "no_ts_mode": res["no_ts_mode"],
+#                                     "num_tokens_no_ts_mode": res[
+#                                         "num_tokens_no_ts_mode"
+#                                     ],
+#                                     "num_tokens_ts_mode": res["num_tokens_ts_mode"],
+#                                 }
+#                             else:
+#                                 outputs = {
+#                                     "id": f"{video_id}_{segment_count}",
+#                                     "text": transcript_string,
+#                                     "source": "OW",
+#                                     "metadata": {
+#                                         "subtitle_file": t_output_file.replace(
+#                                             "ow_full", "ow_seg"
+#                                         ),
+#                                         "text_timestamp": text_timestamp,
+#                                         "audio_timestamp": audio_timestamp,
+#                                         "next_start": timestamps[b][0],
+#                                         "norm_next_start": utils.calculate_difference(
+#                                             timestamps[a][0], timestamps[b][0]
+#                                         ),
+#                                         "norm_end": norm_end,
+#                                         "audio_file": os.path.join(
+#                                             os.path.dirname(t_output_file),
+#                                             f"{audio_timestamp}.npy",
+#                                         ).replace("ow_full", "ow_seg"),
+#                                         "ts_mode": res["ts_mode"],
+#                                         "no_ts_mode": res["no_ts_mode"],
+#                                         "num_tokens_no_ts_mode": res[
+#                                             "num_tokens_no_ts_mode"
+#                                         ],
+#                                         "num_tokens_ts_mode": res["num_tokens_ts_mode"],
+#                                     },
+#                                 }
+
+#                             segments_list.append(outputs)
+#                             segment_count += 1
+#                     elif audio_only is True:
+#                         # writing audio segment w/ timestamps[a][0] -> timestamps[a][0] + 30s
+#                         a_output_file, audio_arr = utils.trim_audio(
+#                             audio_file=audio_file,
+#                             start=timestamps[a][0],
+#                             end=utils.adjust_timestamp(timestamps[a][0], 30000),
+#                             output_dir=segment_output_dir,
+#                             in_memory=in_memory,
+#                         )
+#                     elif transcript_only is False and audio_only is False:
+#                         # writing transcript segment w/ timestamps[a][0] -> timestamps[b - 1][1]
+#                         t_output_file, transcript_string, _ = utils.write_segment(
+#                             timestamps=timestamps[a:b],
+#                             transcript=transcript,
+#                             output_dir=segment_output_dir,
+#                             ext=transcript_ext,
+#                             in_memory=in_memory,
+#                         )
+
+#                         # writing audio segment w/ timestamps[a][0] -> timestamps[b - 1][1]
+#                         a_output_file, audio_arr = utils.trim_audio(
+#                             audio_file=audio_file,
+#                             start=timestamps[a][0],
+#                             end=utils.adjust_timestamp(timestamps[a][0], 30000),
+#                             output_dir=segment_output_dir,
+#                             in_memory=in_memory,
+#                         )
+
+#                     if audio_only is True or (
+#                         transcript_only is False and audio_only is False
+#                     ):
+#                         # check if audio segment is too short or that audio array is valid (not None)
+#                         if audio_arr is not None and not utils.too_short_audio(
+#                             audio_arr=audio_arr
+#                         ):
+#                             if audio_only:
+#                                 outputs = (a_output_file, audio_arr)
+#                             else:
+#                                 outputs = (
+#                                     t_output_file,
+#                                     transcript_string,
+#                                     a_output_file,
+#                                     audio_arr,
+#                                 )
+#                             segments_list.append(outputs)
+#                             segment_count += 1
+#                         else:
+#                             if audio_arr is None:
+#                                 if on_gcs:
+#                                     with open(f"{log_dir}/faulty_audio.txt", "a") as f:
+#                                         f.write(f"{video_id}\tindex: {b}\n")
+#                                 else:
+#                                     faulty_audio_segment_count += 1
+#                 else:
+#                     if res == "error":
+#                         if on_gcs:
+#                             with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
+#                                 f.write(f"{video_id}\tindex: {b}\n")
+#                         bad_text_segment_count += 1
+#                     else:
+#                         if on_gcs:
+#                             with open(f"{log_dir}/over_ctx_len.txt", "a") as f:
+#                                 f.write(f"{video_id}\tindex: {b}\n")
+#                         over_ctx_len_segment_count += 1
+
+#                 init_diff = 0
+#                 diff = 0
+
+#                 # checking for no-speech segments
+#                 if timestamps[b][0] > timestamps[b - 1][1] and (
+#                     utils.convert_to_milliseconds(timestamps[b][0])
+#                     < utils.convert_to_milliseconds(timestamps[-1][1])
+#                 ):
+#                     no_speech_segments = (
+#                         utils.calculate_difference(
+#                             timestamps[b - 1][1], timestamps[b][0]
+#                         )
+#                         // 30000
+#                     )
+
+#                     for i in range(0, no_speech_segments + 1):
+#                         start = utils.adjust_timestamp(
+#                             timestamps[b - 1][1], (i * 30000)
+#                         )
+
+#                         if i == no_speech_segments:
+#                             if start == timestamps[b][0]:
+#                                 continue
+#                             else:
+#                                 end = timestamps[b][0]
+#                                 next_start = end
+#                                 norm_end = utils.adjust_timestamp(
+#                                     end, -utils.convert_to_milliseconds(start)
+#                                 )
+#                                 audio_timestamp = f"{start.replace('.', ',')}_{utils.adjust_timestamp(start, 30000).replace('.', ',')}"
+#                         else:
+#                             end = utils.adjust_timestamp(start, 30000)
+#                             next_start = end
+#                             norm_end = 30000
+#                             audio_timestamp = f"{start.replace('.', ',')}_{utils.adjust_timestamp(start, 30000).replace('.', ',')}"
+
+#                         if transcript_only is True:
+#                             t_output_file, transcript_string, _ = utils.write_segment(
+#                                 timestamps=[(start, end)],
+#                                 transcript=None,
+#                                 output_dir=segment_output_dir,
+#                                 ext=transcript_ext,
+#                                 in_memory=in_memory,
+#                             )
+
+#                             if not utils.too_short_audio_text(start=start, end=end):
+#                                 timestamp = t_output_file.split("/")[-1].split(
+#                                     f".{transcript_ext}"
+#                                 )[0]
+
+#                                 if dolma_format is False:
+#                                     outputs = {
+#                                         "subtitle_file": t_output_file.replace(
+#                                             "ow_full", "ow_seg"
+#                                         ),
+#                                         "seg_content": transcript_string,
+#                                         "text_timestamp": timestamp,
+#                                         "audio_timestamp": audio_timestamp,
+#                                         "next_start": next_start,
+#                                         "norm_next_start": norm_end,
+#                                         "norm_end": norm_end,
+#                                         "id": video_id,
+#                                         "seg_id": f"{video_id}_{segment_count}",
+#                                         "audio_file": os.path.join(
+#                                             os.path.dirname(t_output_file),
+#                                             f"{audio_timestamp}.npy",
+#                                         ).replace("ow_full", "ow_seg"),
+#                                         "ts_mode": True,
+#                                         "no_ts_mode": True,
+#                                         "num_tokens_no_ts_mode": 0,
+#                                         "num_tokens_ts_mode": 0,
+#                                     }
+#                                 else:
+#                                     outputs = {
+#                                         "id": f"{video_id}_{segment_count}",
+#                                         "text": transcript_string,
+#                                         "source": "OW",
+#                                         "metadata": {
+#                                             "subtitle_file": t_output_file.replace(
+#                                                 "ow_full", "ow_seg"
+#                                             ),
+#                                             "text_timestamp": timestamp,
+#                                             "audio_timestamp": audio_timestamp,
+#                                             "next_start": next_start,
+#                                             "norm_next_start": norm_end,
+#                                             "norm_end": norm_end,
+#                                             "audio_file": os.path.join(
+#                                                 os.path.dirname(t_output_file),
+#                                                 f"{audio_timestamp}.npy",
+#                                             ).replace("ow_full", "ow_seg"),
+#                                             "ts_mode": True,
+#                                             "no_ts_mode": True,
+#                                             "num_tokens_no_ts_mode": 0,
+#                                             "num_tokens_ts_mode": 0,
+#                                         },
+#                                     }
+#                                 segments_list.append(outputs)
+#                                 segment_count += 1
+#                         elif audio_only is True:
+#                             a_output_file, audio_arr = utils.trim_audio(
+#                                 audio_file=audio_file,
+#                                 start=start,
+#                                 end=utils.adjust_timestamp(
+#                                     start, 30000
+#                                 ),  # like speech segments
+#                                 output_dir=segment_output_dir,
+#                                 in_memory=in_memory,
+#                             )
+#                         elif transcript_only is False and audio_only is False:
+#                             t_output_file, transcript_string, _ = utils.write_segment(
+#                                 timestamps=[(start, end)],
+#                                 transcript=None,
+#                                 output_dir=segment_output_dir,
+#                                 ext=transcript_ext,
+#                                 in_memory=in_memory,
+#                             )
+
+#                             a_output_file, audio_arr = utils.trim_audio(
+#                                 audio_file=audio_file,
+#                                 start=start,
+#                                 end=utils.adjust_timestamp(
+#                                     start, 30000
+#                                 ),  # like speech segments
+#                                 output_dir=segment_output_dir,
+#                                 in_memory=in_memory,
+#                             )
+
+#                         if audio_only is True or (
+#                             transcript_only is False and audio_only is False
+#                         ):
+#                             if audio_arr is not None and not utils.too_short_audio(
+#                                 audio_arr=audio_arr
+#                             ):
+#                                 if audio_only:
+#                                     outputs = (a_output_file, audio_arr)
+#                                 else:
+#                                     outputs = (
+#                                         t_output_file,
+#                                         transcript_string,
+#                                         a_output_file,
+#                                         audio_arr,
+#                                     )
+
+#                                 segments_list.append(outputs)
+#                                 segment_count += 1
+#                             else:
+#                                 if audio_arr is None:
+#                                     if on_gcs:
+#                                         with open(
+#                                             f"{log_dir}/faulty_audio.txt", "a"
+#                                         ) as f:
+#                                             f.write(f"{video_id}\tindex: {b}\n")
+#                                     else:
+#                                         faulty_audio_segment_count += 1
+#                 # moving pointer a to b
+#                 a = b
+
+#             # at the end of transcript
+#             if b == len(transcript) and diff <= 30000:
+#                 over_ctx_len, res = utils.over_ctx_len(
+#                     timestamps=timestamps[a:b],
+#                     transcript=transcript,
+#                     language=language,
+#                     last_seg=True,
+#                 )
+#                 valid_timestamps = utils.timestamps_valid(
+#                     timestamps=timestamps[a:b],
+#                     global_start=timestamps[0][0],
+#                     global_end=timestamps[-1][1],
+#                 )
+#                 if not over_ctx_len and valid_timestamps:
+#                     if transcript_only is True:
+#                         t_output_file, transcript_string, norm_end = (
+#                             utils.write_segment(
+#                                 timestamps=timestamps[a:b],
+#                                 transcript=transcript,
+#                                 output_dir=segment_output_dir,
+#                                 ext=transcript_ext,
+#                                 in_memory=in_memory,
+#                             )
+#                         )
+
+#                         if not utils.too_short_audio_text(
+#                             start=timestamps[a][0], end=timestamps[b - 1][1]
+#                         ):
+#                             timestamp = t_output_file.split("/")[-1].split(
+#                                 f".{transcript_ext}"
+#                             )[0]
+#                             if dolma_format is False:
+#                                 outputs = {
+#                                     "subtitle_file": t_output_file.replace(
+#                                         "ow_full", "ow_seg"
+#                                     ),
+#                                     "seg_content": transcript_string,
+#                                     "text_timestamp": timestamp,
+#                                     "audio_timestamp": timestamp,
+#                                     "next_start": None,
+#                                     "norm_next_start": None,
+#                                     "norm_end": norm_end,
+#                                     "id": video_id,
+#                                     "seg_id": f"{video_id}_{segment_count}",
+#                                     "audio_file": t_output_file.replace(
+#                                         f".{transcript_ext}", ".npy"
+#                                     ).replace("ow_full", "ow_seg"),
+#                                     "ts_mode": res["ts_mode"],
+#                                     "no_ts_mode": res["no_ts_mode"],
+#                                     "num_tokens_no_ts_mode": res[
+#                                         "num_tokens_no_ts_mode"
+#                                     ],
+#                                     "num_tokens_ts_mode": res["num_tokens_ts_mode"],
+#                                 }
+#                             else:
+#                                 outputs = {
+#                                     "id": f"{video_id}_{segment_count}",
+#                                     "text": transcript_string,
+#                                     "source": "OW",
+#                                     "metadata": {
+#                                         "subtitle_file": t_output_file.replace(
+#                                             "ow_full", "ow_seg"
+#                                         ),
+#                                         "text_timestamp": timestamp,
+#                                         "audio_timestamp": timestamp,
+#                                         "next_start": None,
+#                                         "norm_next_start": None,
+#                                         "norm_end": norm_end,
+#                                         "audio_file": t_output_file.replace(
+#                                             f".{transcript_ext}", ".npy"
+#                                         ).replace("ow_full", "ow_seg"),
+#                                         "ts_mode": res["ts_mode"],
+#                                         "no_ts_mode": res["no_ts_mode"],
+#                                         "num_tokens_no_ts_mode": res[
+#                                             "num_tokens_no_ts_mode"
+#                                         ],
+#                                         "num_tokens_ts_mode": res["num_tokens_ts_mode"],
+#                                     },
+#                                 }
+#                             segments_list.append(outputs)
+#                             segment_count += 1
+#                     elif audio_only is True:
+#                         a_output_file, audio_arr = utils.trim_audio(
+#                             audio_file=audio_file,
+#                             start=timestamps[a][0],
+#                             end=timestamps[b - 1][1],
+#                             output_dir=segment_output_dir,
+#                             in_memory=in_memory,
+#                         )
+#                     elif transcript_only is False and audio_only is False:
+#                         t_output_file, transcript_string, _ = utils.write_segment(
+#                             timestamps=timestamps[a:b],
+#                             transcript=transcript,
+#                             output_dir=segment_output_dir,
+#                             ext=transcript_ext,
+#                             in_memory=in_memory,
+#                         )
+
+#                         a_output_file, audio_arr = utils.trim_audio(
+#                             audio_file=audio_file,
+#                             start=timestamps[a][0],
+#                             end=timestamps[b - 1][1],
+#                             output_dir=segment_output_dir,
+#                             in_memory=in_memory,
+#                         )
+
+#                     if audio_only is True or (
+#                         transcript_only is False and audio_only is False
+#                     ):
+#                         if audio_arr is not None and not utils.too_short_audio(
+#                             audio_arr=audio_arr
+#                         ):
+#                             if audio_only:
+#                                 outputs = (a_output_file, audio_arr)
+#                             else:
+#                                 outputs = (
+#                                     t_output_file,
+#                                     transcript_string,
+#                                     a_output_file,
+#                                     audio_arr,
+#                                 )
+#                             segments_list.append(outputs)
+#                             segment_count += 1
+#                         else:
+#                             if audio_arr is None:
+#                                 if on_gcs:
+#                                     with open(f"{log_dir}/faulty_audio.txt", "a") as f:
+#                                         f.write(f"{video_id}\tindex: {b}\n")
+#                                 else:
+#                                     faulty_audio_segment_count += 1
+#                 else:
+#                     if res == "error":
+#                         if on_gcs:
+#                             with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
+#                                 f.write(f"{video_id}\tindex: {b}\n")
+#                         bad_text_segment_count += 1
+#                     else:
+#                         if on_gcs:
+#                             with open(f"{log_dir}/over_ctx_len.txt", "a") as f:
+#                                 f.write(f"{video_id}\tindex: {b}\n")
+#                         over_ctx_len_segment_count += 1
+
+#                 break
+
+#         if len(segments_list) == 0:
+#             return (
+#                 None,
+#                 over_30_line_segment_count,
+#                 bad_text_segment_count,
+#                 over_ctx_len_segment_count,
+#                 faulty_audio_segment_count,
+#                 faulty_transcript_count,
+#                 failed_transcript_count,
+#             )
+
+#         return (
+#             segments_list,
+#             over_30_line_segment_count,
+#             bad_text_segment_count,
+#             over_ctx_len_segment_count,
+#             faulty_audio_segment_count,
+#             faulty_transcript_count,
+#             failed_transcript_count,
+#         )
+#     except ValueError as e:
+#         failed_transcript_count += 1
+#         if on_gcs:
+#             with open(f"{log_dir}/failed_chunking.txt", "a") as f:
+#                 f.write(f"{video_id}\t{e}\n")
+#         return None, 0, 0, 0, 0, 0, failed_transcript_count
+#     except Exception as e:
+#         failed_transcript_count += 1
+#         if on_gcs:
+#             with open(f"{log_dir}/failed_chunking.txt", "a") as f:
+#                 f.write(f"{video_id}\t{e}\n")
+#         return None, 0, 0, 0, 0, 0, failed_transcript_count
+
+
 def chunk_audio_transcript(
     transcript_file: str,
     audio_file: str,
@@ -1340,723 +2103,3 @@ def parallel_chunk_audio_transcript(
 ) -> Optional[List[Tuple[str, str, str, np.ndarray]]]:
     """Parallelized version of chunk_audio_transcript function to work in multiprocessing context"""
     return chunk_audio_transcript(*args)
-
-
-# old chunk_data
-# def chunk_data(
-#     transcript: Dict,
-#     transcript_ext: str,
-#     audio_file: Optional[str] = None,
-#     segment_output_dir: Optional[str] = None,
-#     video_id: Optional[str] = None,
-#     language: Optional[str] = None,
-#     audio_only: bool = False,
-#     transcript_only: bool = False,
-#     dolma_format: bool = False,
-#     in_memory: bool = True,
-#     on_gcs: bool = False,
-#     log_dir: Optional[str] = None,
-# ) -> Optional[Tuple[List, int, int, int, int, int]]:
-#     a = 0
-#     b = 0
-
-#     segment_count = 0
-#     over_30_line_segment_count = 0
-#     bad_text_segment_count = 0
-#     over_ctx_len_segment_count = 0
-#     faulty_audio_segment_count = 0
-#     faulty_transcript_count = 0
-#     failed_transcript_count = 0
-
-#     timestamps = list(transcript.keys())
-#     diff = 0
-#     init_diff = 0
-#     segments_list = []
-#     from_no_speech = False
-#     start_in_no_speech = None
-#     local_start = None
-
-#     with open("log.txt", "a") as f:
-#         f.write(f"{video_id}\n")
-#     try:
-#         while a < len(transcript) + 1 and segment_count < SEGMENT_COUNT_THRESHOLD:
-#             if a == 0:
-#                 local_start = timestamps[a][
-#                     0
-#                 ]  # starting from the beginning of the transcript
-#             elif from_no_speech is True:
-#                 if start_in_no_speech is not None:
-#                     local_start = start_in_no_speech  # starting from no speech < 30s that is extracted from a > 30s no speech segment
-#                 else:
-#                     local_start = timestamps[a][
-#                         0
-#                     ]  # starting immediately after no speech segment, when speech starts
-#             else:
-#                 local_start = timestamps[a][
-#                     1
-#                 ]  # starting immediately after previous segment speech ended
-
-#             init_diff = utils.calculate_difference(
-#                 local_start,
-#                 timestamps[b][1],
-#             )
-
-#             if init_diff <= 30000:
-#                 diff = init_diff
-#                 b += 1
-#             # init_diff > 30000
-#             else:
-#                 # edge case (when transcript line is > 30s), not included in segment group
-#                 if b == a:
-#                     over_30_line_segment_count += 1
-
-#                     if on_gcs:
-#                         with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
-#                             f.write(f"{video_id}\tindex: {b}\n")
-
-#                     a += 1
-#                     b += 1
-
-#                     # if reach end of transcript or trancscript only has 1 line
-#                     if a == b == len(transcript):
-#                         # if transcript has only 1 line that is > 30s, stop processing
-#                         if segment_count == 0:
-#                             faulty_transcript_count += 1
-#                         break
-
-#                     continue
-
-#                 # no speech segment >= 30s and consecutive no speech for >= 30s
-#                 if (
-#                     b - a == 1
-#                     and utils.calculate_difference(local_start, timestamps[b][0])
-#                     >= 30000
-#                     and (local_start, timestamps[b][0]) not in timestamps
-#                 ):
-#                     no_speech_segments = (
-#                         utils.calculate_difference(local_start, timestamps[b][0])
-#                         // 30000
-#                     )
-
-#                     for i in range(0, no_speech_segments + 1):
-#                         start = utils.adjust_timestamp(local_start, (i * 30000))
-
-#                         if i == no_speech_segments:
-#                             if start == timestamps[b][0]:
-#                                 a = b
-#                                 from_no_speech = True
-#                                 continue
-#                             else:
-#                                 start_in_no_speech = start
-#                                 from_no_speech = True
-#                                 continue
-#                         else:
-#                             end = utils.adjust_timestamp(start, 30000)
-#                             norm_end = 30000
-#                             audio_timestamp = (
-#                                 f"{start.replace('.', ',')}_{end.replace('.', ',')}"
-#                             )
-
-#                         if transcript_only is True:
-#                             t_output_file, transcript_string, _ = utils.write_segment(
-#                                 audio_begin=start,
-#                                 timestamps=[(start, end)],
-#                                 transcript=None,
-#                                 output_dir=segment_output_dir,
-#                                 ext=transcript_ext,
-#                                 in_memory=in_memory,
-#                             )
-
-#                             if not utils.too_short_audio_text(start=start, end=end):
-#                                 timestamp = t_output_file.split("/")[-1].split(
-#                                     f".{transcript_ext}"
-#                                 )[0]
-
-#                                 if dolma_format is False:
-#                                     outputs = {
-#                                         "subtitle_file": t_output_file.replace(
-#                                             "ow_full", "ow_seg"
-#                                         ),
-#                                         "seg_content": transcript_string,
-#                                         "text_timestamp": timestamp,
-#                                         "audio_timestamp": audio_timestamp,
-#                                         "norm_end": norm_end,
-#                                         "id": video_id,
-#                                         "seg_id": f"{video_id}_{segment_count}",
-#                                         "audio_file": os.path.join(
-#                                             os.path.dirname(t_output_file),
-#                                             f"{audio_timestamp}.npy",
-#                                         ).replace("ow_full", "ow_seg"),
-#                                         "ts_mode": True,
-#                                         "no_ts_mode": True,
-#                                         "num_tokens_no_ts_mode": 0,
-#                                         "num_tokens_ts_mode": 0,
-#                                     }
-#                                 else:
-#                                     outputs = {
-#                                         "id": f"{video_id}_{segment_count}",
-#                                         "text": transcript_string,
-#                                         "source": "OW",
-#                                         "metadata": {
-#                                             "subtitle_file": t_output_file.replace(
-#                                                 "ow_full", "ow_seg"
-#                                             ),
-#                                             "text_timestamp": timestamp,
-#                                             "audio_timestamp": audio_timestamp,
-#                                             "norm_end": norm_end,
-#                                             "audio_file": os.path.join(
-#                                                 os.path.dirname(t_output_file),
-#                                                 f"{audio_timestamp}.npy",
-#                                             ).replace("ow_full", "ow_seg"),
-#                                             "ts_mode": True,
-#                                             "no_ts_mode": True,
-#                                             "num_tokens_no_ts_mode": 0,
-#                                             "num_tokens_ts_mode": 0,
-#                                         },
-#                                     }
-#                                 segments_list.append(outputs)
-#                                 segment_count += 1
-#                         elif audio_only is True:
-#                             a_output_file, audio_arr = utils.trim_audio(
-#                                 audio_file=audio_file,
-#                                 start=start,
-#                                 end=end,  # like speech segments
-#                                 output_dir=segment_output_dir,
-#                                 in_memory=in_memory,
-#                             )
-#                         elif transcript_only is False and audio_only is False:
-#                             t_output_file, transcript_string, _ = utils.write_segment(
-#                                 audio_begin=start,
-#                                 timestamps=[(start, end)],
-#                                 transcript=None,
-#                                 output_dir=segment_output_dir,
-#                                 ext=transcript_ext,
-#                                 in_memory=in_memory,
-#                             )
-
-#                             a_output_file, audio_arr = utils.trim_audio(
-#                                 audio_file=audio_file,
-#                                 start=start,
-#                                 end=end,  # like speech segments
-#                                 output_dir=segment_output_dir,
-#                                 in_memory=in_memory,
-#                             )
-
-#                         if audio_only is True or (
-#                             transcript_only is False and audio_only is False
-#                         ):
-#                             if audio_arr is not None and not utils.too_short_audio(
-#                                 audio_arr=audio_arr
-#                             ):
-#                                 if audio_only:
-#                                     outputs = (a_output_file, audio_arr)
-#                                 else:
-#                                     outputs = (
-#                                         t_output_file,
-#                                         transcript_string,
-#                                         a_output_file,
-#                                         audio_arr,
-#                                     )
-
-#                                 segments_list.append(outputs)
-#                                 segment_count += 1
-#                             else:
-#                                 if audio_arr is None:
-#                                     if on_gcs:
-#                                         with open(
-#                                             f"{log_dir}/faulty_audio.txt", "a"
-#                                         ) as f:
-#                                             f.write(f"{video_id}\tindex: {b}\n")
-#                                     else:
-#                                         faulty_audio_segment_count += 1
-#                     continue
-#                 elif b - a == 1 and utils.calculate_difference(local_start, timestamps[b][0]) < 30000 and (local_start, timestamps[b][0]) not in timestamps:
-#                     end = timestamps[b][0]
-#                     norm_end = utils.adjust_timestamp(end, -utils.convert_to_milliseconds(start))
-#                     audio_timestamp = f"{start.replace('.', ',')}_{utils.adjust_timestamp(start, 30000).replace('.', ',')}"
-
-#                     if transcript_only is True:
-#                         t_output_file, transcript_string, _ = utils.write_segment(
-#                             audio_begin=start,
-#                             timestamps=[(start, end)],
-#                             transcript=None,
-#                             output_dir=segment_output_dir,
-#                             ext=transcript_ext,
-#                             in_memory=in_memory,
-#                         )
-
-#                         if not utils.too_short_audio_text(start=start, end=end):
-#                             timestamp = t_output_file.split("/")[-1].split(
-#                                 f".{transcript_ext}"
-#                             )[0]
-
-#                             if dolma_format is False:
-#                                 outputs = {
-#                                     "subtitle_file": t_output_file.replace(
-#                                         "ow_full", "ow_seg"
-#                                     ),
-#                                     "seg_content": transcript_string,
-#                                     "text_timestamp": timestamp,
-#                                     "audio_timestamp": audio_timestamp,
-#                                     "norm_end": norm_end,
-#                                     "id": video_id,
-#                                     "seg_id": f"{video_id}_{segment_count}",
-#                                     "audio_file": os.path.join(
-#                                         os.path.dirname(t_output_file),
-#                                         f"{audio_timestamp}.npy",
-#                                     ).replace("ow_full", "ow_seg"),
-#                                     "ts_mode": True,
-#                                     "no_ts_mode": True,
-#                                     "num_tokens_no_ts_mode": 0,
-#                                     "num_tokens_ts_mode": 0,
-#                                 }
-#                             else:
-#                                 outputs = {
-#                                     "id": f"{video_id}_{segment_count}",
-#                                     "text": transcript_string,
-#                                     "source": "OW",
-#                                     "metadata": {
-#                                         "subtitle_file": t_output_file.replace(
-#                                             "ow_full", "ow_seg"
-#                                         ),
-#                                         "text_timestamp": timestamp,
-#                                         "audio_timestamp": audio_timestamp,
-#                                         "norm_end": norm_end,
-#                                         "audio_file": os.path.join(
-#                                             os.path.dirname(t_output_file),
-#                                             f"{audio_timestamp}.npy",
-#                                         ).replace("ow_full", "ow_seg"),
-#                                         "ts_mode": True,
-#                                         "no_ts_mode": True,
-#                                         "num_tokens_no_ts_mode": 0,
-#                                         "num_tokens_ts_mode": 0,
-#                                     },
-#                                 }
-#                             segments_list.append(outputs)
-#                             segment_count += 1
-#                     elif audio_only is True:
-#                         a_output_file, audio_arr = utils.trim_audio(
-#                             audio_file=audio_file,
-#                             start=start,
-#                             end=utils.adjust_timestamp(start, 30000),  # like speech segments
-#                             output_dir=segment_output_dir,
-#                             in_memory=in_memory,
-#                         )
-#                     elif transcript_only is False and audio_only is False:
-#                         t_output_file, transcript_string, _ = utils.write_segment(
-#                             audio_begin=start,
-#                             timestamps=[(start, end)],
-#                             transcript=None,
-#                             output_dir=segment_output_dir,
-#                             ext=transcript_ext,
-#                             in_memory=in_memory,
-#                         )
-
-#                         a_output_file, audio_arr = utils.trim_audio(
-#                             audio_file=audio_file,
-#                             start=start,
-#                             end=utils.adjust_timestamp(start, 30000),  # like speech segments
-#                             output_dir=segment_output_dir,
-#                             in_memory=in_memory,
-#                         )
-
-#                     if audio_only is True or (
-#                         transcript_only is False and audio_only is False
-#                     ):
-#                         if audio_arr is not None and not utils.too_short_audio(
-#                             audio_arr=audio_arr
-#                         ):
-#                             if audio_only:
-#                                 outputs = (a_output_file, audio_arr)
-#                             else:
-#                                 outputs = (
-#                                     t_output_file,
-#                                     transcript_string,
-#                                     a_output_file,
-#                                     audio_arr,
-#                                 )
-
-#                             segments_list.append(outputs)
-#                             segment_count += 1
-#                         else:
-#                             if audio_arr is None:
-#                                 if on_gcs:
-#                                     with open(
-#                                         f"{log_dir}/faulty_audio.txt", "a"
-#                                     ) as f:
-#                                         f.write(f"{video_id}\tindex: {b}\n")
-#                                 else:
-#                                     faulty_audio_segment_count += 1
-#                     continue
-
-#                 # a + 1 is the beginning of the text line ([a + 1][0] can be == a[-1] in terms of timestamps, but we don't want to include text in a b/c a == b - 1. [a + 1][0] can also be == a[-1] )
-#                 over_ctx_len, res = utils.over_ctx_len(
-#                     timestamps=(
-#                         timestamps[a:b]  # directly starting when speech starts
-#                         if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
-#                         else timestamps[a + 1 : b]  # starting when there's no speech
-#                     ),
-#                     transcript=transcript,
-#                     language=language,
-#                 )
-#                 valid_timestamps = utils.timestamps_valid(
-#                     timestamps=(
-#                         timestamps[a:b]
-#                         if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
-#                         else timestamps[a + 1 : b]
-#                     ),
-#                     global_start=timestamps[0][0],
-#                     global_end=timestamps[-1][1],
-#                 )
-#                 # check if segment text goes over model context length
-#                 if not over_ctx_len and valid_timestamps:
-#                     if transcript_only is True:
-#                         # writing transcript segment w/ timestamps[a + 1][0] -> timestamps[b - 1][1]
-#                         t_output_file, transcript_string, norm_end = (
-#                             utils.write_segment(
-#                                 audio_begin=local_start,
-#                                 timestamps=(
-#                                     timestamps[a:b]
-#                                     if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
-#                                     else timestamps[a + 1 : b]
-#                                 ),
-#                                 transcript=transcript,
-#                                 output_dir=segment_output_dir,
-#                                 ext=transcript_ext,
-#                                 in_memory=in_memory,
-#                             )
-#                         )
-
-#                         if not utils.too_short_audio_text(
-#                             start=local_start,
-#                             end=utils.adjust_timestamp(local_start, 30000),
-#                         ):
-#                             audio_timestamp = f"{local_start.replace('.', ',')}_{utils.adjust_timestamp(local_start, 30000).replace('.', ',')}"
-#                             text_timestamp = t_output_file.split("/")[-1].split(
-#                                 f".{transcript_ext}"
-#                             )[0]
-#                             if dolma_format is False:
-#                                 outputs = {
-#                                     "subtitle_file": t_output_file.replace(
-#                                         "ow_full", "ow_seg"
-#                                     ),
-#                                     "seg_content": transcript_string,
-#                                     "text_timestamp": text_timestamp,
-#                                     "audio_timestamp": audio_timestamp,
-#                                     "norm_end": norm_end,
-#                                     "id": video_id,
-#                                     "seg_id": f"{video_id}_{segment_count}",
-#                                     "audio_file": os.path.join(
-#                                         os.path.dirname(t_output_file),
-#                                         f"{audio_timestamp}.npy",
-#                                     ).replace("ow_full", "ow_seg"),
-#                                     "ts_mode": res["ts_mode"],
-#                                     "no_ts_mode": res["no_ts_mode"],
-#                                     "num_tokens_no_ts_mode": res[
-#                                         "num_tokens_no_ts_mode"
-#                                     ],
-#                                     "num_tokens_ts_mode": res["num_tokens_ts_mode"],
-#                                 }
-#                             else:
-#                                 outputs = {
-#                                     "id": f"{video_id}_{segment_count}",
-#                                     "text": transcript_string,
-#                                     "source": "OW",
-#                                     "metadata": {
-#                                         "subtitle_file": t_output_file.replace(
-#                                             "ow_full", "ow_seg"
-#                                         ),
-#                                         "text_timestamp": text_timestamp,
-#                                         "audio_timestamp": audio_timestamp,
-#                                         "norm_end": norm_end,
-#                                         "audio_file": os.path.join(
-#                                             os.path.dirname(t_output_file),
-#                                             f"{audio_timestamp}.npy",
-#                                         ).replace("ow_full", "ow_seg"),
-#                                         "ts_mode": res["ts_mode"],
-#                                         "no_ts_mode": res["no_ts_mode"],
-#                                         "num_tokens_no_ts_mode": res[
-#                                             "num_tokens_no_ts_mode"
-#                                         ],
-#                                         "num_tokens_ts_mode": res["num_tokens_ts_mode"],
-#                                     },
-#                                 }
-
-#                             segments_list.append(outputs)
-#                             segment_count += 1
-#                     elif audio_only is True:
-#                         # writing audio segment w/ local_start -> local_start + 30s
-#                         a_output_file, audio_arr = utils.trim_audio(
-#                             audio_file=audio_file,
-#                             start=local_start,
-#                             end=utils.adjust_timestamp(local_start, 30000),
-#                             output_dir=segment_output_dir,
-#                             in_memory=in_memory,
-#                         )
-#                     elif transcript_only is False and audio_only is False:
-#                         # writing transcript segment w/ timestamps[a + 1][0] or timestamps[a][0] -> timestamps[b - 1][1]
-#                         t_output_file, transcript_string, _ = utils.write_segment(
-#                             audio_begin=local_start,
-#                             timestamps=(
-#                                 timestamps[a:b]
-#                                 if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
-#                                 else timestamps[a + 1 : b]
-#                             ),
-#                             transcript=transcript,
-#                             output_dir=segment_output_dir,
-#                             ext=transcript_ext,
-#                             in_memory=in_memory,
-#                         )
-
-#                         # writing audio segment w/ local_start -> local_start + 30s
-#                         a_output_file, audio_arr = utils.trim_audio(
-#                             audio_file=audio_file,
-#                             start=local_start,
-#                             end=utils.adjust_timestamp(local_start, 30000),
-#                             output_dir=segment_output_dir,
-#                             in_memory=in_memory,
-#                         )
-
-#                     if audio_only is True or (
-#                         transcript_only is False and audio_only is False
-#                     ):
-#                         # check if audio segment is too short or that audio array is valid (not None)
-#                         if audio_arr is not None and not utils.too_short_audio(
-#                             audio_arr=audio_arr
-#                         ):
-#                             if audio_only:
-#                                 outputs = (a_output_file, audio_arr)
-#                             else:
-#                                 outputs = (
-#                                     t_output_file,
-#                                     transcript_string,
-#                                     a_output_file,
-#                                     audio_arr,
-#                                 )
-#                             segments_list.append(outputs)
-#                             segment_count += 1
-#                         else:
-#                             if audio_arr is None:
-#                                 if on_gcs:
-#                                     with open(f"{log_dir}/faulty_audio.txt", "a") as f:
-#                                         f.write(f"{video_id}\tindex: {b}\n")
-#                                 else:
-#                                     faulty_audio_segment_count += 1
-#                 else:
-#                     if res == "error":
-#                         if on_gcs:
-#                             with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
-#                                 f.write(f"{video_id}\tindex: {b}\n")
-#                         bad_text_segment_count += 1
-#                     else:
-#                         if on_gcs:
-#                             with open(f"{log_dir}/over_ctx_len.txt", "a") as f:
-#                                 f.write(f"{video_id}\tindex: {b}\n")
-#                         over_ctx_len_segment_count += 1
-
-#                 init_diff = 0
-#                 diff = 0
-#                 # moving pointer a to b - 1
-#                 a = b - 1
-
-#                 # resetting
-#                 from_no_speech = False
-#                 start_in_no_speech = None
-
-#             # at the end of transcript
-#             if b == len(transcript) and diff <= 30000:
-#                 over_ctx_len, res = utils.over_ctx_len(
-#                     timestamps=(
-#                         timestamps[a:b]
-#                         if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
-#                         else timestamps[a + 1 : b]
-#                     ),
-#                     transcript=transcript,
-#                     language=language,
-#                     last_seg=True,
-#                 )
-#                 valid_timestamps = utils.timestamps_valid(
-#                     timestamps=(
-#                         timestamps[a:b]
-#                         if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
-#                         else timestamps[a + 1 : b]
-#                     ),
-#                     global_start=timestamps[0][0],
-#                     global_end=timestamps[-1][1],
-#                 )
-#                 if not over_ctx_len and valid_timestamps:
-#                     if transcript_only is True:
-#                         t_output_file, transcript_string, norm_end = (
-#                             utils.write_segment(
-#                                 audio_begin=local_start,
-#                                 timestamps=(
-#                                     timestamps[a:b]
-#                                     if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
-#                                     else timestamps[a + 1 : b]
-#                                 ),
-#                                 transcript=transcript,
-#                                 output_dir=segment_output_dir,
-#                                 ext=transcript_ext,
-#                                 in_memory=in_memory,
-#                             )
-#                         )
-
-#                         if not utils.too_short_audio_text(
-#                             start=local_start, end=timestamps[b - 1][1]
-#                         ):
-#                             timestamp = t_output_file.split("/")[-1].split(
-#                                 f".{transcript_ext}"
-#                             )[0]
-#                             if dolma_format is False:
-#                                 outputs = {
-#                                     "subtitle_file": t_output_file.replace(
-#                                         "ow_full", "ow_seg"
-#                                     ),
-#                                     "seg_content": transcript_string,
-#                                     "text_timestamp": timestamp,
-#                                     "audio_timestamp": timestamp,
-#                                     "norm_end": norm_end,
-#                                     "id": video_id,
-#                                     "seg_id": f"{video_id}_{segment_count}",
-#                                     "audio_file": t_output_file.replace(
-#                                         f".{transcript_ext}", ".npy"
-#                                     ).replace("ow_full", "ow_seg"),
-#                                     "ts_mode": res["ts_mode"],
-#                                     "no_ts_mode": res["no_ts_mode"],
-#                                     "num_tokens_no_ts_mode": res[
-#                                         "num_tokens_no_ts_mode"
-#                                     ],
-#                                     "num_tokens_ts_mode": res["num_tokens_ts_mode"],
-#                                 }
-#                             else:
-#                                 outputs = {
-#                                     "id": f"{video_id}_{segment_count}",
-#                                     "text": transcript_string,
-#                                     "source": "OW",
-#                                     "metadata": {
-#                                         "subtitle_file": t_output_file.replace(
-#                                             "ow_full", "ow_seg"
-#                                         ),
-#                                         "text_timestamp": timestamp,
-#                                         "audio_timestamp": timestamp,
-#                                         "norm_end": norm_end,
-#                                         "audio_file": t_output_file.replace(
-#                                             f".{transcript_ext}", ".npy"
-#                                         ).replace("ow_full", "ow_seg"),
-#                                         "ts_mode": res["ts_mode"],
-#                                         "no_ts_mode": res["no_ts_mode"],
-#                                         "num_tokens_no_ts_mode": res[
-#                                             "num_tokens_no_ts_mode"
-#                                         ],
-#                                         "num_tokens_ts_mode": res["num_tokens_ts_mode"],
-#                                     },
-#                                 }
-#                             segments_list.append(outputs)
-#                             segment_count += 1
-#                     elif audio_only is True:
-#                         a_output_file, audio_arr = utils.trim_audio(
-#                             audio_file=audio_file,
-#                             start=local_start,
-#                             end=timestamps[b - 1][1],
-#                             output_dir=segment_output_dir,
-#                             in_memory=in_memory,
-#                         )
-#                     elif transcript_only is False and audio_only is False:
-#                         t_output_file, transcript_string, _ = utils.write_segment(
-#                             audio_begin=local_start,
-#                             timestamps=(
-#                                 timestamps[a:b]
-#                                 if a == 0 or (start_in_no_speech is None and a > 0 and from_no_speech is True)
-#                                 else timestamps[a + 1 : b]
-#                             ),
-#                             transcript=transcript,
-#                             output_dir=segment_output_dir,
-#                             ext=transcript_ext,
-#                             in_memory=in_memory,
-#                         )
-
-#                         a_output_file, audio_arr = utils.trim_audio(
-#                             audio_file=audio_file,
-#                             start=local_start,
-#                             end=timestamps[b - 1][1],
-#                             output_dir=segment_output_dir,
-#                             in_memory=in_memory,
-#                         )
-
-#                     if audio_only is True or (
-#                         transcript_only is False and audio_only is False
-#                     ):
-#                         if audio_arr is not None and not utils.too_short_audio(
-#                             audio_arr=audio_arr
-#                         ):
-#                             if audio_only:
-#                                 outputs = (a_output_file, audio_arr)
-#                             else:
-#                                 outputs = (
-#                                     t_output_file,
-#                                     transcript_string,
-#                                     a_output_file,
-#                                     audio_arr,
-#                                 )
-#                             segments_list.append(outputs)
-#                             segment_count += 1
-#                         else:
-#                             if audio_arr is None:
-#                                 if on_gcs:
-#                                     with open(f"{log_dir}/faulty_audio.txt", "a") as f:
-#                                         f.write(f"{video_id}\tindex: {b}\n")
-#                                 else:
-#                                     faulty_audio_segment_count += 1
-#                 else:
-#                     if res == "error":
-#                         if on_gcs:
-#                             with open(f"{log_dir}/faulty_transcripts.txt", "a") as f:
-#                                 f.write(f"{video_id}\tindex: {b}\n")
-#                         bad_text_segment_count += 1
-#                     else:
-#                         if on_gcs:
-#                             with open(f"{log_dir}/over_ctx_len.txt", "a") as f:
-#                                 f.write(f"{video_id}\tindex: {b}\n")
-#                         over_ctx_len_segment_count += 1
-
-#                 break
-
-#         if len(segments_list) == 0:
-#             return (
-#                 None,
-#                 over_30_line_segment_count,
-#                 bad_text_segment_count,
-#                 over_ctx_len_segment_count,
-#                 faulty_audio_segment_count,
-#                 faulty_transcript_count,
-#                 failed_transcript_count,
-#             )
-
-#         with open("log_2.txt", "a") as f:
-#             f.write(f"{video_id}\n")
-
-#         return (
-#             segments_list,
-#             over_30_line_segment_count,
-#             bad_text_segment_count,
-#             over_ctx_len_segment_count,
-#             faulty_audio_segment_count,
-#             faulty_transcript_count,
-#             failed_transcript_count,
-#         )
-#     except ValueError as e:
-#         failed_transcript_count += 1
-#         with open("log_2.txt", "a") as f:
-#             f.write(f"{video_id}\n")
-#         if on_gcs:
-#             with open(f"{log_dir}/failed_chunking.txt", "a") as f:
-#                 f.write(f"{video_id}\t{e}\n")
-#         return None, 0, 0, 0, 0, 0, failed_transcript_count
-#     except Exception as e:
-#         failed_transcript_count += 1
-#         with open("log_2.txt", "a") as f:
-#             f.write(f"{video_id}\n")
-#         if on_gcs:
-#             with open(f"{log_dir}/failed_chunking.txt", "a") as f:
-#                 f.write(f"{video_id}\t{e}\n")
-#         return None, 0, 0, 0, 0, 0, failed_transcript_count
