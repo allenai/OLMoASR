@@ -77,10 +77,10 @@ def preprocess(
     print(f"{job_start_shard_idx=}")
     print(f"{job_end_shard_idx=}")
     data_shard_paths = sorted(glob.glob(source_dir + "/*"))[
-        job_start_shard_idx : job_end_shard_idx
+        job_start_shard_idx:job_end_shard_idx
     ]
     print(f"{data_shard_paths=}")
-    
+
     completed_shards = None
     if os.path.exists(f"{log_dir}/completed_shards.txt"):
         with open(f"{log_dir}/completed_shards.txt", "r") as f:
@@ -91,7 +91,7 @@ def preprocess(
             if data_shard_path in completed_shards:
                 print(f"Skipping {data_shard_path} b/c already completed.")
                 continue
-            
+
         data_shard_idx = ""
         segment_output_dir = output_dir
         if data_shard_path.endswith(".jsonl.gz"):
@@ -187,12 +187,6 @@ def preprocess(
         logger.info("Chunking data")
         start = time.time()
         if transcript_only is False:
-            chunking_log_path = f"{log_dir}/{data_shard_idx}.txt"
-            chunking_log = None
-            if os.path.exists(chunking_log_path):
-                with open(chunking_log_path, "r") as f: 
-                    chunking_log = [line.strip() for line in f]
-                    
             with ProcessPoolExecutor() as executor:
                 futures = [
                     executor.submit(parallel_chunk_local, args)
@@ -203,8 +197,6 @@ def preprocess(
                         repeat(audio_only),
                         repeat(transcript_only),
                         repeat(in_memory),
-                        repeat(chunking_log_path),
-                        repeat(chunking_log),
                     )
                 ]
                 results = [
