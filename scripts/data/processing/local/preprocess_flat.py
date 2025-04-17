@@ -187,6 +187,7 @@ def preprocess(
         start = time.time()
         if transcript_only is False:
             chunking_log_path = f"{log_dir}/{data_shard_idx}.txt"
+            chunking_log = None
             if os.path.exists(chunking_log_path):
                 with open(chunking_log_path, "r") as f: 
                     chunking_log = [line.strip() for line in f]
