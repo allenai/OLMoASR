@@ -961,8 +961,9 @@ def chunk_local(
     os.makedirs(segment_output_dir, exist_ok=True)
     transcript_ext = transcript_file.split(".")[-1]
 
-    if transcript_file in chunking_log:
-        return None, 0, 0, 0, 0, 0, 0
+    if chunking_log is not None:
+        if transcript_file in chunking_log:
+            return None, 0, 0, 0, 0, 0, 0
 
     transcript, *_ = utils.TranscriptReader(
         file_path=transcript_file, transcript_string=None, ext=transcript_ext
