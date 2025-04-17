@@ -951,8 +951,6 @@ def chunk_local(
     audio_only: bool,
     transcript_only: bool,
     in_memory: bool,
-    chunking_log_path: str,
-    chunking_log: Optional[List] = None,
 ):
     language = None  # temporarily
     os.makedirs(output_dir, exist_ok=True)
@@ -960,10 +958,6 @@ def chunk_local(
     segment_output_dir = os.path.join(output_dir, video_id)
     os.makedirs(segment_output_dir, exist_ok=True)
     transcript_ext = transcript_file.split(".")[-1]
-
-    if chunking_log is not None:
-        if transcript_file in chunking_log:
-            return None, 0, 0, 0, 0, 0, 0
 
     transcript, *_ = utils.TranscriptReader(
         file_path=transcript_file, transcript_string=None, ext=transcript_ext
@@ -986,9 +980,6 @@ def chunk_local(
         in_memory=in_memory,
     )
     
-    with open(chunking_log_path, "a") as f:
-        f.write(f"{transcript_file}\n")
-
     return result
 
 
