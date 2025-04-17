@@ -81,6 +81,7 @@ def preprocess(
     ]
     print(f"{data_shard_paths=}")
     
+    completed_shards = None
     if os.path.exists(f"{log_dir}/completed_shards.txt"):
         with open(f"{log_dir}/completed_shards.txt", "r") as f:
             completed_shards = [line.strip() for line in f]
