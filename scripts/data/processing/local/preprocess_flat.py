@@ -80,8 +80,17 @@ def preprocess(
         job_start_shard_idx : job_end_shard_idx
     ]
     print(f"{data_shard_paths=}")
+    
+    if os.path.exists(f"{log_dir}/completed_shards.txt"):
+        with open(f"{log_dir}/completed_shards.txt", "r") as f:
+            completed_shards = [line.strip() for line in f]
 
     for data_shard_path in data_shard_paths:
+        if os.path.exists(f"{log_dir}/completed_shards.txt"):
+            if data_shard_path in completed_shards:
+                print(f"Skipping {data_shard_path} b/c already completed.")
+                continue
+            
         data_shard_idx = ""
         segment_output_dir = output_dir
         if data_shard_path.endswith(".jsonl.gz"):
@@ -104,11 +113,11 @@ def preprocess(
 
         if not data_shard_path.endswith(".jsonl.gz"):
             # dealing w/ missing pairs
-            missing_pair_dir = os.path.join(
+            shard_missing_pair_dir = os.path.join(
                 missing_pair_dir, f"{data_shard_path.split('/')[-1]}"
             )
-            os.makedirs(missing_pair_dir, exist_ok=True)
-            logger.info(f"{segment_output_dir=}, {missing_pair_dir=}")
+            os.makedirs(shard_missing_pair_dir, exist_ok=True)
+            logger.info(f"{segment_output_dir=}, {shard_missing_pair_dir=}")
 
             logger.info(f"Preprocessing {data_shard_path}")
             audio_files = sorted(glob.glob(data_shard_path + "/*/*.m4a"))
@@ -130,7 +139,7 @@ def preprocess(
                         )
                     ]
                     new_paths = [
-                        shutil.move(d, missing_pair_dir) for d in missing_pairs
+                        shutil.move(d, shard_missing_pair_dir) for d in missing_pairs
                     ]
                 elif len(audio_files) < len(transcript_files):
                     missing_pairs = [
@@ -141,7 +150,7 @@ def preprocess(
                         )
                     ]
                     new_paths = [
-                        shutil.move(d, missing_pair_dir) for d in missing_pairs
+                        shutil.move(d, shard_missing_pair_dir) for d in missing_pairs
                     ]
 
                 logger.info(f"{new_paths[:5]=}")
@@ -177,6 +186,11 @@ def preprocess(
         logger.info("Chunking data")
         start = time.time()
         if transcript_only is False:
+            chunking_log_path = f"{log_dir}/{data_shard_idx}.txt"
+            if os.path.exists(chunking_log_path):
+                with open(chunking_log_path, "r") as f: 
+                    chunking_log = [line.strip() for line in f]
+                    
             with ProcessPoolExecutor() as executor:
                 futures = [
                     executor.submit(parallel_chunk_local, args)
@@ -187,6 +201,8 @@ def preprocess(
                         repeat(audio_only),
                         repeat(transcript_only),
                         repeat(in_memory),
+                        repeat(chunking_log_path),
+                        repeat(chunking_log),
                     )
                 ]
                 results = [
@@ -277,6 +293,9 @@ def preprocess(
         del segments_list
 
         gc.collect()
+
+        with open(f"{log_dir}/completed_shards.txt", "a") as f:
+            f.write(f"{data_shard_path}\n")
 
 
 if __name__ == "__main__":
