@@ -210,7 +210,7 @@ def chunk_data(
 
     try:
         while a < len(transcript) + 1 and segment_count < SEGMENT_COUNT_THRESHOLD:
-            if a == 0:
+            if a == 0 and b == 0:
                 local_start = timestamps[a][
                     0
                 ]  # starting from the beginning of the transcript
