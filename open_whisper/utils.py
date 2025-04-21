@@ -494,7 +494,7 @@ def timestamps_valid(timestamps: List, global_start: str, global_end: str) -> bo
     g_start, g_end = to_ms(global_start), to_ms(global_end)
 
     # Global bounds and duration check
-    if start < g_start or end > g_end or (end - start) > 30000:
+    if start < g_start or end > g_end:
         return False
 
     for t0, t1 in timestamps:
