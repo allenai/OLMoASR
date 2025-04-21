@@ -262,8 +262,7 @@ def chunk_data(
 
                 # no speech segment >= 30s and consecutive no speech for >= 30s
                 if (
-                    b - a == 1
-                    and local_start == timestamps[a][1]
+                    b - a == 1 and local_start != timestamps[a][0]
                     and utils.calculate_difference(local_start, timestamps[b][0])
                     >= 30000
                     and (local_start, timestamps[b][0]) not in timestamps
@@ -407,8 +406,7 @@ def chunk_data(
                                         faulty_audio_segment_count += 1
                     continue
                 elif (
-                    b - a == 1
-                    and local_start == timestamps[a][1]
+                    b - a == 1 and local_start != timestamps[a][0]
                     and utils.calculate_difference(local_start, timestamps[b][0])
                     < 30000
                     and (local_start, timestamps[b][0]) not in timestamps
@@ -544,13 +542,10 @@ def chunk_data(
                     continue
                 elif (
                     b - a == 1
-                    and local_start == timestamps[a][1]
-                    and (
-                        utils.calculate_difference(local_start, timestamps[b][0])
-                        < 30000
-                        or utils.calculate_difference(local_start, timestamps[b][0])
-                        >= 30000
-                    )
+                    and local_start != timestamps[a][0]
+                    and (utils.calculate_difference(local_start, timestamps[b][0])
+                    < 30000 or utils.calculate_difference(local_start, timestamps[b][0])
+                    >= 30000)
                     and (local_start, timestamps[b][0]) in timestamps
                 ):
                     a = b
