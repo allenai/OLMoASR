@@ -211,9 +211,12 @@ def chunk_data(
     try:
         while a < len(transcript) + 1 and segment_count < SEGMENT_COUNT_THRESHOLD:
             if a == 0:
-                local_start = timestamps[a][
-                    0
-                ]  # starting from the beginning of the transcript
+                if b == 1 and init_diff == 0:
+                    local_start = timestamps[a][1]
+                else:
+                    local_start = timestamps[a][
+                        0
+                    ]  # starting from the beginning of the transcript
             elif from_no_speech is True or a == b:
                 if start_in_no_speech is not None:
                     local_start = start_in_no_speech  # starting from no speech < 30s that is extracted from a > 30s no speech segment
@@ -221,10 +224,6 @@ def chunk_data(
                     local_start = timestamps[a][
                         0
                     ]  # starting immediately after no speech segment, when speech starts
-            elif a == 0 and b == 1 and init_diff == 0:
-                local_start = timestamps[a][
-                    1
-                ]
             else:
                 local_start = timestamps[a][
                     1
