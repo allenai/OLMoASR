@@ -210,7 +210,7 @@ def chunk_data(
 
     try:
         while a < len(transcript) + 1 and segment_count < SEGMENT_COUNT_THRESHOLD:
-            if a == 0:
+            if a == 0 and from_no_speech is False:
                 if b == 1 and init_diff == 0:
                     local_start = timestamps[a][1]
                 else:
@@ -263,6 +263,7 @@ def chunk_data(
                 # no speech segment >= 30s and consecutive no speech for >= 30s
                 if (
                     b - a == 1
+                    and local_start == timestamps[a][1]
                     and utils.calculate_difference(local_start, timestamps[b][0])
                     >= 30000
                     and (local_start, timestamps[b][0]) not in timestamps
@@ -407,6 +408,7 @@ def chunk_data(
                     continue
                 elif (
                     b - a == 1
+                    and local_start == timestamps[a][1]
                     and utils.calculate_difference(local_start, timestamps[b][0])
                     < 30000
                     and (local_start, timestamps[b][0]) not in timestamps
@@ -539,6 +541,19 @@ def chunk_data(
                     a = b
                     from_no_speech = True
                     start_in_no_speech = None
+                    continue
+                elif (
+                    b - a == 1
+                    and local_start == timestamps[a][1]
+                    and (
+                        utils.calculate_difference(local_start, timestamps[b][0])
+                        < 30000
+                        or utils.calculate_difference(local_start, timestamps[b][0])
+                        >= 30000
+                    )
+                    and (local_start, timestamps[b][0]) in timestamps
+                ):
+                    a = b
                     continue
 
                 # a + 1 is the beginning of the text line ([a + 1][0] can be == a[-1] in terms of timestamps, but we don't want to include text in a b/c a == b - 1. [a + 1][0] can also be == a[-1] )
@@ -982,7 +997,7 @@ def chunk_local(
         transcript_only=transcript_only,
         in_memory=in_memory,
     )
-    
+
     return result
 
 
