@@ -647,7 +647,7 @@ def merge_man_mach_segs(
         in_memory=in_memory,
     )
 
-    segments, *_ = result
+    segments, *man_counts = result
 
     if segments is not None:
         shard_mach_log_dir = shard_log_dir + "_mach"
@@ -746,7 +746,7 @@ def merge_man_mach_segs(
 
             # if there are remaining mach_segments, the manual transcript might not be good to use
             if len(mach_segments) > 0:
-                return None, None, None, None, None, 0, 0, 1
+                return None, None, None, None, None, 0, 0, 1, 0, 0, 0, 0, 0, 0
         segments = new_segments
 
         return (
@@ -758,9 +758,10 @@ def merge_man_mach_segs(
             0,
             1 if mach_segments is None else 0,
             0,
+            *man_counts,
         )
     else:
-        return None, None, None, None, None, 1, 0, 0
+        return None, None, None, None, None, 1, 0, 0, 0, 0, 0, 0, 0, 0
 
 
 def preprocess_jsonl(
@@ -787,6 +788,8 @@ def preprocess_jsonl(
             return stats
         else:
             return None
+    elif not os.path.exists(transcript_manifest_file):
+        return None
     else:
         stats = {}
 
@@ -817,7 +820,15 @@ def preprocess_jsonl(
                 # )
                 #     for transcript in transcript_data
                 # ]
-                segments_group, *_ = zip(
+                (
+                    segments_group,
+                    over_30_line_segment_count,
+                    bad_text_segment_count,
+                    over_ctx_len_segment_count,
+                    faulty_audio_segment_count,
+                    faulty_transcript_count,
+                    failed_transcript_count,
+                ) = zip(
                     *[
                         chunk_transcript_only(
                             transcript,
@@ -839,6 +850,12 @@ def preprocess_jsonl(
                     count_failed_seg,
                     count_failed_mach_seg,
                     count_bad_man_transcripts,
+                    over_30_line_segment_count,
+                    bad_text_segment_count,
+                    over_ctx_len_segment_count,
+                    faulty_audio_segment_count,
+                    faulty_transcript_count,
+                    _,
                 ) = zip(
                     *[
                         merge_man_mach_segs(
@@ -857,6 +874,7 @@ def preprocess_jsonl(
             if seg_mach == False:
                 failed_seg_count = len(transcript_data) - len(segments_group)
                 stats["failed_seg_video_id_count"] = failed_seg_count
+                stats["failed_transcript_video_id_count"] = sum(failed_transcript_count)
 
             # Write the data to tar files
             segments_list = list(chain(*segments_group))
@@ -890,6 +908,11 @@ def preprocess_jsonl(
             stats["pre_seg_video_id_count"] = len(transcript_data)
             stats["post_seg_video_id_count"] = len(segments_group)
             stats["count_seg"] = seg_count
+            stats["over_30_line_segment_count"] = sum(over_30_line_segment_count)
+            stats["bad_text_segment_count"] = sum(bad_text_segment_count)
+            stats["over_ctx_len_segment_count"] = sum(over_ctx_len_segment_count)
+            stats["faulty_audio_segment_count"] = sum(faulty_audio_segment_count)
+            stats["faulty_transcript_video_id_count"] = sum(faulty_transcript_count)
         else:
             with gzip.open(json_file, "rt", encoding="utf-8") as f:
                 segments_list = [json.loads(line.strip()) for line in f]
@@ -986,6 +1009,8 @@ def main(
                 total=len(shard_jsonls),
             )
         )
+
+    stats = [stat for stat in stats if stat is not None]
 
     with open(f"{output_dir}/segment_stats.log", "w") as f:
         stat_keys = stats[0].keys()
