@@ -189,7 +189,6 @@ class AudioTextDataset(Dataset):
                 tokens = (
                     list(tokenizer.sot_sequence_including_notimestamps)
                     + [tokenizer.no_speech]
-                    + tokenizer.encode("")
                     + [tokenizer.eot]
                 )
             else:
