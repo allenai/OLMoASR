@@ -295,6 +295,8 @@ def write_segment(
     Returns:
         Path to the output transcript file
     """
+    only_no_ts_mode = False
+
     output_file = f"{output_dir}/{audio_begin.replace('.', ',')}_{timestamps[-1][1].replace('.', ',')}.{ext}"
     transcript_string = ""
 
@@ -305,9 +307,16 @@ def write_segment(
         if not in_memory:
             with open(output_file, "w") as f:
                 f.write(transcript_string)
-        return output_file, transcript_string, ""
+        return output_file, transcript_string, "", only_no_ts_mode
 
     for i in range(len(timestamps)):
+        if convert_to_milliseconds(timestamps[i][0]) < convert_to_milliseconds(
+            audio_begin
+        ) or convert_to_milliseconds(timestamps[i][1]) < convert_to_milliseconds(
+            audio_begin
+        ):
+            only_no_ts_mode = True
+            
         start = adjust_timestamp(
             timestamp=timestamps[i][0],
             milliseconds=-convert_to_milliseconds(audio_begin),
@@ -330,7 +339,7 @@ def write_segment(
         with open(output_file, "w") as f:
             f.write(transcript_string)
 
-    return output_file, transcript_string, end.replace(",", ".")
+    return output_file, transcript_string, end.replace(",", "."), only_no_ts_mode
 
 
 # old write_segment
