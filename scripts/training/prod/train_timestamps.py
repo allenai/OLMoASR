@@ -173,18 +173,18 @@ class AudioTextDataset(Dataset):
         )
         transcript, *_ = reader.read()
         timestamp_mode = False
-        
+
         if isinstance(norm_end, str):
             norm_end = ow.utils.convert_to_milliseconds(norm_end)
 
         if not transcript:
-            if norm_end > 30000: # can't rmb if this is a valid case but leaving in for now
+            if (
+                norm_end > 30000
+            ):  # can't rmb if this is a valid case but leaving in for now
                 next_start_token_idx = [tokenizer.timestamp_begin + (30000 // 20)]
             else:
-                next_start_token_idx = [
-                    tokenizer.timestamp_begin + (norm_end // 20)
-                ]
-            
+                next_start_token_idx = [tokenizer.timestamp_begin + (norm_end // 20)]
+
             if norm_end >= 30000:
                 tokens = (
                     list(tokenizer.sot_sequence_including_notimestamps)
@@ -260,7 +260,9 @@ class AudioTextDataset(Dataset):
 
                         new_tokens = list(chain(*new_tokens))
 
-                        if norm_end > 30000: # can't rmb if this is a valid case but leaving in for now
+                        if (
+                            norm_end > 30000
+                        ):  # can't rmb if this is a valid case but leaving in for now
                             next_start_token_idx = [
                                 tokenizer.timestamp_begin + (30000 // 20)
                             ]
@@ -292,7 +294,7 @@ class AudioTextDataset(Dataset):
         if len(text_input) > self.n_text_ctx:
             print(f"{transcript_file=}")
             print(f"{timestamp_mode=}")
-            print(f"{next_start_ms=}")
+            print(f"{norm_end=}")
             print(f"{transcript_string=}")
             print(f"{len(text_input)=}")
             print(f"{text_input=}")
@@ -300,7 +302,7 @@ class AudioTextDataset(Dataset):
         if len(text_y) > self.n_text_ctx:
             print(f"{transcript_file=}")
             print(f"{timestamp_mode=}")
-            print(f"{next_start_ms=}")
+            print(f"{norm_end=}")
             print(f"{transcript_string=}")
             print(f"{len(text_y)=}")
             print(f"{text_y=}")
@@ -308,7 +310,7 @@ class AudioTextDataset(Dataset):
         if max(tokens) >= 51864:
             print(f"{transcript_file=}")
             print(f"{timestamp_mode=}")
-            print(f"{next_start_ms=}")
+            print(f"{norm_end=}")
             print(f"{transcript_string=}")
             print("Invalid token index found:", max(tokens), "vs max allowed: 51863")
 
