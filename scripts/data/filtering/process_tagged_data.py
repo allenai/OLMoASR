@@ -78,15 +78,27 @@ def filter_bool(tag_value, ref_value):
         return False
 
 
-def filter_cat(tag_value, ref_value):
+def filter_cat(tag_value, ref_value, comparison: Optional[Literal["in", "not_in"]] = None):
     """Filters a categorical value based on the kwargs provided"""
     if isinstance(ref_value, str):
         ref_value = [ref_value]
 
-    if tag_value in ref_value:
-        return True
+    if comparison is not None:
+        if comparison == "in":
+            if tag_value in ref_value:
+                return True
+            else:
+                return False
+        elif comparison == "not_in":
+            if tag_value not in ref_value:
+                return True
+            else:
+                return False
     else:
-        return False
+        if tag_value in ref_value:
+            return True
+        else:
+            return False
 
 
 def filter_num(tag_value, lower_bound=None, upper_bound=None, inclusive=True):
@@ -128,8 +140,8 @@ def filter_num(tag_value, lower_bound=None, upper_bound=None, inclusive=True):
 
 def process_jsonl(
     jsonl_path,
-    config_dict,
     output_dir,
+    config_dict=None,
     only_subsample=False,
     subsample=False,
     subsample_size=None,
@@ -144,9 +156,8 @@ def process_jsonl(
     ]
     lines_seen = lines_kept = 0
     chars_seen = chars_kept = 0
-    dur_seen = dur_kept = 0
     subsampled_count = 0
-    total_hitlist = None
+    total_hitlist = {}
 
     output_lines = []
     if only_subsample is False:
@@ -155,7 +166,6 @@ def process_jsonl(
         for line in lines:
             lines_seen += 1
             chars_seen += len(line["seg_content"])
-            dur_seen += line["length"]
             output_line, hitlist = process_line(line, config_dict)
             for k, v in hitlist.items():
                 total_hitlist[k] += v
@@ -163,7 +173,6 @@ def process_jsonl(
             if output_line is not None:
                 lines_kept += 1
                 chars_kept += len(output_line["seg_content"])
-                dur_kept += output_line["length"]
                 output_lines.append(line)
             else:
                 continue
@@ -190,23 +199,28 @@ def process_jsonl(
             output_lines = rng.choice(lines, size=subsample_size, replace=False)
         else:
             output_lines = lines
+            
+        keys_to_keep = {"id", "seg_id", "subtitle_file", "audio_file", "seg_content"}
+        output_lines = [{k: d[k] for k in keys_to_keep if k in d} for d in output_lines]
+
         subsampled_count = len(output_lines)
         lines_seen = len(lines)
 
-    with open(output_file, "wb") as f:
-        f.write(
-            gzip.compress(
-                b"\n".join([json.dumps(_).encode("utf-8") for _ in output_lines])
+    if len(output_lines) > 0:
+        with open(output_file, "wb") as f:
+            f.write(
+                gzip.compress(
+                    b"\n".join([json.dumps(_).encode("utf-8") for _ in output_lines])
+                )
             )
-        )
+    else:
+        print(f"{jsonl_path} after filtering resulted in no output lines")
 
     return (
         lines_seen,
         lines_kept,
         chars_seen,
         chars_kept,
-        dur_seen,
-        dur_kept,
         dict(total_hitlist),
         subsampled_count,
     )
@@ -241,9 +255,9 @@ def process_line(line, config):
 
 
 def main(
-    config_path,
     input_dir,
     output_dir,
+    config_path=None,
     only_subsample=False,
     subsample=False,
     subsample_size=None,
@@ -256,12 +270,16 @@ def main(
     files = glob.glob(os.path.join(input_dir, "**/*.jsonl.gz"), recursive=True)
 
     os.makedirs(output_dir, exist_ok=True)
-    config_dict = parse_config(config_path)
-    print("CONFIG IS ", config_dict)
+    if config_path is not None:
+        config_dict = parse_config(config_path)
+        print("CONFIG IS ", config_dict)
+    else:
+        config_dict = {}
+
     partial_fxn = partial(
         process_jsonl,
-        config_dict=config_dict,
         output_dir=output_dir,
+        config_dict=config_dict,
         only_subsample=only_subsample,
         subsample=subsample,
         subsample_size=subsample_size,
@@ -276,8 +294,6 @@ def main(
         lines_kept_list,
         chars_seen_list,
         chars_kept_list,
-        dur_seen_list,
-        dur_kept_list,
         hitlist_list,
         subsampled_count,
     ) = zip(*output_numbers)
@@ -301,7 +317,7 @@ def main(
 
         with open(
             os.path.join(
-                output_dir, f"{os.path.basename(config_path).split('.yaml')[0]}.log"
+                output_dir, "subsampled_stats.log"
             ),
             "w",
         ) as f:
@@ -322,8 +338,8 @@ def main(
         )
         chars_seen = sum(chars_seen_list)
         chars_kept = sum(chars_kept_list)
-        dur_seen = sum(dur_seen_list)
-        dur_kept = sum(dur_kept_list)
+        dur_seen = lines_seen * 30 / (60 * 60)
+        dur_kept = lines_kept * 30 / (60 * 60)
 
         for hitlist in hitlist_list:
             for k, v in hitlist.items():
@@ -361,7 +377,7 @@ def main(
         )
         print(
             "Kept %.04f/%.04f Hours | %.04f survival rate"
-            % (dur_kept / (60 * 60), dur_seen / (60 * 60), 100 * (dur_kept / dur_seen))
+            % (dur_kept, dur_seen, 100 * (dur_kept / dur_seen))
         )
 
         process_hitlist(dict(total_hitlist), config_dict["pipeline"])
@@ -389,8 +405,8 @@ def main(
             f.write(
                 "Kept %.04f/%.04f Hours | %.04f survival rate\n"
                 % (
-                    dur_kept / (60 * 60),
-                    dur_seen / (60 * 60),
+                    dur_kept,
+                    dur_seen,
                     100 * (dur_kept / dur_seen),
                 )
             )
@@ -411,9 +427,6 @@ if __name__ == "__main__":
 
     # Add arguments
     parser.add_argument(
-        "--config", type=str, required=True, help="location of the config.yaml"
-    )
-    parser.add_argument(
         "--input-dir",
         type=str,
         required=True,
@@ -424,6 +437,9 @@ if __name__ == "__main__":
         type=str,
         required=True,
         help="location of where the output jsonl.gz files will go",
+    )
+    parser.add_argument(
+        "--config", type=str, required=False, help="location of the config.yaml"
     )
     parser.add_argument(
         "--only-subsample",
@@ -450,4 +466,12 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    main(args.config, args.input_dir, args.output_dir, num_cpus=args.num_cpus)
+    main(
+        args.input_dir,
+        args.output_dir,
+        config_path=args.config,
+        only_subsample=args.only_subsample,
+        subsample=args.subsample,
+        subsample_size=args.subsample_size,
+        num_cpus=args.num_cpus,
+    )
