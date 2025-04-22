@@ -100,8 +100,7 @@ class AudioTextDataset(Dataset):
 
         if timestamp_mode is True:
             norm_end = None
-        
-        if new_norm_end != norm_end:
+        elif timestamp_mode is False and (new_norm_end != norm_end):
             norm_end = new_norm_end
 
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file, norm_end)
