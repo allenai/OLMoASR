@@ -88,7 +88,8 @@ class AudioTextDataset(Dataset):
         ts_mode = sample_dict["ts_mode"]
         only_no_ts_mode = sample_dict["only_no_ts_mode"]
         norm_end = sample_dict["norm_end"]
-        text_input, text_y, padding_mask, timestamp_mode = self.preprocess_text(
+        # new_norm_end is temp fix for text segs w/ > 30s -> current don't know why issue occurs
+        text_input, text_y, padding_mask, timestamp_mode, new_norm_end = self.preprocess_text(
             transcript_string,
             transcript_file,
             tokenizer,
@@ -99,6 +100,9 @@ class AudioTextDataset(Dataset):
 
         if timestamp_mode is True:
             norm_end = None
+        
+        if new_norm_end != norm_end:
+            norm_end = new_norm_end
 
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file, norm_end)
         end_preproc = time.time()
@@ -216,6 +220,11 @@ class AudioTextDataset(Dataset):
                             + [tokenizer.eot]
                         )
         else:
+            if norm_end > 30000: # temp soln
+                transcript = transcript[:-1]
+                norm_end = transcript.keys()[-1][1]
+                only_no_ts_mode = True
+                
             tokens = [
                 (tokenizer.encode(" " + text.strip()))
                 for i, (_, text) in enumerate(transcript.items())
@@ -340,7 +349,7 @@ class AudioTextDataset(Dataset):
         text_input = torch.tensor(text_input, dtype=torch.long)
         text_y = torch.tensor(text_y, dtype=torch.long)
 
-        return text_input, text_y, padding_mask, timestamp_mode
+        return text_input, text_y, padding_mask, timestamp_mode, norm_end
 
 
 def init_tokenizer(worker_id: int):
