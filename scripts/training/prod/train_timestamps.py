@@ -1,4 +1,5 @@
 import os
+
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 os.environ["TORCH_USE_CUDA_DSA"] = "1"
 import glob
@@ -51,6 +52,7 @@ VARIANT_TO_PARAMS = {
 
 HARDWARE_TO_FLOPS = {"H100": 900 * 10**12, "L40": 366 * 10**12, "A100": 312 * 10**12}
 
+
 class AudioTextDataset(Dataset):
     """Dataset for audio and transcript segments
 
@@ -80,20 +82,22 @@ class AudioTextDataset(Dataset):
         start_preproc = time.time()
         global tokenizer
         sample_dict = self.samples[index]
-        audio_file = sample_dict["audio_file"].replace("ow_seg", "440K_filtered_seg")
-        transcript_file = sample_dict["subtitle_file"].replace(
-            "ow_seg", "440K_filtered_seg"
-        )
+        audio_file = sample_dict["audio_file"].replace("ow_seg", "ow_seg_long")
+        transcript_file = sample_dict["subtitle_file"].replace("ow_seg", "ow_seg_long")
         transcript_string = sample_dict["seg_content"]
-        next_start_ms = sample_dict["norm_next_start"]
         ts_mode = sample_dict["ts_mode"]
+        only_no_ts_mode = sample_dict["only_no_ts_mode"]
+        norm_end = sample_dict["norm_end"]
         text_input, text_y, padding_mask, timestamp_mode = self.preprocess_text(
-            transcript_string, transcript_file, tokenizer, next_start_ms, ts_mode
+            transcript_string,
+            transcript_file,
+            tokenizer,
+            norm_end,
+            ts_mode,
+            only_no_ts_mode,
         )
 
-        if timestamp_mode is False:
-            norm_end = sample_dict["norm_end"]
-        else:
+        if timestamp_mode is True:
             norm_end = None
 
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file, norm_end)
@@ -129,7 +133,7 @@ class AudioTextDataset(Dataset):
             # number of samples to trim until
             if isinstance(norm_end, str):
                 norm_end = ow.utils.convert_to_milliseconds(norm_end)
-                
+
             length = norm_end * 16
             # trim until end of text segment
             audio_arr = audio.pad_or_trim(audio_arr, length=length)
@@ -147,8 +151,9 @@ class AudioTextDataset(Dataset):
         transcript_string: str,
         transcript_file: str,
         tokenizer: whisper.tokenizer.Tokenizer,
-        next_start_ms: Union[int, str],
+        norm_end: Union[int, str],
         ts_mode: bool,
+        only_no_ts_mode: bool,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool]:
         """Preprocesses the text data for the model.
 
@@ -168,99 +173,117 @@ class AudioTextDataset(Dataset):
         )
         transcript, *_ = reader.read()
         timestamp_mode = False
+        
+        if isinstance(norm_end, str):
+            norm_end = ow.utils.convert_to_milliseconds(norm_end)
+
         if not transcript:
-            if isinstance(next_start_ms, str):
-                next_start_ms = ow.utils.convert_to_milliseconds(next_start_ms)
-                
-            if next_start_ms > 30000:
+            if norm_end > 30000: # can't rmb if this is a valid case but leaving in for now
                 next_start_token_idx = [tokenizer.timestamp_begin + (30000 // 20)]
             else:
                 next_start_token_idx = [
-                    tokenizer.timestamp_begin + (next_start_ms // 20)
+                    tokenizer.timestamp_begin + (norm_end // 20)
                 ]
-
-            if np.random.rand() >= 0.5:
+            
+            if norm_end >= 30000:
                 tokens = (
-                    [tokenizer.sot_sequence[0]]
-                    + [tokenizer.timestamp_begin]
-                    # + [tokenizer.no_speech]
+                    list(tokenizer.sot_sequence_including_notimestamps)
+                    + [tokenizer.no_speech]
                     + tokenizer.encode("")
-                    + next_start_token_idx
-                    + next_start_token_idx
                     + [tokenizer.eot]
                 )
             else:
-                tokens = (
-                    list(tokenizer.sot_sequence_including_notimestamps)
-                    # + [tokenizer.no_speech]
-                    + tokenizer.encode("")
-                    + [tokenizer.eot]
-                )
+                if only_no_ts_mode is True:
+                    tokens = (
+                        list(tokenizer.sot_sequence_including_notimestamps)
+                        + tokenizer.encode("")
+                        + [tokenizer.eot]
+                    )
+                else:
+                    if np.random.rand() >= 0.5:
+                        tokens = (
+                            [tokenizer.sot_sequence[0]]
+                            + [tokenizer.timestamp_begin]
+                            + tokenizer.encode("")
+                            + next_start_token_idx
+                            + next_start_token_idx
+                            + [tokenizer.eot]
+                        )
+                    else:
+                        tokens = (
+                            list(tokenizer.sot_sequence_including_notimestamps)
+                            + tokenizer.encode("")
+                            + [tokenizer.eot]
+                        )
         else:
             tokens = [
-                (
-                    tokenizer.encode(" " + text.strip())
-                )
+                (tokenizer.encode(" " + text.strip()))
                 for i, (_, text) in enumerate(transcript.items())
             ]
 
-            if np.random.rand() >= 0.5:
-                if ts_mode is True:
-                    def convert_to_token_idx(timestamp, timestamp_begin):
-                        return timestamp_begin + (
-                            ow.utils.convert_to_milliseconds(timestamp) // 20
-                        )
+            if only_no_ts_mode is True:
+                tokens = (
+                    list(tokenizer.sot_sequence_including_notimestamps)
+                    + list(chain(*tokens))
+                    + [tokenizer.eot]
+                )
+            else:
+                if np.random.rand() >= 0.5:
+                    if ts_mode is True:
 
-                    timestamp_begin = tokenizer.timestamp_begin
-                    sot_token = tokenizer.sot_sequence[0]
+                        def convert_to_token_idx(timestamp, timestamp_begin):
+                            return timestamp_begin + (
+                                ow.utils.convert_to_milliseconds(timestamp) // 20
+                            )
 
-                    # Precompute start and end token indices
-                    token_ranges = [
-                        (
-                            convert_to_token_idx(start, timestamp_begin),
-                            convert_to_token_idx(end, timestamp_begin),
-                        )
-                        for start, end in transcript.keys()
-                    ]
+                        timestamp_begin = tokenizer.timestamp_begin
+                        sot_token = tokenizer.sot_sequence[0]
 
-                    # Build new_tokens using list comprehension
-                    new_tokens = [
-                        (
-                            [sot_token] + [start] + tokens[i] + [end]
-                            if i == 0
-                            else [start] + tokens[i] + [end]
-                        )
-                        for i, (start, end) in enumerate(token_ranges)
-                    ]
-
-                    new_tokens = list(chain(*new_tokens))
-
-                    if next_start_ms is None:
-                        next_start_token_idx = []
-                    elif next_start_ms > 30000:
-                        next_start_token_idx = [
-                            tokenizer.timestamp_begin + (30000 // 20)
+                        # Precompute start and end token indices
+                        token_ranges = [
+                            (
+                                convert_to_token_idx(start, timestamp_begin),
+                                convert_to_token_idx(end, timestamp_begin),
+                            )
+                            for start, end in transcript.keys()
                         ]
+
+                        # Build new_tokens using list comprehension
+                        new_tokens = [
+                            (
+                                [sot_token] + [start] + tokens[i] + [end]
+                                if i == 0
+                                else [start] + tokens[i] + [end]
+                            )
+                            for i, (start, end) in enumerate(token_ranges)
+                        ]
+
+                        new_tokens = list(chain(*new_tokens))
+
+                        if norm_end > 30000: # can't rmb if this is a valid case but leaving in for now
+                            next_start_token_idx = [
+                                tokenizer.timestamp_begin + (30000 // 20)
+                            ]
+                        else:
+                            next_start_token_idx = [
+                                tokenizer.timestamp_begin + (norm_end // 20)
+                            ]
+
+                        new_tokens.extend(next_start_token_idx + [tokenizer.eot])
+                        tokens = new_tokens
+                        timestamp_mode = True
                     else:
-                        next_start_token_idx = [
-                            tokenizer.timestamp_begin + (next_start_ms // 20)
-                        ]
-
-                    new_tokens.extend(next_start_token_idx + [tokenizer.eot])
-                    tokens = new_tokens
-                    timestamp_mode = True
+                        tokens = (
+                            list(tokenizer.sot_sequence_including_notimestamps)
+                            + list(chain(*tokens))
+                            + [tokenizer.eot]
+                        )
                 else:
                     tokens = (
                         list(tokenizer.sot_sequence_including_notimestamps)
                         + list(chain(*tokens))
                         + [tokenizer.eot]
                     )
-            else:
-                tokens = (
-                    list(tokenizer.sot_sequence_including_notimestamps)
-                    + list(chain(*tokens))
-                    + [tokenizer.eot]
-                )
 
         # offset
         text_input = tokens[:-1]
@@ -273,7 +296,7 @@ class AudioTextDataset(Dataset):
             print(f"{transcript_string=}")
             print(f"{len(text_input)=}")
             print(f"{text_input=}")
-        
+
         if len(text_y) > self.n_text_ctx:
             print(f"{transcript_file=}")
             print(f"{timestamp_mode=}")
