@@ -293,7 +293,7 @@ def chunk_data(
                             )
 
                         if transcript_only is True:
-                            t_output_file, transcript_string, _ = utils.write_segment(
+                            t_output_file, transcript_string, *_ = utils.write_segment(
                                 audio_begin=start,
                                 timestamps=[(start, end)],
                                 transcript=None,
@@ -324,6 +324,7 @@ def chunk_data(
                                         ).replace("ow_full", "ow_seg"),
                                         "ts_mode": True,
                                         "no_ts_mode": True,
+                                        "only_no_ts_mode": False,
                                         "num_tokens_no_ts_mode": 0,
                                         "num_tokens_ts_mode": 0,
                                     }
@@ -345,6 +346,7 @@ def chunk_data(
                                             ).replace("ow_full", "ow_seg"),
                                             "ts_mode": True,
                                             "no_ts_mode": True,
+                                            "only_no_ts_mode": False,
                                             "num_tokens_no_ts_mode": 0,
                                             "num_tokens_ts_mode": 0,
                                         },
@@ -360,7 +362,7 @@ def chunk_data(
                                 in_memory=in_memory,
                             )
                         elif transcript_only is False and audio_only is False:
-                            t_output_file, transcript_string, _ = utils.write_segment(
+                            t_output_file, transcript_string, *_ = utils.write_segment(
                                 audio_begin=start,
                                 timestamps=[(start, end)],
                                 transcript=None,
@@ -417,13 +419,19 @@ def chunk_data(
                         start_in_no_speech = None
                         continue
                     end = timestamps[b][0]
+                    
+                    if utils.convert_to_milliseconds(end) < utils.convert_to_milliseconds(local_start):
+                        only_no_ts_mode = True
+                    else:
+                        only_no_ts_mode = False
+                        
                     norm_end = utils.adjust_timestamp(
                         end, -utils.convert_to_milliseconds(local_start)
                     )
                     audio_timestamp = f"{local_start.replace('.', ',')}_{utils.adjust_timestamp(local_start, 30000).replace('.', ',')}"
 
                     if transcript_only is True:
-                        t_output_file, transcript_string, _ = utils.write_segment(
+                        t_output_file, transcript_string, *_ = utils.write_segment(
                             audio_begin=local_start,
                             timestamps=[(local_start, end)],
                             transcript=None,
@@ -454,6 +462,7 @@ def chunk_data(
                                     ).replace("ow_full", "ow_seg"),
                                     "ts_mode": True,
                                     "no_ts_mode": True,
+                                    "only_no_ts_mode": only_no_ts_mode,
                                     "num_tokens_no_ts_mode": 0,
                                     "num_tokens_ts_mode": 0,
                                 }
@@ -475,6 +484,7 @@ def chunk_data(
                                         ).replace("ow_full", "ow_seg"),
                                         "ts_mode": True,
                                         "no_ts_mode": True,
+                                        "only_no_ts_mode": only_no_ts_mode,
                                         "num_tokens_no_ts_mode": 0,
                                         "num_tokens_ts_mode": 0,
                                     },
@@ -492,7 +502,7 @@ def chunk_data(
                             in_memory=in_memory,
                         )
                     elif transcript_only is False and audio_only is False:
-                        t_output_file, transcript_string, _ = utils.write_segment(
+                        t_output_file, transcript_string, *_ = utils.write_segment(
                             audio_begin=local_start,
                             timestamps=[(local_start, end)],
                             transcript=None,
@@ -584,7 +594,7 @@ def chunk_data(
                 if not over_ctx_len and valid_timestamps:
                     if transcript_only is True:
                         # writing transcript segment w/ timestamps[a + 1][0] -> timestamps[b - 1][1]
-                        t_output_file, transcript_string, norm_end = (
+                        t_output_file, transcript_string, norm_end, only_no_ts_mode = (
                             utils.write_segment(
                                 audio_begin=local_start,
                                 timestamps=(
@@ -629,6 +639,7 @@ def chunk_data(
                                     ).replace("ow_full", "ow_seg"),
                                     "ts_mode": res["ts_mode"],
                                     "no_ts_mode": res["no_ts_mode"],
+                                    "only_no_ts_mode": only_no_ts_mode,
                                     "num_tokens_no_ts_mode": res[
                                         "num_tokens_no_ts_mode"
                                     ],
@@ -652,6 +663,7 @@ def chunk_data(
                                         ).replace("ow_full", "ow_seg"),
                                         "ts_mode": res["ts_mode"],
                                         "no_ts_mode": res["no_ts_mode"],
+                                        "only_no_ts_mode": only_no_ts_mode,
                                         "num_tokens_no_ts_mode": res[
                                             "num_tokens_no_ts_mode"
                                         ],
@@ -672,7 +684,7 @@ def chunk_data(
                         )
                     elif transcript_only is False and audio_only is False:
                         # writing transcript segment w/ timestamps[a + 1][0] or timestamps[a][0] -> timestamps[b - 1][1]
-                        t_output_file, transcript_string, _ = utils.write_segment(
+                        t_output_file, transcript_string, *_ = utils.write_segment(
                             audio_begin=local_start,
                             timestamps=(
                                 timestamps[a:b]
@@ -778,7 +790,7 @@ def chunk_data(
                 )
                 if not over_ctx_len and valid_timestamps:
                     if transcript_only is True:
-                        t_output_file, transcript_string, norm_end = (
+                        t_output_file, transcript_string, norm_end, only_no_ts_mode = (
                             utils.write_segment(
                                 audio_begin=local_start,
                                 timestamps=(
@@ -820,6 +832,7 @@ def chunk_data(
                                     ).replace("ow_full", "ow_seg"),
                                     "ts_mode": res["ts_mode"],
                                     "no_ts_mode": res["no_ts_mode"],
+                                    "only_no_ts_mode": only_no_ts_mode,
                                     "num_tokens_no_ts_mode": res[
                                         "num_tokens_no_ts_mode"
                                     ],
@@ -842,6 +855,7 @@ def chunk_data(
                                         ).replace("ow_full", "ow_seg"),
                                         "ts_mode": res["ts_mode"],
                                         "no_ts_mode": res["no_ts_mode"],
+                                        "only_no_ts_mode": only_no_ts_mode,
                                         "num_tokens_no_ts_mode": res[
                                             "num_tokens_no_ts_mode"
                                         ],
@@ -859,7 +873,7 @@ def chunk_data(
                             in_memory=in_memory,
                         )
                     elif transcript_only is False and audio_only is False:
-                        t_output_file, transcript_string, _ = utils.write_segment(
+                        t_output_file, transcript_string, *_ = utils.write_segment(
                             audio_begin=local_start,
                             timestamps=(
                                 timestamps[a:b]
