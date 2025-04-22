@@ -208,6 +208,7 @@ class AudioTextDataset(Dataset):
                             + next_start_token_idx
                             + [tokenizer.eot]
                         )
+                        timestamp_mode = True
                     else:
                         tokens = (
                             list(tokenizer.sot_sequence_including_notimestamps)
