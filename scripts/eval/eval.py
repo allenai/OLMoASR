@@ -2,14 +2,18 @@ from typing import Literal, Optional
 import os
 import glob
 import json
+import re
 import numpy as np
 import pandas as pd
+from collections import OrderedDict
 import librosa
 import torch
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 from datasets import load_dataset
 import jiwer
 from whisper import audio, DecodingOptions
+from whisper.tokenizer import get_tokenizer
+from whisper.decoding import detect_language
 from whisper.normalizers import EnglishTextNormalizer, BasicTextNormalizer
 from open_whisper import load_model
 from fire import Fire
@@ -186,7 +190,6 @@ class chime6:
         return audio_files, transcript_texts
 
 
-# long-form
 class TEDLIUM_long(TEDLIUM):
     def __init__(
         self,
@@ -332,17 +335,9 @@ class TEDLIUM_long(TEDLIUM):
         fileid = self._filelist[n]
         return self._load_tedlium_item(fileid, self._path)
 
-
-# Meanwhile
-
-# Rev16
-
 # Kincaid46
 
-# Earnings-21
-
 # CORAAL_long
-
 
 class MLS:
     def __init__(self, root_dir):
@@ -497,12 +492,69 @@ class EvalDataset(Dataset):
                 self.dataset = chime6(root_dir=root_dir)
         elif task == "long_form_transcribe":
             if eval_set == "tedlium":
-                if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-                self.dataset = TEDLIUM_long(
-                    root=f"{eval_dir}", release="release3", subset="test"
+                self.dataset = load_dataset(
+                    path="distil-whisper/tedlium-long-form",
+                    split="test",
+                    token=hf_token,
+                    cache_dir=eval_dir,
+                    trust_remote_code=True,
+                    num_proc=15,
+                    save_infos=True,
                 )
+
+                # if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
+                #     get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+                # self.dataset = TEDLIUM_long(
+                #     root=f"{eval_dir}", release="release3", subset="test"
+                # )
+            elif eval_set == "meanwhile":
+                self.dataset = load_dataset(
+                    path="distil-whisper/meanwhile",
+                    split="test",
+                    token=hf_token,
+                    cache_dir=eval_dir,
+                    trust_remote_code=True,
+                    num_proc=15,
+                    save_infos=True,
+                )
+            elif eval_set == "rev16":
+                self.dataset = load_dataset(
+                    path="distil-whisper/rev16",
+                    name="whisper_subset",
+                    split="test",
+                    token=hf_token,
+                    cache_dir=eval_dir,
+                    trust_remote_code=True,
+                    num_proc=15,
+                    save_infos=True,
+                )
+            elif eval_set == "earnings21":
+                self.dataset = load_dataset(
+                    path="distil-whisper/earnings21",
+                    name="full",
+                    split="test",
+                    token=hf_token,
+                    cache_dir=eval_dir,
+                    trust_remote_code=True,
+                    num_proc=15,
+                    save_infos=True,
+                )
+            elif eval_set == "earnings22":
+                self.dataset = load_dataset(
+                    path="distil-whisper/earnings22",
+                    name="full",
+                    split="test",
+                    token=hf_token,
+                    cache_dir=eval_dir,
+                    trust_remote_code=True,
+                    num_proc=15,
+                    save_infos=True,
+                )
+            elif eval_set == "coraal":
+                pass
+            elif eval_set == "kincaid46":
+                pass
         elif task == "ml_transcribe":
             if eval_set == "fleurs":
                 if len(os.listdir(f"{eval_dir}/google__fleurs")) < 102:
@@ -554,6 +606,10 @@ class EvalDataset(Dataset):
             "common_voice",
             "fleurs",
             "voxpopuli",
+            "meanwhile",
+            "rev16",
+            "earnings21",
+            "earnings22",
         ]:
             audio_files, transcript_texts = self.dataset.load()
             self.audio_files = audio_files
@@ -565,6 +621,10 @@ class EvalDataset(Dataset):
             "common_voice",
             "fleurs",
             "voxpopuli",
+            "meanwhile",
+            "rev16",
+            "earnings21",
+            "earnings22",
         ]:
             return len(self.dataset)
         return len(self.audio_files)
@@ -625,8 +685,79 @@ class EvalDataset(Dataset):
             return audio_fp, audio_arr, audio_input, text_y
         elif self.task == "long_form_transcribe":
             if self.eval_set == "tedlium":
-                audio_arr, _, text_y, *_ = self.dataset[index]
-                audio_input = None
+                waveform = self.dataset[index]["audio"]["array"]
+                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+                text_y = self.dataset[index]["text"]
+                
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
+                    
+                # audio_arr = audio.pad_or_trim(waveform)
+                # audio_arr = audio_arr.astype(np.float32)
+                audio_arr = waveform.astype(np.float32)
+                audio_input = ""
+                
+                # audio_arr, _, text_y, talk_id, speaker_id, identifier = self.dataset[
+                #     index
+                # ]
+                # audio_input = ""
+                # audio_fp = "_".join([talk_id, speaker_id, identifier])
+            elif self.eval_set == "meanwhile":
+                waveform = self.dataset[index]["audio"]["array"]
+                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+                text_y = self.dataset[index]["text"]
+                
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
+                    
+                audio_arr = waveform.astype(np.float32)
+                audio_input = ""
+            elif self.eval_set == "rev16":
+                waveform = self.dataset[index]["audio"]["array"]
+                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+                text_y = self.dataset[index]["transcription"]
+                
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
+                    
+                audio_arr = waveform.astype(np.float32)
+                audio_input = ""
+            elif self.eval_set == "earnings21":
+                waveform = self.dataset[index]["audio"]["array"]
+                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+                text_y = self.dataset[index]["transcription"]
+                
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
+                    
+                audio_arr = waveform.astype(np.float32)
+                audio_input = ""
+            elif self.eval_set == "earnings22":
+                waveform = self.dataset[index]["audio"]["array"]
+                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+                text_y = self.dataset[index]["transcription"]
+                
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
+                    
+                audio_arr = waveform.astype(np.float32)
+                audio_input = ""
+            elif self.eval_set == "coraal":
+                pass
+            elif self.eval_set == "kincaid46":
+                pass
+
+            return audio_fp, audio_arr, audio_input, text_y
         elif self.task == "ml_transcribe":
             pass
         elif self.task == "translate":
@@ -779,6 +910,7 @@ def short_form_eval(
                 if norm_tgt_text[i] != ""
                 and norm_tgt_text[i] != "ignore time segment in scoring"
             ]
+            # print(f"{norm_pred_text=}")
             if wandb_log:
                 audio_arr = [
                     audio_arr.numpy()[i]
@@ -792,6 +924,9 @@ def short_form_eval(
                 if norm_tgt_text[i] != ""
                 and norm_tgt_text[i] != "ignore time segment in scoring"
             ]
+            # print(f"{norm_tgt_text=}")
+
+            # break
 
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
@@ -826,7 +961,11 @@ def short_form_eval(
                         wer,
                     )
 
-                wandb.log({f"eval_table_{current_step}": eval_table})
+                if train_run_id is not None:
+                    wandb.log({f"eval_table_{current_step}": eval_table})
+                else:
+                    wandb.log({f"eval_table": eval_table})
+
             elif bootstrap:
                 per_sample_wer.extend(
                     [
@@ -938,16 +1077,12 @@ def long_form_eval(
             "ins",
             "wer",
         ]
-        
+
         run_id = wandb.util.generate_id()
         ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
-        exp_name = (
-            f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
-        )
+        exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
         model_sizes = ["tiny", "small", "base", "medium", "large"]
-        model_size = [
-            model_size for model_size in model_sizes if model_size in ckpt
-        ][0]
+        model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
         config = {
             "ckpt": "/".join(ckpt.split("/")[-2:]),
             "model": ow_or_w,
@@ -969,10 +1104,11 @@ def long_form_eval(
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-            _, audio_input, _, text_y = batch
+            _, audio_arr, _, text_y = batch
 
             norm_tgt_text = [normalizer(text) for text in text_y]
-            audio_input = audio_input.to(device)
+            audio_arr = audio_arr.to(device)
+            print(f"{audio_arr.shape=}")
 
             options = dict(
                 task="transcribe",
@@ -981,7 +1117,7 @@ def long_form_eval(
                 beam_size=5,
                 best_of=5,
             )
-            results = model.transcribe(audio_input[0], **options)
+            results = model.transcribe(audio_arr[0], verbose=False, **options)
 
             norm_pred_text = [
                 normalizer(results["text"])
@@ -990,7 +1126,7 @@ def long_form_eval(
             ]
             if wandb_log:
                 audio_arr = [
-                    audio_arr.numpy()[i]
+                    audio_arr.cpu().numpy()[i]
                     for i in range(len(norm_tgt_text))
                     if norm_tgt_text[i] != ""
                 ]
@@ -1000,8 +1136,51 @@ def long_form_eval(
                 if norm_tgt_text[i] != ""
             ]
 
+            # print(f"{norm_pred_text=}")
+            # print(f"{norm_tgt_text=}")
+
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
+
+            if wandb_log:
+                for i, text in enumerate(norm_pred_text):
+                    wer = (
+                        np.round(
+                            jiwer.wer(
+                                reference=norm_tgt_text[i],
+                                hypothesis=norm_pred_text[i],
+                            ),
+                            2,
+                        )
+                        * 100
+                    )
+                    measures = jiwer.compute_measures(
+                        truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                    )
+                    subs = measures["substitutions"]
+                    dels = measures["deletions"]
+                    ins = measures["insertions"]
+
+                    eval_table.add_data(
+                        eval_set,
+                        wandb.Audio(audio_arr[i], sample_rate=16000),
+                        norm_pred_text[i],
+                        norm_tgt_text[i],
+                        subs,
+                        dels,
+                        ins,
+                        wer,
+                    )
+            else:
+                with open(f"{eval_set}_eval_results.txt", "a") as f:
+                    f.write(norm_pred_text[0] + "\n")
+                    f.write(norm_tgt_text[0] + "\n")
+                    f.write("\n")
+
+                # break
+
+        if wandb_log:
+            wandb.log({f"eval_table": eval_table})
 
     avg_wer = jiwer.wer(references, hypotheses) * 100
     avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
@@ -1009,15 +1188,15 @@ def long_form_eval(
     avg_ins = avg_measures["insertions"]
     avg_dels = avg_measures["deletions"]
 
-    print(
-        f"{eval_set} WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
-    )
-
     if wandb_log:
         wandb.run.summary["avg_wer"] = avg_wer
         wandb.run.summary["avg_subs"] = avg_subs
         wandb.run.summary["avg_ins"] = avg_ins
         wandb.run.summary["avg_dels"] = avg_dels
+
+    print(
+        f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+    )
 
 
 def ml_eval(
