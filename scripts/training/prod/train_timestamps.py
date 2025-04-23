@@ -89,7 +89,14 @@ class AudioTextDataset(Dataset):
         only_no_ts_mode = sample_dict["only_no_ts_mode"]
         norm_end = sample_dict["norm_end"]
         # new_norm_end is temp fix for text segs w/ > 30s -> current don't know why issue occurs
-        text_input, text_y, padding_mask, timestamp_mode, new_norm_end = self.preprocess_text(
+        (
+            text_input,
+            text_y,
+            padding_mask,
+            timestamp_mode,
+            new_norm_end,
+            text_preproc_time,
+        ) = self.preprocess_text(
             transcript_string,
             transcript_file,
             tokenizer,
@@ -103,7 +110,9 @@ class AudioTextDataset(Dataset):
         elif timestamp_mode is False and (new_norm_end != norm_end):
             norm_end = new_norm_end
 
-        audio_input, padded_audio_arr = self.preprocess_audio(audio_file, norm_end)
+        audio_input, padded_audio_arr, audio_preproc_time, audio_load_time = (
+            self.preprocess_audio(audio_file, norm_end)
+        )
         end_preproc = time.time()
         preproc_time = end_preproc - start_preproc
 
@@ -116,6 +125,9 @@ class AudioTextDataset(Dataset):
             text_y,
             padding_mask,
             preproc_time,
+            audio_preproc_time,
+            audio_load_time,
+            text_preproc_time,
         )
 
     def preprocess_audio(
@@ -131,7 +143,9 @@ class AudioTextDataset(Dataset):
         Returns:
             A tuple containing the name of audio file and the log mel spectrogram
         """
+        start_time = time.time()
         audio_arr = np.load(audio_file).astype(np.float32) / 32768.0
+        audio_load_time = time.time() - start_time
         if norm_end:
             # number of samples to trim until
             if isinstance(norm_end, str):
@@ -146,8 +160,9 @@ class AudioTextDataset(Dataset):
             # in case audio_arr isn't exactly 480K samples
             audio_arr = audio.pad_or_trim(audio_arr)
         mel_spec = audio.log_mel_spectrogram(audio_arr)
+        audio_preproc_time = time.time() - start_time
 
-        return mel_spec, audio_arr
+        return mel_spec, audio_arr, audio_preproc_time, audio_load_time
 
     def preprocess_text(
         self,
@@ -169,6 +184,7 @@ class AudioTextDataset(Dataset):
         Returns:
             A tuple containing the transcript file, the input text tensor, the target text tensor, and the padding mask
         """
+        start_time = time.time()
         reader = ow.utils.TranscriptReader(
             transcript_string=transcript_string,
             file_path=None,
@@ -219,11 +235,11 @@ class AudioTextDataset(Dataset):
                             + [tokenizer.eot]
                         )
         else:
-            if norm_end > 30000: # temp soln
+            if norm_end > 30000:  # temp soln
                 del transcript[list(transcript.keys())[-1]]
                 norm_end = list(transcript.keys())[-1][1]
                 only_no_ts_mode = True
-                
+
             tokens = [
                 (tokenizer.encode(" " + text.strip()))
                 for i, (_, text) in enumerate(transcript.items())
@@ -347,8 +363,16 @@ class AudioTextDataset(Dataset):
 
         text_input = torch.tensor(text_input, dtype=torch.long)
         text_y = torch.tensor(text_y, dtype=torch.long)
+        text_preproc_time = time.time() - start_time
 
-        return text_input, text_y, padding_mask, timestamp_mode, norm_end
+        return (
+            text_input,
+            text_y,
+            padding_mask,
+            timestamp_mode,
+            norm_end,
+            text_preproc_time,
+        )
 
 
 def init_tokenizer(worker_id: int):
@@ -1071,6 +1095,9 @@ def train(
                 text_y,
                 padding_mask,
                 preproc_time,
+                audio_preproc_time,
+                audio_load_time,
+                text_preproc_time,
             ) = batch
 
             start_data_to_gpu = time.time()
@@ -1107,6 +1134,9 @@ def train(
                     "efficiency/fwd_time": end_fwd - start_fwd,
                     "efficiency/avg_preproc_time": sum(preproc_time)
                     / len(preproc_time),
+                    "efficiency/avg_audio_preproc_time": sum(audio_preproc_time) / len(audio_preproc_time),
+                    "efficiency/avg_audio_load_time": sum(audio_load_time) / len(audio_load_time),
+                    "efficiency/avg_text_preproc_time": sum(text_preproc_time) / len(text_preproc_time),
                     "local_step": local_step,
                 }
             )
