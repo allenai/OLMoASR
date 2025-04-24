@@ -853,7 +853,7 @@ def load_ckpt(
         print(f"{optim_state_file=}")
         # latest_ckpt_file = max(all_ckpt_files, key=os.path.getctime)
 
-    train_state = torch.load(train_state_file, map_location=map_location)
+    train_state = torch.load(train_state_file, map_location=map_location, weights_only=False)
 
     # if end at training step i, then start at step i+1 when resuming
     global_step = train_state["global_step"]
@@ -869,7 +869,7 @@ def load_ckpt(
         scaler = None
 
     model = ow.model.Whisper(dims=train_state["dims"]).to(rank)
-    model_state = torch.load(model_state_file, map_location=map_location)
+    model_state = torch.load(model_state_file, map_location=map_location, weights_only=False)
     model.load_state_dict(model_state)
 
     auto_wrap_policy = functools.partial(
@@ -887,7 +887,7 @@ def load_ckpt(
     )
 
     optimizer = AdamW(model.parameters())
-    optim_state = torch.load(optim_state_file, map_location=map_location)
+    optim_state = torch.load(optim_state_file, map_location=map_location, weights_only=False)
     fsdp_optim_state = FSDP.optim_state_dict_to_load(
         model=model,
         optim=optimizer,
@@ -1685,7 +1685,6 @@ def main(
         ckpt_file_name = ""
 
     model_dims = VARIANT_TO_DIMS[model_variant]
-    os.makedirs(log_dir, exist_ok=True)
 
     local_rank = int(os.getenv("LOCAL_RANK", "0"))
     local_world_size = int(os.getenv("LOCAL_WORLD_SIZE", "1"))
