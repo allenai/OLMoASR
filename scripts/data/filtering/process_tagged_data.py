@@ -18,6 +18,7 @@ from io import StringIO
 import re
 import pycld2 as cld2
 from open_whisper.utils import TranscriptReader
+from io import StringIO
 
 # =============================================================
 # =                          UTILITIES                        =
@@ -70,6 +71,25 @@ def process_hitlist(hitlist, pipeline):
         remainder -= this_hit
 
 
+def get_captions(transcript_string):
+    if transcript_string.startswith("WEBVTT"):
+        captions = webvtt.from_string(transcript_string)
+    else:
+        captions = pysrt.from_string(transcript_string)
+    return captions
+
+
+def parse_iter_to_string(iter_contents):
+    """Parses the iterable back into the content form it came from (might throw away some vtt metadata)"""
+    if isinstance(iter_contents, pysrt.srtfile.SubRipFile):
+        sio = StringIO()
+        iter_contents.write_into(sio)
+        sio.seek(0)
+        return sio.read()
+    elif isinstance(iter_contents, webvtt.webvtt.WebVTT):
+        return iter_contents.content
+
+
 def filter_bool(tag_value, ref_value):
     """Filters a boolean value based on the kwargs provided"""
     if tag_value == ref_value:
@@ -78,7 +98,9 @@ def filter_bool(tag_value, ref_value):
         return False
 
 
-def filter_cat(tag_value, ref_value, comparison: Optional[Literal["in", "not_in"]] = None):
+def filter_cat(
+    tag_value, ref_value, comparison: Optional[Literal["in", "not_in"]] = None
+):
     """Filters a categorical value based on the kwargs provided"""
     if isinstance(ref_value, str):
         ref_value = [ref_value]
@@ -131,6 +153,29 @@ def filter_num(tag_value, lower_bound=None, upper_bound=None, inclusive=True):
         return True
     else:
         return False
+
+
+def mod_text(transcript_string):
+    captions = get_captions(transcript_string)
+    # Pattern to match capitalized words followed by a colon
+    pattern_colon = r"[ ]*(?:[A-Z][a-zA-Z]*[ ])+:[ ]*"
+
+    # Pattern to match specific strings like &nbsp;, &gt;, =, and ...
+    specific_strings = r"[ ]*(?:&nbsp;|&amp;|&lt;|&gt;|=|\.{3}|\\h)+[ ]*"
+
+    # Combined primary pattern using the above patterns
+    primary_pattern = f"{pattern_colon}|{specific_strings}"
+
+    mod_count = 0
+    for caption in captions:
+        new_text = re.sub(primary_pattern, " ", caption.text)
+        if new_text != caption.text:
+            mod_count = 1
+        caption.text = new_text
+        # caption.text = re.sub(brackets_pattern_capture, r"\1", caption.text)
+
+    new_transcript_string = parse_iter_to_string(captions)
+    return new_transcript_string, mod_count
 
 
 # ============================================================
@@ -199,8 +244,17 @@ def process_jsonl(
             output_lines = rng.choice(lines, size=subsample_size, replace=False)
         else:
             output_lines = lines
-            
-        keys_to_keep = {"id", "seg_id", "subtitle_file", "audio_file", "seg_content"}
+
+        keys_to_keep = {
+            "id",
+            "seg_id",
+            "subtitle_file",
+            "audio_file",
+            "seg_content",
+            "ts_mode",
+            "only_no_ts_mode",
+            "norm_end",
+        }
         output_lines = [{k: d[k] for k in keys_to_keep if k in d} for d in output_lines]
 
         subsampled_count = len(output_lines)
@@ -240,6 +294,10 @@ def process_line(line, config):
             keep = filter_cat(line[tag], **kwargs)
         elif isinstance(line[tag], int) or isinstance(line[tag], float):
             keep = filter_num(line[tag], **kwargs)
+        elif tag == "seg_content":
+            new_transcript_string, mod_count = mod_text(line[tag])
+            line[tag] = new_transcript_string
+            hitlist[tag] += mod_count
 
         if keep is False:
             hitlist[tag] += 1
@@ -316,9 +374,7 @@ def main(
         )
 
         with open(
-            os.path.join(
-                output_dir, "subsampled_stats.log"
-            ),
+            os.path.join(output_dir, "subsampled_stats.log"),
             "w",
         ) as f:
             f.write(
