@@ -291,48 +291,63 @@ class AudioTextDataset(Dataset):
                     if ts_mode is True:
 
                         def convert_to_token_idx(timestamp, timestamp_begin):
-                            return timestamp_begin + (
-                                ow.utils.convert_to_milliseconds(timestamp) // 20
-                            )
+                            ts_ms = ow.utils.convert_to_milliseconds(timestamp)
+                            if ts_ms > 30000:
+                                return None
+                            else:
+                                return timestamp_begin + (ts_ms // 20)
 
                         timestamp_begin = tokenizer.timestamp_begin
                         sot_token = tokenizer.sot_sequence[0]
 
                         # Precompute start and end token indices
-                        token_ranges = [
-                            (
-                                convert_to_token_idx(start, timestamp_begin),
-                                convert_to_token_idx(end, timestamp_begin),
+                        token_ranges = []
+                        invalid = False
+
+                        for start, end in transcript.keys():
+                            start_idx = convert_to_token_idx(start, timestamp_begin)
+                            end_idx = convert_to_token_idx(end, timestamp_begin)
+
+                            # handling invalid timestamps (> 30s)
+                            if start_idx is None or end_idx is None:
+                                invalid = True
+                                break
+                            token_ranges.append((start_idx, end_idx))
+
+                        if invalid is True:
+                            # If any token range is None, skip this segment
+                            tokens = (
+                                list(tokenizer.sot_sequence_including_notimestamps)
+                                + list(chain(*tokens))
+                                + [tokenizer.eot]
                             )
-                            for start, end in transcript.keys()
-                        ]
-
-                        # Build new_tokens using list comprehension
-                        new_tokens = [
-                            (
-                                [sot_token] + [start] + tokens[i] + [end]
-                                if i == 0
-                                else [start] + tokens[i] + [end]
-                            )
-                            for i, (start, end) in enumerate(token_ranges)
-                        ]
-
-                        new_tokens = list(chain(*new_tokens))
-
-                        if (
-                            norm_end > 30000
-                        ):  # can't rmb if this is a valid case but leaving in for now
-                            next_start_token_idx = [
-                                tokenizer.timestamp_begin + (30000 // 20)
-                            ]
                         else:
-                            next_start_token_idx = [
-                                tokenizer.timestamp_begin + (norm_end // 20)
+                            # Build new_tokens using list comprehension
+                            new_tokens = [
+                                (
+                                    [sot_token] + [start] + tokens[i] + [end]
+                                    if i == 0
+                                    else [start] + tokens[i] + [end]
+                                )
+                                for i, (start, end) in enumerate(token_ranges)
                             ]
 
-                        new_tokens.extend(next_start_token_idx + [tokenizer.eot])
-                        tokens = new_tokens
-                        timestamp_mode = True
+                            new_tokens = list(chain(*new_tokens))
+
+                            if (
+                                norm_end > 30000
+                            ):  # can't rmb if this is a valid case but leaving in for now
+                                next_start_token_idx = [
+                                    tokenizer.timestamp_begin + (30000 // 20)
+                                ]
+                            else:
+                                next_start_token_idx = [
+                                    tokenizer.timestamp_begin + (norm_end // 20)
+                                ]
+
+                            new_tokens.extend(next_start_token_idx + [tokenizer.eot])
+                            tokens = new_tokens
+                            timestamp_mode = True
                     else:
                         tokens = (
                             list(tokenizer.sot_sequence_including_notimestamps)
@@ -875,7 +890,9 @@ def load_ckpt(
         print(f"{optim_state_file=}")
         # latest_ckpt_file = max(all_ckpt_files, key=os.path.getctime)
 
-    train_state = torch.load(train_state_file, map_location=map_location, weights_only=False)
+    train_state = torch.load(
+        train_state_file, map_location=map_location, weights_only=False
+    )
 
     # if end at training step i, then start at step i+1 when resuming
     global_step = train_state["global_step"]
@@ -891,7 +908,9 @@ def load_ckpt(
         scaler = None
 
     model = ow.model.Whisper(dims=train_state["dims"]).to(rank)
-    model_state = torch.load(model_state_file, map_location=map_location, weights_only=False)
+    model_state = torch.load(
+        model_state_file, map_location=map_location, weights_only=False
+    )
     model.load_state_dict(model_state)
 
     auto_wrap_policy = functools.partial(
@@ -909,7 +928,9 @@ def load_ckpt(
     )
 
     optimizer = AdamW(model.parameters())
-    optim_state = torch.load(optim_state_file, map_location=map_location, weights_only=False)
+    optim_state = torch.load(
+        optim_state_file, map_location=map_location, weights_only=False
+    )
     fsdp_optim_state = FSDP.optim_state_dict_to_load(
         model=model,
         optim=optimizer,
@@ -1209,9 +1230,12 @@ def train(
                     "efficiency/fwd_time": end_fwd - start_fwd,
                     "efficiency/avg_preproc_time": sum(preproc_time)
                     / len(preproc_time),
-                    "efficiency/avg_audio_preproc_time": sum(audio_preproc_time) / len(audio_preproc_time),
-                    "efficiency/avg_audio_load_time": sum(audio_load_time) / len(audio_load_time),
-                    "efficiency/avg_text_preproc_time": sum(text_preproc_time) / len(text_preproc_time),
+                    "efficiency/avg_audio_preproc_time": sum(audio_preproc_time)
+                    / len(audio_preproc_time),
+                    "efficiency/avg_audio_load_time": sum(audio_load_time)
+                    / len(audio_load_time),
+                    "efficiency/avg_text_preproc_time": sum(text_preproc_time)
+                    / len(text_preproc_time),
                     "local_step": local_step,
                 }
             )
