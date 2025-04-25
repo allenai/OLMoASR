@@ -236,8 +236,9 @@ class AudioTextDataset(Dataset):
                         )
         else:
             if norm_end > 30000:  # temp soln
-                del transcript[list(transcript.keys())[-1]]
-                norm_end = list(transcript.keys())[-1][1]
+                if len(transcript) > 1:
+                    del transcript[list(transcript.keys())[-1]]
+                    norm_end = list(transcript.keys())[-1][1]
                 only_no_ts_mode = True
 
             tokens = [
