@@ -79,8 +79,8 @@ class AudioTextDataset(Dataset):
         start_preproc = time.time()
         global tokenizer
         sample_dict = self.samples[index]
-        audio_file = sample_dict["audio_file"].replace("ow_full", "ow_seg")
-        transcript_file = sample_dict["subtitle_file"].replace("ow_full", "ow_seg")
+        audio_file = sample_dict["audio_file"].replace("ow_seg", "ow_seg_long")
+        transcript_file = sample_dict["subtitle_file"].replace("ow_seg", "ow_seg_long")
         transcript_string = sample_dict["seg_content"]
         audio_input, padded_audio_arr = self.preprocess_audio(audio_file)
         text_input, text_y, padding_mask = self.preprocess_text(
@@ -1884,7 +1884,7 @@ def main(
                     table_idx=f"epoch_{epoch}",
                     log_dir=log_dir,
                     ckpt_dir=ckpt_dir,
-            )
+                )
 
             print(f"Rank {rank} reaching barrier")
             dist.barrier()
