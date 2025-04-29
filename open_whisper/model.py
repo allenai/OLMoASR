@@ -9,7 +9,7 @@ from open_whisper.config.model_dims import ModelDimensions
 from whisper.decoding import decode as decode_function
 from whisper.decoding import detect_language as detect_language_function
 # from whisper.transcribe import transcribe as transcribe_function
-from .transcribe import transcribe as transcribe_function
+from open_whisper.transcribe import transcribe as transcribe_function
 
 class LayerNorm(nn.LayerNorm):
     """
