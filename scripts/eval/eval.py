@@ -1180,10 +1180,21 @@ def long_form_eval(
                         wer,
                     )
             else:
-                with open(f"{eval_set}_eval_results.txt", "a") as f:
-                    f.write(norm_pred_text[0] + "\n")
-                    f.write(norm_tgt_text[0] + "\n")
-                    f.write("\n")
+                wer = (
+                        np.round(
+                            jiwer.wer(
+                                reference=norm_tgt_text,
+                                hypothesis=norm_pred_text,
+                            ),
+                            2,
+                        )
+                        * 100
+                    )
+                print(f"{wer=}")
+                # with open(f"{eval_set}_eval_results.txt", "a") as f:
+                #     f.write(norm_pred_text[0] + "\n")
+                #     f.write(norm_tgt_text[0] + "\n")
+                #     f.write("\n")
 
                 # break
 
