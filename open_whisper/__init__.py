@@ -9,7 +9,9 @@ from open_whisper import (
     preprocess,
     utils,
 )
-from whisper import audio, decoding, transcribe
+# from whisper import audio, decoding, transcribe
+from whisper import audio, decoding
+from open_whisper import transcribe
 from open_whisper.model import ModelDimensions, Whisper
 from whisper.audio import load_audio, log_mel_spectrogram, pad_or_trim
 
