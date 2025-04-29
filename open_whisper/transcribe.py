@@ -24,13 +24,21 @@ from whisper.tokenizer import LANGUAGES, TO_LANGUAGE_CODE, get_tokenizer
 from whisper.utils import (
     exact_div,
     format_timestamp,
-    get_end,
+    # get_end,
     get_writer,
     make_safe,
     optional_float,
     optional_int,
     str2bool,
 )
+
+
+def get_end(segments: List[dict]) -> Optional[float]:
+    return next(
+        (w["end"] for s in reversed(segments) for w in reversed(s["words"])),
+        segments[-1]["end"] if segments else None,
+    )
+
 
 if TYPE_CHECKING:
     from whisper.model import Whisper
