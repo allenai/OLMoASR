@@ -142,23 +142,49 @@ class CORAAL:
     def load(self):
         audio_files = []
         transcript_texts = []
-        # with open(f"{self.root_dir}/coraal_snippets.tsv", "r") as f:
-        #     next(f)
-        #     segments = [line.strip().split("\t") for line in f]
 
         segments = pd.read_csv(
             f"{self.root_dir}/CORAAL_transcripts.csv", quotechar='"'
         ).values.tolist()
 
+        def remove_markers(line, markers):
+            # Remove any text within markers, e.g. 'We(BR) went' -> 'We went'
+            # markers = list of pairs, e.g. ['()', '[]'] denoting breath or noise in transcripts
+            for s, e in markers:
+                line = re.sub(" ?\\" + s + "[^" + e + "]+\\" + e, "", line)
+            return line
+
+        def clean_within_coraal(text):
+
+            text = text.replace("\[", "\{")
+            text = text.replace("\]", "\}")
+            # Relabel CORAAL words. For consideration: aks -> ask?
+            split_words = text.split()
+            split_words = [x if x != "busses" else "buses" for x in split_words]
+            split_words = [x if x != "aks" else "ask" for x in split_words]
+            split_words = [x if x != "aksing" else "asking" for x in split_words]
+            split_words = [x if x != "aksed" else "asked" for x in split_words]
+            text = " ".join(split_words)
+
+            # remove CORAAL unintelligible flags
+            text = re.sub("(?i)\/unintelligible\/", "", "".join(text))
+            text = re.sub("(?i)\/inaudible\/", "", "".join(text))
+            text = re.sub("\/RD(.*?)\/", "", "".join(text))
+            text = re.sub("\/(\?)\1*\/", "", "".join(text))
+
+            # remove nonlinguistic markers
+            text = remove_markers(text, ["<>", "()", "{}"])
+
+            return text
+
         for segment in segments:
-            # basefile, *_, content, _, _, _, segment_basename = segment
-            segment_basename, basefile, _, _, _, _, _, content, *_ = segment
-            sub_folder = os.path.join(self.root_dir, basefile.split("_")[0].lower())
-            # audio_file = os.path.join(sub_folder, "segments", segment_basename)
-            audio_file = os.path.join(sub_folder, segment_basename)
+            segment_filename, _, _, _, source, _, _, content, *_ = segment
+            sub_folder = os.path.join(self.root_dir, "CORAAL_audio", source.lower())
+            audio_file = os.path.join(sub_folder, segment_filename)
             if not os.path.exists(audio_file):
                 audio_file = audio_file.replace(".wav", ".mp3")
             audio_files.append(audio_file)
+            content = clean_within_coraal(content)
             transcript_texts.append(content)
 
         return audio_files, transcript_texts
@@ -188,6 +214,140 @@ class chime6:
                 )
 
         return audio_files, transcript_texts
+
+
+class WSJ:
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+
+    def load(self):
+        audio_files = []
+        transcript_files = []
+
+        for direc in glob.glob(f"{self.root_dir}/test_eval*"):
+            id_2_text = {}
+            with open(f"{direc}/text") as f:
+                id_2_text = {
+                    line.strip()
+                    .split(" ")[0]: line.strip()
+                    .split(" ", maxsplit=1)[-1]
+                    .strip()
+                    for line in f
+                }
+
+            with open(f"{direc}/wav.scp") as f:
+                for line in f:
+                    audio_file = line.strip().split(" ", maxsplit=1)[-1].split(" |")[0]
+                    utter_id = line.strip().split(" ")[0]
+                    transcript_text = id_2_text[utter_id]
+                    audio_files.append(audio_file)
+                    transcript_files.append(transcript_text)
+
+        return audio_files, transcript_files
+
+
+class CallHome:
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+
+    def load(self):
+        audio_files = []
+        transcript_files = []
+
+        with open(
+            f"{self.root_dir}/2000_hub5_eng_eval_tr/reference/hub5e00.english.000405.stm",
+            "r",
+        ) as f:
+            for line in f:
+                if line.startswith(";;"):
+                    continue
+                elif line.startswith("en"):
+                    audio_file = (
+                        f"{self.root_dir}/hub5e_00/english/"
+                        + line.split(" ")[0]
+                        + ".sph"
+                    )
+                    channel = line.split(" ")[1]
+                    if channel == "A":
+                        wav_file = audio_file.split(".")[0] + "_A.wav"
+                        if not os.path.exists(wav_file):
+                            _ = subprocess.run(
+                                ["sox", audio_file, wav_file, "remix", "1"],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                            )
+                    elif channel == "B":
+                        wav_file = audio_file.split(".")[0] + "_B.wav"
+                        if not os.path.exists(wav_file):
+                            _ = subprocess.run(
+                                ["sox", audio_file, wav_file, "remix", "2"],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                            )
+                    transcript_text = re.split(r"<[^>]+>", line)[-1].strip()
+                    start_time = float(line.split(" ")[3])
+                    if line.split(" ")[4] != "":
+                        end_time = float(line.split(" ")[4])
+                    elif line.split(" ")[5] != "":
+                        end_time = float(line.split(" ")[5])
+                    else:
+                        end_time = float(line.split(" ")[6])
+                    audio_files.append((wav_file, start_time, end_time))
+                    transcript_files.append(transcript_text)
+
+        return audio_files, transcript_files
+
+
+class SwitchBoard:
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+
+    def load(self):
+        audio_files = []
+        transcript_files = []
+
+        with open(
+            f"{self.root_dir}/2000_hub5_eng_eval_tr/reference/hub5e00.english.000405.stm",
+            "r",
+        ) as f:
+            for line in f:
+                if line.startswith(";;"):
+                    continue
+                elif line.startswith("sw"):
+                    audio_file = (
+                        f"{self.root_dir}/hub5e_00/english/"
+                        + line.split(" ")[0]
+                        + ".sph"
+                    )
+                    channel = line.split(" ")[1]
+                    if channel == "A":
+                        wav_file = audio_file.split(".")[0] + "_A.wav"
+                        if not os.path.exists(wav_file):
+                            _ = subprocess.run(
+                                ["sox", audio_file, wav_file, "remix", "1"],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                            )
+                    elif channel == "B":
+                        wav_file = audio_file.split(".")[0] + "_B.wav"
+                        if not os.path.exists(wav_file):
+                            _ = subprocess.run(
+                                ["sox", audio_file, wav_file, "remix", "2"],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                            )
+                    transcript_text = re.split(r"<[^>]+>", line)[-1].strip()
+                    start_time = float(line.split(" ")[3])
+                    if line.split(" ")[4] != "":
+                        end_time = float(line.split(" ")[4])
+                    elif line.split(" ")[5] != "":
+                        end_time = float(line.split(" ")[5])
+                    else:
+                        end_time = float(line.split(" ")[6])
+                    audio_files.append((wav_file, start_time, end_time))
+                    transcript_files.append(transcript_text)
+
+        return audio_files, transcript_files
 
 
 class TEDLIUM_long(TEDLIUM):
@@ -335,9 +495,11 @@ class TEDLIUM_long(TEDLIUM):
         fileid = self._filelist[n]
         return self._load_tedlium_item(fileid, self._path)
 
+
 # Kincaid46
 
 # CORAAL_long
+
 
 class MLS:
     def __init__(self, root_dir):
@@ -490,6 +652,15 @@ class EvalDataset(Dataset):
                     get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
                 self.dataset = chime6(root_dir=root_dir)
+            elif eval_set == "wsj":
+                root_dir = f"{eval_dir}/kaldi/egs/wsj/s5/data"
+                self.dataset = WSJ(root_dir=root_dir)
+            elif eval_set == "callhome":
+                root_dir = eval_dir
+                self.dataset = CallHome(root_dir=root_dir)
+            elif eval_set == "switchboard":
+                root_dir = eval_dir
+                self.dataset = SwitchBoard(root_dir=root_dir)
         elif task == "long_form_transcribe":
             if eval_set == "tedlium":
                 self.dataset = load_dataset(
@@ -677,6 +848,38 @@ class EvalDataset(Dataset):
                 audio_arr = audio.pad_or_trim(waveform)
                 audio_arr = audio_arr.astype(np.float32)
                 audio_input = audio.log_mel_spectrogram(audio_arr)
+            elif self.eval_set == "wsj":
+                result = subprocess.run(
+                    self.audio_files[index],
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                audio_bytes = io.BytesIO(result.stdout)
+                audio_arr, _ = torchaudio.load(audio_bytes)
+                audio_arr = audio_arr.squeeze(0)
+                audio_arr = audio.pad_or_trim(audio_arr)
+                audio_arr = audio_arr.float()
+                audio_input = audio.log_mel_spectrogram(audio_arr)
+                text_y = self.transcript_texts[index]
+                audio_fp = ""
+            elif self.eval_set == "callhome" or self.eval_set == "switchboard":
+                audio_fp, start_time, end_time = self.audio_files[index]
+                # num_frames = int(end_time * 8000) - int(start_time * 8000)
+                # audio_arr, _ = torchaudio.load(audio_fp, frame_offset=int(start_time * 8000), num_frames=num_frames)
+                # # audio_arr = audio_arr.mean(dim=0, keepdim=True)
+                # if channel == "A":
+                #     audio_arr = audio_arr[0, :]
+                # elif channel == "B":
+                #     audio_arr = audio_arr[1, :]
+                # audio_arr = audio_arr.squeeze(0)
+                # audio_arr = audio.pad_or_trim(audio_arr)
+                # audio_arr = audio_arr.float()
+                # audio_input = audio.log_mel_spectrogram(audio_arr)
+                audio_arr, audio_input = self.preprocess_audio(
+                    audio_fp, sr=16000, start_time=start_time, end_time=end_time
+                )
+                text_y = self.transcript_texts[index]
             else:
                 audio_fp = self.audio_files[index]
                 audio_arr, audio_input = self.preprocess_audio(audio_fp)
@@ -688,17 +891,17 @@ class EvalDataset(Dataset):
                 waveform = self.dataset[index]["audio"]["array"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
                 text_y = self.dataset[index]["text"]
-                
+
                 if sampling_rate != 16000:
                     waveform = librosa.resample(
                         waveform, orig_sr=sampling_rate, target_sr=16000
                     )
-                    
+
                 # audio_arr = audio.pad_or_trim(waveform)
                 # audio_arr = audio_arr.astype(np.float32)
                 audio_arr = waveform.astype(np.float32)
                 audio_input = ""
-                
+
                 # audio_arr, _, text_y, talk_id, speaker_id, identifier = self.dataset[
                 #     index
                 # ]
@@ -708,48 +911,48 @@ class EvalDataset(Dataset):
                 waveform = self.dataset[index]["audio"]["array"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
                 text_y = self.dataset[index]["text"]
-                
+
                 if sampling_rate != 16000:
                     waveform = librosa.resample(
                         waveform, orig_sr=sampling_rate, target_sr=16000
                     )
-                    
+
                 audio_arr = waveform.astype(np.float32)
                 audio_input = ""
             elif self.eval_set == "rev16":
                 waveform = self.dataset[index]["audio"]["array"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
                 text_y = self.dataset[index]["transcription"]
-                
+
                 if sampling_rate != 16000:
                     waveform = librosa.resample(
                         waveform, orig_sr=sampling_rate, target_sr=16000
                     )
-                    
+
                 audio_arr = waveform.astype(np.float32)
                 audio_input = ""
             elif self.eval_set == "earnings21":
                 waveform = self.dataset[index]["audio"]["array"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
                 text_y = self.dataset[index]["transcription"]
-                
+
                 if sampling_rate != 16000:
                     waveform = librosa.resample(
                         waveform, orig_sr=sampling_rate, target_sr=16000
                     )
-                    
+
                 audio_arr = waveform.astype(np.float32)
                 audio_input = ""
             elif self.eval_set == "earnings22":
                 waveform = self.dataset[index]["audio"]["array"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
                 text_y = self.dataset[index]["transcription"]
-                
+
                 if sampling_rate != 16000:
                     waveform = librosa.resample(
                         waveform, orig_sr=sampling_rate, target_sr=16000
                     )
-                    
+
                 audio_arr = waveform.astype(np.float32)
                 audio_input = ""
             elif self.eval_set == "coraal":
@@ -780,8 +983,10 @@ class EvalDataset(Dataset):
 
             return audio_fp, audio_arr, audio_input, lang_id
 
-    def preprocess_audio(self, audio_file):
-        audio_arr = audio.load_audio(audio_file, sr=16000)
+    def preprocess_audio(self, audio_file, sr=16000, start_time=None, end_time=None):
+        audio_arr = audio.load_audio(audio_file, sr=sr)
+        if start_time is not None and end_time is not None:
+            audio_arr = audio_arr[int(start_time * sr) : int(end_time * sr)]
         audio_arr = audio.pad_or_trim(audio_arr)
         mel_spec = audio.log_mel_spectrogram(audio_arr)
         return audio_arr, mel_spec
@@ -803,6 +1008,9 @@ def short_form_eval(
         "ami_sdm",
         "coraal",
         "chime6",
+        "wsj",
+        "callhome",
+        "switchboard",
     ],
     log_dir: str,
     current_step: Optional[int] = None,
@@ -895,7 +1103,11 @@ def short_form_eval(
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-            _, audio_arr, audio_input, text_y = batch
+            audio_fp, audio_arr, audio_input, text_y = batch
+            # print(f"{audio_fp=}")
+            # print(f"{audio_arr.shape=}")
+            # print(f"{text_y=}")
+            # print(f"{audio_input.shape=}")
 
             norm_tgt_text = [normalizer(text) for text in text_y]
             audio_input = audio_input.to(device)
@@ -1181,15 +1393,15 @@ def long_form_eval(
                     )
             else:
                 wer = (
-                        np.round(
-                            jiwer.wer(
-                                reference=norm_tgt_text,
-                                hypothesis=norm_pred_text,
-                            ),
-                            2,
-                        )
-                        * 100
+                    np.round(
+                        jiwer.wer(
+                            reference=norm_tgt_text,
+                            hypothesis=norm_pred_text,
+                        ),
+                        2,
                     )
+                    * 100
+                )
                 print(f"{wer=}")
                 # with open(f"{eval_set}_eval_results.txt", "a") as f:
                 #     f.write(norm_pred_text[0] + "\n")
@@ -1428,5 +1640,21 @@ if __name__ == "__main__":
             "short_form_eval": short_form_eval,
             "ml_eval": ml_eval,
             "long_form_eval": long_form_eval,
+            "lang_id_eval": lang_id_eval,
         }
     )
+
+    # long_form_eval(batch_size=1, num_workers=12, ckpt="/weka/huongn/ow_ckpts/filtered/tagged_data/text_heurs_seg_edit_dist_0.7_edit_dist_0.5_long_tiny_15e4_440K_bs64_ebs512_16workers_5pass_TimestampOn_evalbs8_042525_9zd7k10y/latesttrain_00524288_tiny_ddp-train_grad-acc_fp16_non_ddp_inf.pt", eval_set="tedlium", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
+    # long_form_eval(batch_size=1, num_workers=6, ckpt="/weka/huongn/whisper_ckpts/tiny.en.pt", eval_set="earnings21", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
+    # short_form_eval(
+    #     batch_size=96,
+    #     num_workers=12,
+    #     # ckpt="/weka/huongn/whisper_ckpts/tiny.en.pt",
+    #     ckpt="/weka/huongn/ow_ckpts/filtered/tagged_data/text_heurs_seg_edit_dist_0.7_edit_dist_0.5_long_tiny_15e4_440K_bs64_ebs512_16workers_5pass_TimestampOn_evalbs8_042525_9zd7k10y/latesttrain_00524288_tiny_ddp-train_grad-acc_fp16_non_ddp_inf.pt",
+    #     eval_set="wsj",
+    #     log_dir="/stage",
+    #     wandb_log=False,
+    #     wandb_log_dir="/stage",
+    #     eval_dir="/weka/huongn/ow_eval",
+    #     hf_token="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",
+    # )
