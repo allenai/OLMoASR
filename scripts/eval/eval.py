@@ -3,6 +3,7 @@ import os
 import glob
 import json
 import re
+import io
 import numpy as np
 import pandas as pd
 from collections import OrderedDict
@@ -30,6 +31,10 @@ from torchaudio.datasets.tedlium import _RELEASE_CONFIGS
 from torchaudio._internal import download_url_to_file
 from torchaudio.datasets.utils import _extract_tar
 import csv
+import subprocess
+
+# voxlingua imports
+# from speechbrain.inference.classifiers import EncoderClassifier
 
 SHORT_FORM_EVAL_SETS = [
     "librispeech_clean",
@@ -44,9 +49,218 @@ SHORT_FORM_EVAL_SETS = [
 ]
 
 LONG_FORM_EVAL_SETS = ["tedlium_long"]
+ML_EVAL_SETS = ["fleurs"]
+TRANSLATE_EVAL_SETS = []
+LANG_ID_EVAL_SETS = ["fleurs"]
+
+FLEURS_LANG_TO_ID = OrderedDict(
+    [
+        ("Afrikaans", "af"),
+        ("Amharic", "am"),
+        ("Arabic", "ar"),
+        ("Armenian", "hy"),
+        ("Assamese", "as"),
+        ("Asturian", "ast"),
+        ("Azerbaijani", "az"),
+        ("Belarusian", "be"),
+        ("Bengali", "bn"),
+        ("Bosnian", "bs"),
+        ("Bulgarian", "bg"),
+        ("Burmese", "my"),
+        ("Catalan", "ca"),
+        ("Cebuano", "ceb"),
+        ("Mandarin Chinese", "cmn_hans"),
+        ("Cantonese Chinese", "yue_hant"),
+        ("Croatian", "hr"),
+        ("Czech", "cs"),
+        ("Danish", "da"),
+        ("Dutch", "nl"),
+        ("English", "en"),
+        ("Estonian", "et"),
+        ("Filipino", "fil"),
+        ("Finnish", "fi"),
+        ("French", "fr"),
+        ("Fula", "ff"),
+        ("Galician", "gl"),
+        ("Ganda", "lg"),
+        ("Georgian", "ka"),
+        ("German", "de"),
+        ("Greek", "el"),
+        ("Gujarati", "gu"),
+        ("Hausa", "ha"),
+        ("Hebrew", "he"),
+        ("Hindi", "hi"),
+        ("Hungarian", "hu"),
+        ("Icelandic", "is"),
+        ("Igbo", "ig"),
+        ("Indonesian", "id"),
+        ("Irish", "ga"),
+        ("Italian", "it"),
+        ("Japanese", "ja"),
+        ("Javanese", "jv"),
+        ("Kabuverdianu", "kea"),
+        ("Kamba", "kam"),
+        ("Kannada", "kn"),
+        ("Kazakh", "kk"),
+        ("Khmer", "km"),
+        ("Korean", "ko"),
+        ("Kyrgyz", "ky"),
+        ("Lao", "lo"),
+        ("Latvian", "lv"),
+        ("Lingala", "ln"),
+        ("Lithuanian", "lt"),
+        ("Luo", "luo"),
+        ("Luxembourgish", "lb"),
+        ("Macedonian", "mk"),
+        ("Malay", "ms"),
+        ("Malayalam", "ml"),
+        ("Maltese", "mt"),
+        ("Maori", "mi"),
+        ("Marathi", "mr"),
+        ("Mongolian", "mn"),
+        ("Nepali", "ne"),
+        ("Northern-Sotho", "nso"),
+        ("Norwegian", "nb"),
+        ("Nyanja", "ny"),
+        ("Occitan", "oc"),
+        ("Oriya", "or"),
+        ("Oromo", "om"),
+        ("Pashto", "ps"),
+        ("Persian", "fa"),
+        ("Polish", "pl"),
+        ("Portuguese", "pt"),
+        ("Punjabi", "pa"),
+        ("Romanian", "ro"),
+        ("Russian", "ru"),
+        ("Serbian", "sr"),
+        ("Shona", "sn"),
+        ("Sindhi", "sd"),
+        ("Slovak", "sk"),
+        ("Slovenian", "sl"),
+        ("Somali", "so"),
+        ("Sorani-Kurdish", "ckb"),
+        ("Spanish", "es"),
+        ("Swahili", "sw"),
+        ("Swedish", "sv"),
+        ("Tajik", "tg"),
+        ("Tamil", "ta"),
+        ("Telugu", "te"),
+        ("Thai", "th"),
+        ("Turkish", "tr"),
+        ("Ukrainian", "uk"),
+        ("Umbundu", "umb"),
+        ("Urdu", "ur"),
+        ("Uzbek", "uz"),
+        ("Vietnamese", "vi"),
+        ("Welsh", "cy"),
+        ("Wolof", "wo"),
+        ("Xhosa", "xh"),
+        ("Yoruba", "yo"),
+        ("Zulu", "zu"),
+    ]
+)
+
+OW_TO_FLEURS = {
+    "no": "nb",
+    "jw": "jv",
+    "zh": "cmn_hans",
+    "yue": "yue_hant",
+    "tl": "fil",
+}
+OW_NOT_IN_FLEURS = [
+    "la",
+    "br",
+    "eu",
+    "sq",
+    "si",
+    "yi",
+    "fo",
+    "ht",
+    "tk",
+    "nn",
+    "sa",
+    "bo",
+    "tl",
+    "mg",
+    "tt",
+    "haw",
+    "ba",
+    "su",
+    "ht",
+    "si",
+]
+FLEURS_NOT_IN_OW = [
+    "ast",
+    "ceb",
+    "ff",
+    "lg",
+    "ig",
+    "ga",
+    "kea",
+    "kam",
+    "ky",
+    "luo",
+    "nso",
+    "ny",
+    "or",
+    "om",
+    "ckb",
+    "umb",
+    "wo",
+    "xh",
+    "zu",
+]
+
+# for voxlingua107 lang id model
+VOX_TO_FLEURS = {"iw": "he", "zh": "cmn_hans", "jw": "jv", "no": "nb", "tl": "fil"}
+VOX_NOT_IN_FLEURS = [
+    "ab",
+    "ba",
+    "bo",
+    "br",
+    "eo",
+    "eu",
+    "fo",
+    "gn",
+    "gv",
+    "haw",
+    "ht",
+    "ia",
+    "la",
+    "mg",
+    "nn",
+    "sa",
+    "sco",
+    "si",
+    "sq",
+    "su",
+    "tk",
+    "tt",
+    "war",
+    "yi",
+]
+FLEURS_NOT_IN_VOX = [
+    "ast",
+    "ff",
+    "lg",
+    "ig",
+    "ga",
+    "kea",
+    "kam",
+    "ky",
+    "luo",
+    "nso",
+    "ny",
+    "or",
+    "om",
+    "ckb",
+    "umb",
+    "wo",
+    "xh",
+    "zu",
+]
 
 
-# short-form
 class Librispeech:
     def __init__(self, root_dir):
         self.root_dir = root_dir
@@ -1533,7 +1747,11 @@ def ml_eval(
 
     for lang in langs:
         dataset = EvalDataset(
-            eval_set=eval_set, lang=lang, hf_token=hf_token, eval_dir=eval_dir
+            task="ml_transcribe",
+            eval_set=eval_set,
+            lang=lang,
+            hf_token=hf_token,
+            eval_dir=eval_dir,
         )
         dataloader = DataLoader(
             dataset,
@@ -1634,13 +1852,148 @@ def ml_eval(
         )
 
 
+def translate_eval():
+    pass
+
+
+def lang_id_eval(
+    batch_size: int,
+    num_workers: int,
+    ckpt: str,
+    eval_set: Literal["fleurs",],
+    log_dir: str,
+    lang: Optional[str] = None,
+    wandb_log: bool = False,
+    wandb_log_dir: str = "wandb",
+    eval_dir: str = "data/eval",
+    cuda: bool = True,
+):
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(wandb_log_dir, exist_ok=True)
+    os.makedirs(eval_dir, exist_ok=True)
+
+    device = torch.device("cuda") if cuda else torch.device("cpu")
+    tokenizer = get_tokenizer(multilingual=True)
+
+    if ckpt == "voxlingua107":
+        if cuda:
+            model = EncoderClassifier.from_hparams(
+                source="speechbrain/lang-id-voxlingua107-ecapa",
+                savedir="tmp",
+                run_opts={"device": "cuda"},
+            )
+        else:
+            model = EncoderClassifier.from_hparams(
+                source="speechbrain/lang-id-voxlingua107-ecapa", savedir="tmp"
+            )
+    else:
+        if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
+            ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
+
+        model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
+        model.eval()
+
+    dataset = EvalDataset(
+        task="lang_id", eval_set=eval_set, lang=lang, eval_dir=eval_dir
+    )
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=num_workers,
+    )
+
+    if wandb_log:
+        wandb.init(
+            id=wandb.util.generate_id(),
+            resume="allow",
+            project="open_whisper",
+            entity="dogml",
+            save_code=True,
+            settings=wandb.Settings(init_timeout=300, _service_wait=300),
+        )
+
+    correct_count = 0
+    true_positive = 0
+    true_negative = 0
+    false_positive = 0
+    false_negative = 0
+    total = 0
+    with torch.no_grad():
+        for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
+            _, audio_arr, audio_input, lang_ids = batch
+
+            audio_input = audio_input.to(device)
+
+            if ckpt == "voxlingua107":
+                results = model.classify_batch(audio_arr)
+                pred_lang_ids = [res.split(": ")[0] for res in results[3]]
+                pred_lang_ids = [
+                    VOX_TO_FLEURS[lang_id] if lang_id in VOX_TO_FLEURS else lang_id
+                    for lang_id in pred_lang_ids
+                ]
+                print(f"{pred_lang_ids=}")
+            else:
+                results = detect_language(model, audio_input)
+
+                pred_lang_ids_str = tokenizer.decode(results[0])
+                pred_lang_ids = re.findall(r"<\|(.*?)\|>", pred_lang_ids_str)
+                pred_lang_ids = [
+                    OW_TO_FLEURS[lang_id] if lang_id in OW_TO_FLEURS else lang_id
+                    for lang_id in pred_lang_ids
+                ]
+                print(f"{pred_lang_ids=}")
+            print(f"{lang_ids=}")
+
+            for i in range(len(lang_ids)):
+                if lang_ids[i] == "en":
+                    if lang_ids[i] == pred_lang_ids[i]:
+                        true_positive += 1
+                        correct_count += 1
+                    else:
+                        false_negative += 1
+                else:
+                    if pred_lang_ids[i] != "en":
+                        true_negative += 1
+                        correct_count += 1
+                    else:
+                        false_positive += 1
+            total += len(lang_ids)
+            print(f"{correct_count=}, {total=}")
+            print(
+                f"{true_positive=}, {true_negative=}, {false_positive=}, {false_negative=}"
+            )
+            print(f"Accuracy: {100 * (correct_count / total):.2f}")
+            if true_positive + false_positive != 0:
+                print(
+                    f"Precision: {100 * (true_positive / (true_positive + false_positive)):.2f}"
+                )
+            if true_positive + false_negative != 0:
+                print(
+                    f"Recall: {100 * (true_positive / (true_positive + false_negative)):.2f}"
+                )
+
+    accuracy = 100 * (correct_count / total)
+    precision = 100 * (true_positive / (true_positive + false_positive))
+    recall = 100 * (true_positive / (true_positive + false_negative))
+    print(f"Accuracy: {accuracy:.2f}")
+    print(f"Precision: {precision:.2f}")
+    print(f"Recall: {recall:.2f}")
+
+    with open(f"{log_dir}/{eval_set}_lang_id_accuracy.txt", "w") as f:
+        f.write(f"Accuracy: {accuracy}")
+        f.write(f"Precision: {precision}")
+        f.write(f"Recall: {recall}")
+
+
 if __name__ == "__main__":
     Fire(
         {
             "short_form_eval": short_form_eval,
             "ml_eval": ml_eval,
             "long_form_eval": long_form_eval,
-            "lang_id_eval": lang_id_eval,
+            # "lang_id_eval": lang_id_eval,
         }
     )
 
