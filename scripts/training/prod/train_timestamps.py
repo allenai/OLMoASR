@@ -15,6 +15,7 @@ import multiprocessing
 from itertools import chain
 from collections import defaultdict
 import gzip
+import zstandard as zstd
 import subprocess
 
 import torch
@@ -411,6 +412,16 @@ def open_dicts_file(samples_dicts_file) -> List[Dict]:
     if samples_dicts_file.endswith(".gz"):
         with gzip.open(samples_dicts_file, "rt") as f:
             samples_dicts = [json.loads(line.strip()) for line in f]
+    elif samples_dicts_file.endswith(".zst"):
+        samples_dicts = []
+        with open(samples_dicts_file, 'rb') as f:
+            dctx = zstd.ZstdDecompressor()
+            with dctx.stream_reader(f) as reader:
+                for line in reader:
+                    try:
+                        samples_dicts.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        break  # reached padding at the end
     return samples_dicts
 
 
