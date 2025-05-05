@@ -1861,7 +1861,7 @@ def main(
     n_text_ctx = model_dims.n_text_ctx
     n_head = model_dims.n_text_head
 
-    samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*.jsonl.gz")
+    samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*.jsonl.*")
     print(f"{len(samples_dicts_files)=}")
 
     with multiprocessing.Pool() as pool:
