@@ -3,6 +3,7 @@ import os
 # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 # os.environ["TORCH_USE_CUDA_DSA"] = "1"
 import glob
+import io
 import json
 import numpy as np
 import wandb
@@ -417,7 +418,8 @@ def open_dicts_file(samples_dicts_file) -> List[Dict]:
         with open(samples_dicts_file, 'rb') as f:
             dctx = zstd.ZstdDecompressor()
             with dctx.stream_reader(f) as reader:
-                for line in reader:
+                text_stream = io.TextIOWrapper(reader, encoding="utf-8")
+                for line in text_stream:
                     try:
                         samples_dicts.append(json.loads(line))
                     except json.JSONDecodeError:
