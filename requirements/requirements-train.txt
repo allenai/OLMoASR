@@ -17,3 +17,4 @@ soundfile
 ray
 librosa
 torch-tb-profiler
+zstandard
