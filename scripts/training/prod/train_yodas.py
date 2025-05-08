@@ -185,7 +185,6 @@ class AudioTextDataset(Dataset):
             text_input,
             text_y,
             padding_mask,
-            text_preproc_time,
         )
 
 
