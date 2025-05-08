@@ -153,6 +153,10 @@ class AudioTextDataset(Dataset):
         # offset
         text_input = text_tokens[:-1]
         text_y = text_tokens[1:]
+        
+        if len(text_input) > self.n_text_ctx:
+            text_input = text_input[: self.n_text_ctx]
+            text_y = text_y[: self.n_text_ctx]
 
         padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
         padding_mask[:, len(text_input) :] = -np.inf
@@ -163,7 +167,7 @@ class AudioTextDataset(Dataset):
         # padding_mask = padding_mask.unsqueeze(dim=0).repeat(self.n_head, 1, 1)[
         #     :, : self.n_text_ctx, : self.n_text_ctx
         # ]
-
+        
         text_input = np.pad(
             text_input,
             pad_width=(0, self.n_text_ctx - len(text_input)),
