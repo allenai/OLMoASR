@@ -25,6 +25,8 @@ import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.amp import GradScaler, autocast
+import torchaudio
+import soundfile
 
 import whisper
 from whisper import audio, DecodingOptions
@@ -85,7 +87,21 @@ class AudioTextDataset(Dataset):
         sample_dir = os.path.dirname(audio_file)
         sample_file = sample_dict["utt_id"]
         text_file = os.path.join(sample_dir, sample_file)
-        audio_arr = sample_dict["audio"]["array"]
+        
+        try:
+            audio_arr = sample_dict["audio"]["array"]
+        except soundfile.LibsndfileError:
+            # def load_waveform(wav_path):
+            #     waveform, _ = torchaudio.load(wav_path)  # waveform shape: (channels, samples)
+            #     return waveform
+            print(f"Loading {audio_file} with soundfile")
+            def load_waveform(wav_path):
+                waveform, sample_rate = soundfile.read(wav_path)  # waveform shape: (samples,) or (samples, channels)
+                if waveform.ndim == 2: # not stereo, but can be a 2D array w/ 1 as 2nd dim
+                    waveform = waveform[0]
+                return waveform, sample_rate
+            audio_arr = load_waveform(audio_file)
+            
         transcript_string = sample_dict["text"]
         text_input, text_y, padding_mask, over_ctx_len = self.preprocess_text(
             transcript_string, tokenizer
@@ -105,7 +121,7 @@ class AudioTextDataset(Dataset):
             preproc_time,
         )
 
-    def preprocess_audio(self, audio_arr, over_ctx_len) -> Tuple[str, torch.Tensor]:
+    def preprocess_audio(self, audio_arr, over_ctx_len=False) -> Tuple[str, torch.Tensor]:
         """Preprocesses the audio data for the model.
 
         Loads the audio file, pads or trims the audio data, and computes the log mel spectrogram.
