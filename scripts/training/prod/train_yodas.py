@@ -87,10 +87,10 @@ class AudioTextDataset(Dataset):
         text_file = os.path.join(sample_dir, sample_file)
         audio_arr = sample_dict["audio"]["array"]
         transcript_string = sample_dict["text"]
-        audio_input, padded_audio_arr = self.preprocess_audio(audio_arr)
-        text_input, text_y, padding_mask = self.preprocess_text(
+        text_input, text_y, padding_mask, over_ctx_len = self.preprocess_text(
             transcript_string, tokenizer
         )
+        audio_input, padded_audio_arr = self.preprocess_audio(audio_arr, over_ctx_len)
         end_preproc = time.time()
         preproc_time = end_preproc - start_preproc
 
@@ -105,7 +105,7 @@ class AudioTextDataset(Dataset):
             preproc_time,
         )
 
-    def preprocess_audio(self, audio_arr) -> Tuple[str, torch.Tensor]:
+    def preprocess_audio(self, audio_arr, over_ctx_len) -> Tuple[str, torch.Tensor]:
         """Preprocesses the audio data for the model.
 
         Loads the audio file, pads or trims the audio data, and computes the log mel spectrogram.
@@ -116,6 +116,11 @@ class AudioTextDataset(Dataset):
         Returns:
             A tuple containing the name of audio file and the log mel spectrogram
         """
+        if over_ctx_len is True:
+            sample_rate = 16000
+            duration_sec = 30
+            num_samples = sample_rate * duration_sec
+            audio_arr = np.zeros(num_samples, dtype=np.float32)
         audio_arr = audio_arr.astype(np.float32)
         audio_arr = audio.pad_or_trim(audio_arr)
         mel_spec = audio.log_mel_spectrogram(audio_arr)
@@ -139,24 +144,29 @@ class AudioTextDataset(Dataset):
             A tuple containing the transcript file, the input text tensor, the target text tensor, and the padding mask
         """
         start_time = time.time()
+        over_ctx_len = False
         if transcript_string.strip() == "":
             text_tokens = [tokenizer.no_speech]
         else:
             text_tokens = tokenizer.encode(transcript_string)
 
+        text_tokens = (
+            list(tokenizer.sot_sequence_including_notimestamps)
+            + text_tokens
+            + [tokenizer.eot]
+        )
+
+        if len(text_tokens) > self.n_text_ctx:
             text_tokens = (
                 list(tokenizer.sot_sequence_including_notimestamps)
-                + text_tokens
+                + [tokenizer.no_speech]
                 + [tokenizer.eot]
             )
+            over_ctx_len = True
 
         # offset
         text_input = text_tokens[:-1]
         text_y = text_tokens[1:]
-        
-        if len(text_input) > self.n_text_ctx:
-            text_input = text_input[: self.n_text_ctx]
-            text_y = text_y[: self.n_text_ctx]
 
         padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
         padding_mask[:, len(text_input) :] = -np.inf
@@ -167,7 +177,7 @@ class AudioTextDataset(Dataset):
         # padding_mask = padding_mask.unsqueeze(dim=0).repeat(self.n_head, 1, 1)[
         #     :, : self.n_text_ctx, : self.n_text_ctx
         # ]
-        
+
         text_input = np.pad(
             text_input,
             pad_width=(0, self.n_text_ctx - len(text_input)),
@@ -189,6 +199,7 @@ class AudioTextDataset(Dataset):
             text_input,
             text_y,
             padding_mask,
+            over_ctx_len,
         )
 
 
