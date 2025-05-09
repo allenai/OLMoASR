@@ -5,18 +5,13 @@ import soundfile as sf
 import os
 from datasets import load_dataset, Dataset
 import multiprocessing
-from tqdm import tqdm as tqdm_
+from tqdm import tqdm
 from itertools import repeat
 import re
 from whisper.tokenizer import get_tokenizer
 from fire import Fire
 import glob
 import json
-
-class tqdm(tqdm_):
-    def __init__(self, *args, **kwargs):
-        kwargs["bar_format"] = "{l_bar}{bar}{r_bar}\n"
-        super().__init__(*args, **kwargs)
 
 shared_ds = None
 
