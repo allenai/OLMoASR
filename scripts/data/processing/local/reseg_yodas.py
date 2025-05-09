@@ -5,7 +5,7 @@ import soundfile as sf
 import os
 from datasets import load_dataset, Dataset
 import multiprocessing
-from tqdm import tqdm
+from tqdm import tqdm as tqdm_
 from itertools import repeat
 import re
 from whisper.tokenizer import get_tokenizer
