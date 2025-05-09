@@ -195,24 +195,29 @@ def main(input_dir, audio_output_dir, text_output_dir):
     print(f"{len(arrow_files)=}")
     print(f"{arrow_files[:5]=}")
     for i, arrow_file in enumerate(arrow_files):
-        ds = Dataset.from_file(arrow_file)
-        print(ds)
-        
-        print(f"Resegmenting data")
-        segments = reseg_data(ds)
-        
-        shared_ds = ds
-        
-        print(f"Generating new segments")
-        with multiprocessing.Pool(initializer=init_worker, initargs=(shared_ds,)) as pool:
-            new_segments = list(tqdm(pool.imap_unordered(parallel_gen_new_seg, zip(segments, repeat(audio_output_dir))), total=len(segments)))
+        if not os.path.exists(f"{text_output_dir}/shard_seg_{i:05}.jsonl"):
+            ds = Dataset.from_file(arrow_file)
+            print(ds)
             
-        new_segments = [seg for seg in new_segments if seg is not None]
-        
-        print("Writing new segments to disk")
-        with open(f"{text_output_dir}/shard_seg_{i:05}.jsonl", "w") as f:
-            for item in new_segments:
-                f.write(json.dumps(item) + "\n")
+            print(f"Resegmenting data")
+            segments = reseg_data(ds)
+            
+            shared_ds = ds
+            
+            print(f"Generating new segments")
+            with multiprocessing.Pool(initializer=init_worker, initargs=(shared_ds,)) as pool:
+                new_segments = list(tqdm(pool.imap_unordered(parallel_gen_new_seg, zip(segments, repeat(audio_output_dir))), total=len(segments)))
+                
+            new_segments = [seg for seg in new_segments if seg is not None]
+            
+            print("Writing new segments to disk")
+            with open(f"{text_output_dir}/shard_seg_{i:05}.jsonl", "w") as f:
+                for item in new_segments:
+                    f.write(json.dumps(item) + "\n")
+        else:
+            print(f"shard_seg_{i:05}.jsonl already exists, skipping")
+            continue
+    print("Done resegmenting data")
     
 if __name__ == "__main__":
     Fire(main)
