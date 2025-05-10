@@ -230,7 +230,7 @@ class AudioTextDataset(Dataset):
                     + [tokenizer.eot]
                 )
             else:
-                next_start_token_idx = norm_end
+                next_start_token_idx = [norm_end]
 
                 if np.random.rand() >= 0.5:
                     tokens = (
@@ -276,7 +276,7 @@ class AudioTextDataset(Dataset):
 
                         new_tokens = list(chain(*new_tokens))
 
-                        next_start_token_idx = norm_end
+                        next_start_token_idx = [norm_end]
 
                         new_tokens.extend(next_start_token_idx + [tokenizer.eot])
                         tokens = new_tokens
