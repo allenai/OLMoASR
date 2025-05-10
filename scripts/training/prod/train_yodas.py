@@ -107,7 +107,7 @@ class AudioTextDataset(Dataset):
         if timestamp_mode is True:
             norm_end = None
         else:
-            norm_end = timestamps[-1][-1] * 1000
+            norm_end = int(timestamps[-1][-1] * 1000)
 
         audio_input, padded_audio_arr, audio_preproc_time, audio_load_time = (
             self.preprocess_audio(audio_file, norm_end)
@@ -135,7 +135,7 @@ class AudioTextDataset(Dataset):
         invalid = False
 
         def convert_to_token_idx(timestamp, timestamp_begin):
-            ts_ms = timestamp * 1000
+            ts_ms = int(timestamp * 1000)
             if ts_ms > 30000:
                 return None
             else:
