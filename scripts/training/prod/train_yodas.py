@@ -1086,6 +1086,9 @@ def train(
                 text_y,
                 padding_mask,
                 preproc_time,
+                audio_preproc_time,
+                audio_load_time,
+                text_preproc_time,
             ) = batch
 
             start_data_to_gpu = time.time()
@@ -1122,6 +1125,12 @@ def train(
                     "efficiency/fwd_time": end_fwd - start_fwd,
                     "efficiency/avg_preproc_time": sum(preproc_time)
                     / len(preproc_time),
+                    "efficiency/avg_audio_preproc_time": sum(audio_preproc_time)
+                    / len(audio_preproc_time),
+                    "efficiency/avg_audio_load_time": sum(audio_load_time)
+                    / len(audio_load_time),
+                    "efficiency/avg_text_preproc_time": sum(text_preproc_time)
+                    / len(text_preproc_time),
                     "local_step": local_step,
                 }
             )
