@@ -230,7 +230,7 @@ class AudioTextDataset(Dataset):
                     + [tokenizer.eot]
                 )
             else:
-                next_start_token_idx = [tokenizer.timestamp_begin + (norm_end // 20)]
+                next_start_token_idx = norm_end
 
                 if np.random.rand() >= 0.5:
                     tokens = (
@@ -276,9 +276,7 @@ class AudioTextDataset(Dataset):
 
                         new_tokens = list(chain(*new_tokens))
 
-                        next_start_token_idx = [
-                            tokenizer.timestamp_begin + (norm_end // 20)
-                        ]
+                        next_start_token_idx = norm_end
 
                         new_tokens.extend(next_start_token_idx + [tokenizer.eot])
                         tokens = new_tokens
@@ -327,6 +325,7 @@ class AudioTextDataset(Dataset):
             print(f"{timestamp_mode=}")
             print(f"{norm_end=}")
             print(f"{token_ranges=}")
+            print(f"{tokens=}")
             print(f"{transcript_list=}")
             print(f"{len(text_input)=}")
             print(f"{text_input=}")
@@ -336,6 +335,7 @@ class AudioTextDataset(Dataset):
             print(f"{norm_end=}")
             print(f"{token_ranges=}")
             print(f"{transcript_list=}")
+            print(f"{tokens=}")
             print(f"{len(text_y)=}")
             print(f"{text_y=}")
 
@@ -344,6 +344,7 @@ class AudioTextDataset(Dataset):
             print(f"{norm_end=}")
             print(f"{token_ranges=}")
             print(f"{transcript_list=}")
+            print(f"{tokens=}")
             print("Invalid token index found:", max(tokens), "vs max allowed: 51863")
 
         text_input = torch.tensor(text_input, dtype=torch.long)
