@@ -83,30 +83,35 @@ class AudioTextDataset(Dataset):
         start_preproc = time.time()
         global tokenizer
         sample_dict = self.ds[index]
-        audio_file = sample_dict["audio"]["path"]
-        sample_dir = os.path.dirname(audio_file)
-        sample_file = sample_dict["utt_id"]
-        text_file = os.path.join(sample_dir, sample_file)
-        
-        try:
-            audio_arr = sample_dict["audio"]["array"]
-        except soundfile.LibsndfileError:
-            # def load_waveform(wav_path):
-            #     waveform, _ = torchaudio.load(wav_path)  # waveform shape: (channels, samples)
-            #     return waveform
-            print(f"Loading {audio_file} with soundfile")
-            def load_waveform(wav_path):
-                waveform, sample_rate = soundfile.read(wav_path)  # waveform shape: (samples,) or (samples, channels)
-                if waveform.ndim == 2: # not stereo, but can be a 2D array w/ 1 as 2nd dim
-                    waveform = waveform[0]
-                return waveform, sample_rate
-            audio_arr = load_waveform(audio_file)
-            
-        transcript_string = sample_dict["text"]
-        text_input, text_y, padding_mask, over_ctx_len = self.preprocess_text(
-            transcript_string, tokenizer
+        audio_file = sample_dict["audio"]
+        sample_dir = os.path.dirname(audio_file).replace("audio", "text")
+        text_file = os.path.join(sample_dir, sample_dict["utt_id"])
+        ts_mode = sample_dict["ts_mode"]
+        audio_dur = sample_dict["dur"]
+
+        transcript_list = sample_dict["text"]
+        timestamps = sample_dict["ts"]
+        timestamp_begin = tokenizer.timestamp_begin
+        token_ranges = self.gen_token_ranges(timestamps, timestamp_begin)
+
+        (
+            text_input,
+            text_y,
+            padding_mask,
+            timestamp_mode,
+            text_preproc_time,
+        ) = self.preprocess_text(
+            transcript_list, token_ranges, ts_mode, audio_dur, tokenizer
         )
-        audio_input, padded_audio_arr = self.preprocess_audio(audio_arr, over_ctx_len)
+
+        if timestamp_mode is True:
+            norm_end = None
+        else:
+            norm_end = timestamps[-1][-1] * 1000
+
+        audio_input, padded_audio_arr, audio_preproc_time, audio_load_time = (
+            self.preprocess_audio(audio_file, norm_end)
+        )
         end_preproc = time.time()
         preproc_time = end_preproc - start_preproc
 
@@ -119,9 +124,41 @@ class AudioTextDataset(Dataset):
             text_y,
             padding_mask,
             preproc_time,
+            audio_preproc_time,
+            audio_load_time,
+            text_preproc_time,
         )
 
-    def preprocess_audio(self, audio_arr, over_ctx_len=False) -> Tuple[str, torch.Tensor]:
+    def gen_token_ranges(self, timestamps, timestamp_begin):
+        # Precompute start and end token indices
+        token_ranges = []
+        invalid = False
+
+        def convert_to_token_idx(timestamp, timestamp_begin):
+            ts_ms = timestamp * 1000
+            if ts_ms > 30000:
+                return None
+            else:
+                return timestamp_begin + (ts_ms // 20)
+
+        for start, end in timestamps:
+            start_idx = convert_to_token_idx(start, timestamp_begin)
+            end_idx = convert_to_token_idx(end, timestamp_begin)
+
+            # handling invalid timestamps (> 30s)
+            if start_idx is None or end_idx is None:
+                invalid = True
+                break
+            token_ranges.append((start_idx, end_idx))
+
+        if invalid:
+            return None
+        else:
+            return token_ranges
+
+    def preprocess_audio(
+        self, audio_file: str, norm_end: Optional[Union[str, int]]
+    ) -> Tuple[str, torch.Tensor]:
         """Preprocesses the audio data for the model.
 
         Loads the audio file, pads or trims the audio data, and computes the log mel spectrogram.
@@ -132,20 +169,35 @@ class AudioTextDataset(Dataset):
         Returns:
             A tuple containing the name of audio file and the log mel spectrogram
         """
-        if over_ctx_len is True:
-            sample_rate = 16000
-            duration_sec = 30
-            num_samples = sample_rate * duration_sec
-            audio_arr = np.zeros(num_samples, dtype=np.float32)
-        audio_arr = audio_arr.astype(np.float32)
-        audio_arr = audio.pad_or_trim(audio_arr)
-        mel_spec = audio.log_mel_spectrogram(audio_arr)
+        start_time = time.time()
+        waveform, sample_rate = soundfile.read(
+            audio_file
+        )  # waveform shape: (samples,) or (samples, channels)
+        if waveform.ndim == 2:  # not stereo, but can be a 2D array w/ 1 as 2nd dim
+            waveform = waveform[0]
 
-        return mel_spec, audio_arr
+        audio_arr = waveform.astype(np.float32)
+        audio_load_time = time.time() - start_time
+        if norm_end:
+            length = norm_end * 16
+            # trim until end of text segment
+            audio_arr = audio.pad_or_trim(audio_arr, length=length)
+            # pad w/ silence
+            audio_arr = audio.pad_or_trim(audio_arr)
+        else:
+            # in case audio_arr isn't exactly 480K samples
+            audio_arr = audio.pad_or_trim(audio_arr)
+        mel_spec = audio.log_mel_spectrogram(audio_arr)
+        audio_preproc_time = time.time() - start_time
+
+        return mel_spec, audio_arr, audio_preproc_time, audio_load_time
 
     def preprocess_text(
         self,
-        transcript_string: str,
+        transcript_list: str,
+        token_ranges: Optional[List],
+        ts_mode: bool,
+        dur: float,
         tokenizer: whisper.tokenizer.Tokenizer,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool]:
         """Preprocesses the text data for the model.
@@ -160,29 +212,93 @@ class AudioTextDataset(Dataset):
             A tuple containing the transcript file, the input text tensor, the target text tensor, and the padding mask
         """
         start_time = time.time()
-        over_ctx_len = False
-        if transcript_string.strip() == "":
-            text_tokens = [tokenizer.no_speech]
+        if token_ranges is None:
+            only_no_ts_mode = True
         else:
-            text_tokens = tokenizer.encode(transcript_string)
+            only_no_ts_mode = False
 
-        text_tokens = (
-            list(tokenizer.sot_sequence_including_notimestamps)
-            + text_tokens
-            + [tokenizer.eot]
-        )
+        if token_ranges is not None:
+            norm_end = token_ranges[-1][-1]
 
-        if len(text_tokens) > self.n_text_ctx:
-            text_tokens = (
-                list(tokenizer.sot_sequence_including_notimestamps)
-                + [tokenizer.no_speech]
-                + [tokenizer.eot]
-            )
-            over_ctx_len = True
+        timestamp_mode = False
+
+        if set(transcript_list) == {""}:
+            if only_no_ts_mode is True or dur < 30.0:
+                tokens = (
+                    list(tokenizer.sot_sequence_including_notimestamps)
+                    + tokenizer.encode("")
+                    + [tokenizer.eot]
+                )
+            else:
+                next_start_token_idx = [tokenizer.timestamp_begin + (norm_end // 20)]
+
+                if np.random.rand() >= 0.5:
+                    tokens = (
+                        [tokenizer.sot_sequence[0]]
+                        + [tokenizer.timestamp_begin]
+                        + tokenizer.encode("")
+                        + next_start_token_idx
+                        + next_start_token_idx
+                        + [tokenizer.eot]
+                    )
+                    timestamp_mode = True
+                else:
+                    tokens = (
+                        list(tokenizer.sot_sequence_including_notimestamps)
+                        + tokenizer.encode("")
+                        + [tokenizer.eot]
+                    )
+        else:
+            tokens = [
+                (tokenizer.encode(" " + text.strip()))
+                for i, text in enumerate(transcript_list)
+            ]
+
+            if only_no_ts_mode is True or dur < 30.0:
+                tokens = (
+                    list(tokenizer.sot_sequence_including_notimestamps)
+                    + list(chain(*tokens))
+                    + [tokenizer.eot]
+                )
+            else:
+                if np.random.rand() >= 0.5:
+                    sot_token = tokenizer.sot_sequence[0]
+                    if ts_mode is True:
+                        # Build new_tokens using list comprehension
+                        new_tokens = [
+                            (
+                                [sot_token] + [start] + tokens[i] + [end]
+                                if i == 0
+                                else [start] + tokens[i] + [end]
+                            )
+                            for i, (start, end) in enumerate(token_ranges)
+                        ]
+
+                        new_tokens = list(chain(*new_tokens))
+
+                        next_start_token_idx = [
+                            tokenizer.timestamp_begin + (norm_end // 20)
+                        ]
+
+                        new_tokens.extend(next_start_token_idx + [tokenizer.eot])
+                        tokens = new_tokens
+                        timestamp_mode = True
+                    else:
+                        tokens = (
+                            list(tokenizer.sot_sequence_including_notimestamps)
+                            + list(chain(*tokens))
+                            + [tokenizer.eot]
+                        )
+                else:
+                    tokens = (
+                        list(tokenizer.sot_sequence_including_notimestamps)
+                        + list(chain(*tokens))
+                        + [tokenizer.eot]
+                    )
 
         # offset
-        text_input = text_tokens[:-1]
-        text_y = text_tokens[1:]
+        text_input = tokens[:-1]
+        text_y = tokens[1:]
 
         padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
         padding_mask[:, len(text_input) :] = -np.inf
@@ -207,6 +323,29 @@ class AudioTextDataset(Dataset):
             constant_values=51864,
         )
 
+        if len(text_input) > self.n_text_ctx:
+            print(f"{timestamp_mode=}")
+            print(f"{norm_end=}")
+            print(f"{token_ranges=}")
+            print(f"{transcript_list=}")
+            print(f"{len(text_input)=}")
+            print(f"{text_input=}")
+
+        if len(text_y) > self.n_text_ctx:
+            print(f"{timestamp_mode=}")
+            print(f"{norm_end=}")
+            print(f"{token_ranges=}")
+            print(f"{transcript_list=}")
+            print(f"{len(text_y)=}")
+            print(f"{text_y=}")
+
+        if max(tokens) >= 51864:
+            print(f"{timestamp_mode=}")
+            print(f"{norm_end=}")
+            print(f"{token_ranges=}")
+            print(f"{transcript_list=}")
+            print("Invalid token index found:", max(tokens), "vs max allowed: 51863")
+
         text_input = torch.tensor(text_input, dtype=torch.long)
         text_y = torch.tensor(text_y, dtype=torch.long)
         text_preproc_time = time.time() - start_time
@@ -215,7 +354,8 @@ class AudioTextDataset(Dataset):
             text_input,
             text_y,
             padding_mask,
-            over_ctx_len,
+            timestamp_mode,
+            text_preproc_time,
         )
 
 
@@ -324,10 +464,11 @@ def prepare_data(
     Returns:
         A tuple containing the dataloaders for training and validation
     """
-    subsets = glob.glob("/weka/huongn/training_data/yodas/espnet___yodas/*/*/*")
+    subsets = glob.glob("/weka/huongn/training_data/reseg_yodas/*/text")
     datasets_list = [
         load_dataset(
-            path=subset,
+            path="json",
+            data_dir=subset,
             split="train",
         )
         for subset in subsets
