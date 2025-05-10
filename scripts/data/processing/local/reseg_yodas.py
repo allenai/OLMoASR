@@ -111,7 +111,11 @@ def reseg_data(ds):
                 seg_count += 1
                 max_30_segs = [tpl[-1] for tpl in utt_id_list[a:b + 1]]
                 segments.append([max_30_segs, seg_count - 1])
-                a = b
+                if a == b:
+                    a += 1
+                    b += 1
+                else:
+                    a = b
             
             if b == len(utt_id_list):
                 seg_count += 1
