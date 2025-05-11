@@ -1074,6 +1074,12 @@ def train(
     for batch_idx, batch in enumerate(train_dataloader):
         end_dl = time.time()
         model.train()
+        if global_step % 41301 == 0 or global_step % 41302 == 0:
+            print(f"[Rank {dist.get_rank()}] Skipping step {global_step=}, {local_step=}")
+            global_step += 1
+            local_step += 1
+            continue
+
         if batch_idx % accumulation_steps == 0 or accumulation_steps == 1:
             start_step = time.time()
 
@@ -1958,7 +1964,7 @@ def main(
                 persistent_workers=persistent_workers,
             )
             print(f"Rank: {rank}, {len(train_dataloader)=}")
-        
+
         (
             global_step,
             local_step,
