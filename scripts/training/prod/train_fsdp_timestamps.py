@@ -15,6 +15,7 @@ import functools
 import subprocess
 import gzip
 import zstandard as zstd
+import io
 
 import torch
 import torch.nn.functional as F
