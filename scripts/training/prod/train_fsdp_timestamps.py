@@ -446,6 +446,17 @@ def open_dicts_file(samples_dicts_file) -> List[Dict]:
     if samples_dicts_file.endswith(".gz"):
         with gzip.open(samples_dicts_file, "rt") as f:
             samples_dicts = [json.loads(line.strip()) for line in f]
+    elif samples_dicts_file.endswith(".zst"):
+        samples_dicts = []
+        with open(samples_dicts_file, 'rb') as f:
+            dctx = zstd.ZstdDecompressor()
+            with dctx.stream_reader(f) as reader:
+                text_stream = io.TextIOWrapper(reader, encoding="utf-8")
+                for line in text_stream:
+                    try:
+                        samples_dicts.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        break  # reached padding at the end
     return samples_dicts
 
 
@@ -1767,7 +1778,7 @@ def main(
     n_head = model_dims.n_text_head
 
     # load samples dicts
-    samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*.jsonl.gz")
+    samples_dicts_files = glob.glob(f"{samples_dicts_dir}/*.jsonl.*")
     print(f"{len(samples_dicts_files)=}")
 
     # loading in data paths
