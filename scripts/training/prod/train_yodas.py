@@ -1946,6 +1946,19 @@ def main(
         os.makedirs(f"{log_dir}/training/{exp_name}/{run_id}", exist_ok=True)
 
     while global_step < train_steps:
+        if epoch > 0:
+            train_dataloader, train_sampler = prepare_data(
+                train_batch_size=train_batch_size,
+                n_text_ctx=n_text_ctx,
+                n_head=n_head,
+                pin_memory=pin_memory,
+                shuffle=shuffle,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
+                persistent_workers=persistent_workers,
+            )
+            print(f"Rank: {rank}, {len(train_dataloader)=}")
+        
         (
             global_step,
             local_step,
@@ -1997,6 +2010,9 @@ def main(
             run_id_dir=run_id_dir,
             eval_on_gpu=eval_on_gpu,
         )
+
+        print(f"Deleting train_dataloader and train_sampler on rank {rank}")
+        del train_dataloader, train_sampler
 
         epoch += 1
 
