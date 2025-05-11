@@ -14,6 +14,7 @@ from collections import defaultdict
 import functools
 import subprocess
 import gzip
+import zstandard as zstd
 
 import torch
 import torch.nn.functional as F
