@@ -18,3 +18,4 @@ ray
 librosa
 torch-tb-profiler
 zstandard
+kaldiio
