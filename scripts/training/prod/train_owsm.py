@@ -191,7 +191,9 @@ class AudioTextDataset(Dataset):
             tokens = tokenizer.encode(
                 s_modified, allowed_special=tokenizer.encoding.special_tokens_set
             )
-            tokens = [tokenizer.sot_sequence[0]] + tokens + tokens[-1] + [tokenizer.eot]
+            tokens = (
+                [tokenizer.sot_sequence[0]] + tokens + [tokens[-1]] + [tokenizer.eot]
+            )
             timestamp_mode = True
         else:
             s = transcript_string.split("<eng><asr>")[-1]
