@@ -711,8 +711,41 @@ class TEDLIUM_long(TEDLIUM):
 
 
 # Kincaid46
+class Kincaid46:
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+
+    def load(self):
+        audio_files = []
+        transcript_texts = []
+
+        with open(f"{self.root_dir}/text.csv", "r") as f:
+            reader = csv.reader(f)
+            for i, row in enumerate(reader):
+                audio_file = os.path.join(self.root_dir, audio, f"{i:02}.m4a")
+                transcript_text = row[5]
+                audio_files.append(audio_file)
+                transcript_texts.append(transcript_text)
+
+        return audio_files, transcript_texts
 
 # CORAAL_long
+class CORAAL_long:
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+
+    def load(self):
+        audio_files = []
+        transcript_texts = []
+
+        with open(f"{self.root_dir}/coraal_transcripts.jsonl", "r") as f:
+            for line in f:
+                data = json.loads(line)
+                if "/dta/" not in data["audio"]:
+                    audio_files.append(data["audio"])
+                    transcript_texts.append(data["text"])
+
+        return audio_files, transcript_texts
 
 
 class MLS:
@@ -937,9 +970,15 @@ class EvalDataset(Dataset):
                     save_infos=True,
                 )
             elif eval_set == "coraal":
-                pass
+                if not os.path.exists(f"{eval_dir}/coraal_long"):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+                root_dir = f"{eval_dir}/coraal_long"
+                self.dataset = CORAAL_long(root_dir=root_dir)
             elif eval_set == "kincaid46":
-                pass
+                if not os.path.exists(f"{eval_dir}/kincaid46"):
+                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+                root_dir = f"{eval_dir}/kincaid46"
+                self.dataset = Kincaid46(root_dir=root_dir)
         elif task == "ml_transcribe":
             if eval_set == "fleurs":
                 if len(os.listdir(f"{eval_dir}/google__fleurs")) < 102:
@@ -1170,10 +1209,29 @@ class EvalDataset(Dataset):
                 audio_arr = waveform.astype(np.float32)
                 audio_input = ""
             elif self.eval_set == "coraal":
-                pass
+                waveform, sampling_rate = torchaudio.load(self.audio_files[index])
+                waveform = waveform.squeeze(0).cpu().numpy()
+                text_y = self.transcript_texts[index]
+                
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
+                
+                audio_arr = waveform.astype(np.float32)
+                audio_input = ""      
             elif self.eval_set == "kincaid46":
-                pass
-
+                waveform, sampling_rate = torchaudio.load(self.audio_files[index])
+                waveform = waveform.squeeze(0).cpu().numpy()
+                text_y = self.transcript_texts[index]
+                
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
+                
+                audio_arr = waveform.astype(np.float32)
+                audio_input = ""
             return audio_fp, audio_arr, audio_input, text_y
         elif self.task == "ml_transcribe":
             pass
@@ -1998,7 +2056,7 @@ if __name__ == "__main__":
     )
 
     # long_form_eval(batch_size=1, num_workers=12, ckpt="/weka/huongn/ow_ckpts/filtered/tagged_data/text_heurs_seg_edit_dist_0.7_edit_dist_0.5_long_tiny_15e4_440K_bs64_ebs512_16workers_5pass_TimestampOn_evalbs8_042525_9zd7k10y/latesttrain_00524288_tiny_ddp-train_grad-acc_fp16_non_ddp_inf.pt", eval_set="tedlium", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
-    # long_form_eval(batch_size=1, num_workers=6, ckpt="/weka/huongn/whisper_ckpts/tiny.en.pt", eval_set="earnings21", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
+    # long_form_eval(batch_size=1, num_workers=12, ckpt="/weka/huongn/whisper_ckpts/tiny.en.pt", eval_set="coraal", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
     # short_form_eval(
     #     batch_size=96,
     #     num_workers=12,
