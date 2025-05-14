@@ -724,7 +724,7 @@ class Kincaid46:
             for i, row in enumerate(reader):
                 if i == 0:
                     continue
-                audio_file = os.path.join(self.root_dir, "audio", f"{i:02}.m4a")
+                audio_file = os.path.join(self.root_dir, "audio", f"{(i - 1):02}.m4a")
                 transcript_text = row[5]
                 audio_files.append(audio_file)
                 transcript_texts.append(transcript_text)
@@ -1629,8 +1629,8 @@ def long_form_eval(
                 if norm_tgt_text[i] != ""
             ]
 
-            # print(f"{norm_pred_text=}")
-            # print(f"{norm_tgt_text=}")
+            print(f"{norm_pred_text=}")
+            print(f"{norm_tgt_text=}")
 
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
@@ -2047,17 +2047,17 @@ def lang_id_eval(
 
 
 if __name__ == "__main__":
-    # Fire(
-    #     {
-    #         "short_form_eval": short_form_eval,
-    #         "ml_eval": ml_eval,
-    #         "long_form_eval": long_form_eval,
-    #         # "lang_id_eval": lang_id_eval,
-    #     }
-    # )
+    Fire(
+        {
+            "short_form_eval": short_form_eval,
+            "ml_eval": ml_eval,
+            "long_form_eval": long_form_eval,
+            # "lang_id_eval": lang_id_eval,
+        }
+    )
 
     # long_form_eval(batch_size=1, num_workers=12, ckpt="/weka/huongn/ow_ckpts/filtered/tagged_data/text_heurs_seg_edit_dist_0.7_edit_dist_0.5_long_tiny_15e4_440K_bs64_ebs512_16workers_5pass_TimestampOn_evalbs8_042525_9zd7k10y/latesttrain_00524288_tiny_ddp-train_grad-acc_fp16_non_ddp_inf.pt", eval_set="tedlium", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
-    long_form_eval(batch_size=1, num_workers=12, ckpt="/weka/huongn/whisper_ckpts/tiny.en.pt", eval_set="kincaid46", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
+    # long_form_eval(batch_size=1, num_workers=12, ckpt="/weka/huongn/whisper_ckpts/tiny.en.pt", eval_set="kincaid46", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
     # short_form_eval(
     #     batch_size=96,
     #     num_workers=12,
