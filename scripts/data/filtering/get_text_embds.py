@@ -46,11 +46,11 @@ def init_tokenizer(worker_id: int, llm):
 
 
 def collate_fn(batch):
-    encoded_man = batch # , encoded_mach = zip(*batch)
+    video_id, encoded_man = batch # , encoded_mach = zip(*batch)
     encoded_man = [TokensPrompt(prompt_token_ids=item) for item in encoded_man]
     # encoded_mach = [TokensPrompt(prompt_token_ids=item) for item in encoded_mach]
 
-    return encoded_man  # , encoded_mach
+    return video_id, encoded_man  # , encoded_mach
 
 
 class SamplesDictsDataset(Dataset):
@@ -102,7 +102,7 @@ class SamplesDictsDataset(Dataset):
             # if norm_mach_text == "":
             #     norm_mach_text = " "
 
-            return norm_man_text  # , norm_mach_text
+            return video_id, norm_man_text  # , norm_mach_text
 
     def get_man_text(self, man_path):
         reader = TranscriptReader(
