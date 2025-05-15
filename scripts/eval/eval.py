@@ -1637,7 +1637,7 @@ def long_form_eval(
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
 
-            if wandb_log:
+            if wandb_log and not bootstrap:
                 for i, text in enumerate(norm_pred_text):
                     wer = (
                         np.round(
