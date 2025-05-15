@@ -290,7 +290,7 @@ def process_line(line, config):
 
         if isinstance(line[tag], bool):
             keep = filter_bool(line[tag], **kwargs)
-        elif isinstance(line[tag], str):
+        elif isinstance(line[tag], str) and tag != "seg_content":
             keep = filter_cat(line[tag], **kwargs)
         elif isinstance(line[tag], int) or isinstance(line[tag], float):
             keep = filter_num(line[tag], **kwargs)
