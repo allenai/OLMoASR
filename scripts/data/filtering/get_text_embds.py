@@ -46,7 +46,7 @@ def init_tokenizer(worker_id: int, llm):
 
 
 def collate_fn(batch):
-    video_id, encoded_man = batch # , encoded_mach = zip(*batch)
+    video_id, encoded_man = zip(*batch)
     encoded_man = [TokensPrompt(prompt_token_ids=item) for item in encoded_man]
     # encoded_mach = [TokensPrompt(prompt_token_ids=item) for item in encoded_mach]
 
