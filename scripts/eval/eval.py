@@ -1450,7 +1450,6 @@ def short_form_eval(
                     wandb.log({f"eval_table_{current_step}": eval_table})
                 else:
                     wandb.log({f"eval_table": eval_table})
-
             elif bootstrap:
                 per_sample_wer.extend(
                     [
@@ -1522,6 +1521,7 @@ def long_form_eval(
         "kincaid46",
     ],
     log_dir: str,
+    bootstrap: bool = False,
     exp_name: Optional[str] = None,
     wandb_log: bool = False,
     wandb_log_dir: str = "wandb",
@@ -1558,6 +1558,8 @@ def long_form_eval(
 
     hypotheses = []
     references = []
+    if bootstrap:
+        per_sample_wer = []
 
     if wandb_log:
         wandb_table_cols = [
@@ -1664,6 +1666,18 @@ def long_form_eval(
                         ins,
                         wer,
                     )
+            elif bootstrap:
+                per_sample_wer.extend(
+                    [
+                        [
+                            jiwer.wer(
+                                reference=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                            ),
+                            len(norm_tgt_text[i]),
+                        ]
+                        for i in range(len(norm_pred_text))
+                    ]
+                )
             else:
                 wer = (
                     np.round(
@@ -1691,6 +1705,13 @@ def long_form_eval(
     avg_subs = avg_measures["substitutions"]
     avg_ins = avg_measures["insertions"]
     avg_dels = avg_measures["deletions"]
+
+    if bootstrap:
+        with open(f"{log_dir}/{eval_set}_sample_wer.csv", "w") as f:
+            writer = csv.writer(f)
+            writer.writerow(["wer", "ref_length"])
+            for wer, length in per_sample_wer:
+                writer.writerow([wer, length])
 
     if wandb_log:
         wandb.run.summary["avg_wer"] = avg_wer
@@ -2057,7 +2078,7 @@ if __name__ == "__main__":
     )
 
     # long_form_eval(batch_size=1, num_workers=12, ckpt="/weka/huongn/ow_ckpts/filtered/tagged_data/text_heurs_seg_edit_dist_0.7_edit_dist_0.5_long_tiny_15e4_440K_bs64_ebs512_16workers_5pass_TimestampOn_evalbs8_042525_9zd7k10y/latesttrain_00524288_tiny_ddp-train_grad-acc_fp16_non_ddp_inf.pt", eval_set="tedlium", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
-    # long_form_eval(batch_size=1, num_workers=12, ckpt="/weka/huongn/whisper_ckpts/tiny.en.pt", eval_set="kincaid46", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
+    # long_form_eval(batch_size=1, num_workers=1, ckpt="/weka/huongn/ow_ckpts/filtered/tagged_data/text_heurs_seg_edit_dist_0.7_edit_dist_0.5_long_tiny_15e4_440K_bs64_ebs512_16workers_5pass_TimestampOn_evalbs8_042525_9zd7k10y/latesttrain_00524288_tiny_ddp-train_grad-acc_fp16_non_ddp_inf.pt", eval_set="coraal", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
     # short_form_eval(
     #     batch_size=96,
     #     num_workers=12,
