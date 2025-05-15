@@ -13,4 +13,4 @@ pyarrow
 numpy
 speechbrain
 pycld2
-vllm
+vllm==0.8.5
