@@ -1349,7 +1349,14 @@ def short_form_eval(
         else:
             run_id = wandb.util.generate_id()
 
-        ow_or_w = "open-whisper" if ckpt.split("/")[3] == "ow_ckpts" else "whisper"
+        if ckpt.split("/")[-3] == "ow_ckpts":
+            ow_or_w = "open-whisper"
+        elif ckpt.split("/")[-3] == "yodas":
+            ow_or_w = "yodas"
+        elif ckpt.split("/")[-3] == "owsm":
+            ow_or_w = "owsm"
+        else:
+            ow_or_w = "whisper"
         exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
         model_sizes = ["tiny", "small", "base", "medium", "large"]
         model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
@@ -1574,7 +1581,14 @@ def long_form_eval(
         ]
 
         run_id = wandb.util.generate_id()
-        ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
+        if ckpt.split("/")[-3] == "ow_ckpts":
+            ow_or_w = "open-whisper"
+        elif ckpt.split("/")[-3] == "yodas":
+            ow_or_w = "yodas"
+        elif ckpt.split("/")[-3] == "owsm":
+            ow_or_w = "owsm"
+        else:
+            ow_or_w = "whisper"
         exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
         model_sizes = ["tiny", "small", "base", "medium", "large"]
         model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
