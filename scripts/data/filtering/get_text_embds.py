@@ -66,8 +66,9 @@ class SamplesDictsDataset(Dataset):
         man_text = (
             self.data[idx]["seg_text"]
             if self.level == "seg"
-            else self.get_man_text(self.data[idx]["content"])
+            else self.get_man_text(self.data[idx]["full_file"])
         )
+        video_id = self.data[idx]["id"]
         # mach_text = (
         #     self.data[idx]["mach_seg_text"]
         #     if self.level == "seg"
@@ -93,7 +94,7 @@ class SamplesDictsDataset(Dataset):
 
             # if len(encoded_mach) >= 32768:
             #     encoded_mach = encoded_mach[:32768]
-            return encoded_man  # , encoded_mach
+            return video_id, encoded_man  # , encoded_mach
         else:
             if norm_man_text == "":
                 norm_man_text = " "
@@ -103,11 +104,11 @@ class SamplesDictsDataset(Dataset):
 
             return norm_man_text  # , norm_mach_text
 
-    def get_man_text(self, man_content):
+    def get_man_text(self, man_path):
         reader = TranscriptReader(
-            file_path=None,
-            transcript_string=man_content,
-            ext="vtt" if man_content.startswith("WEBVTT") else "srt",
+            file_path=man_path,
+            transcript_string=None,
+            ext="vtt" if man_path.endswith(".vtt") else "srt",
         )
         t_dict, *_ = reader.read()
         man_text = reader.extract_text(t_dict)
@@ -168,10 +169,11 @@ def process_jsonl(llm, data, batch_size, num_workers, level, output_dir):
 
     # scores = []
     embds = []
+    video_ids = []
     start = time()
     for batch_idx, batch in enumerate(tqdm(dataloader, total=len(dataloader))):
         # man_input, mach_input = batch
-        man_input = batch
+        video_id, man_input = batch
 
         man_output = llm.embed(man_input)
         # mach_output = llm.embed(mach_input)
@@ -185,17 +187,24 @@ def process_jsonl(llm, data, batch_size, num_workers, level, output_dir):
         )
 
         embds.extend(man_embeds)
+        video_ids.extend(video_id)
 
         if batch_idx % 2 == 0:
+            result = dict(zip(video_ids, embds))
             torch.save(
-                torch.stack(embds, dim=0), f"{output_dir}/text_embds_{batch_idx}.pt"
+                result, f"{output_dir}/text_embds_{batch_idx}.pt"
             )
+            del result
             embds = []
+            video_ids = []
         elif batch_idx == len(dataloader) - 1:
+            result = dict(zip(video_ids, embds))
             torch.save(
                 torch.stack(embds, dim=0), f"{output_dir}/text_embds_{batch_idx}.pt"
             )
+            del result
             embds = []
+            video_ids = []
 
         # mach_embeds = F.normalize(
         #     torch.stack(
