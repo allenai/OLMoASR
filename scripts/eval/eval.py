@@ -1561,6 +1561,8 @@ def hf_eval(
         drop_last=False,
         num_workers=num_workers,
     )
+    
+    model_name = model.split("/")[-1]
 
     processor = AutoProcessor.from_pretrained(
         model, trust_remote_code=True, token=hf_token
@@ -1598,7 +1600,7 @@ def hf_eval(
         ]
         run_id = wandb.util.generate_id()
 
-        exp_name = f"hf_{model}_{eval_set}_eval"
+        exp_name = f"hf_{model_name}_{eval_set}_eval"
 
         wandb.init(
             id=run_id,
