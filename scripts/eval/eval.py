@@ -733,6 +733,7 @@ class Kincaid46:
 
         return audio_files, transcript_texts
 
+
 # CORAAL_long
 class CORAAL_long:
     def __init__(self, root_dir):
@@ -2308,6 +2309,7 @@ if __name__ == "__main__":
             "short_form_eval": short_form_eval,
             "ml_eval": ml_eval,
             "long_form_eval": long_form_eval,
+            "hf_eval": hf_eval,
             # "lang_id_eval": lang_id_eval,
         }
     )
