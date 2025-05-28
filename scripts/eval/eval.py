@@ -11,6 +11,8 @@ import librosa
 import torch
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 from datasets import load_dataset
+from transformers import AutoProcessor, AutoModelForCTC, AutoModelForSpeechSeq2Seq
+# import nemo.collections.asr as nemo_asr
 import jiwer
 from whisper import audio, DecodingOptions
 from whisper.tokenizer import get_tokenizer
@@ -1213,24 +1215,24 @@ class EvalDataset(Dataset):
                 waveform, sampling_rate = torchaudio.load(self.audio_files[index])
                 waveform = waveform.squeeze(0).cpu().numpy()
                 text_y = self.transcript_texts[index]
-                
+
                 if sampling_rate != 16000:
                     waveform = librosa.resample(
                         waveform, orig_sr=sampling_rate, target_sr=16000
                     )
-                
+
                 audio_arr = waveform.astype(np.float32)
-                audio_input = ""      
+                audio_input = ""
             elif self.eval_set == "kincaid46":
                 waveform, sampling_rate = torchaudio.load(self.audio_files[index])
                 waveform = waveform.squeeze(0).cpu().numpy()
                 text_y = self.transcript_texts[index]
-                
+
                 if sampling_rate != 16000:
                     waveform = librosa.resample(
                         waveform, orig_sr=sampling_rate, target_sr=16000
                     )
-                
+
                 audio_arr = waveform.astype(np.float32)
                 audio_input = ""
             return audio_fp, audio_arr, audio_input, text_y
@@ -1510,6 +1512,225 @@ def short_form_eval(
 
     if train_run_id is not None:
         os.remove(ckpt)
+
+    return None
+
+
+def hf_eval(
+    batch_size: int,
+    num_workers: int,
+    model: str,
+    eval_set: Literal[
+        "librispeech_clean",
+        "librispeech_other",
+        "artie_bias_corpus",
+        "fleurs",
+        "tedlium",
+        "voxpopuli",
+        "common_voice",
+        "ami_ihm",
+        "ami_sdm",
+        "coraal",
+        "chime6",
+        "wsj",
+        "callhome",
+        "switchboard",
+    ],
+    log_dir: str,
+    wandb_log: bool = False,
+    wandb_log_dir: Optional[str] = None,
+    eval_dir: str = "data/eval",
+    hf_token: Optional[str] = None,
+    cuda: bool = True,
+    bootstrap: bool = False,
+):
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(wandb_log_dir, exist_ok=True)
+    os.makedirs(eval_dir, exist_ok=True)
+
+    device = "cuda" if cuda else "cpu"
+
+    dataset = EvalDataset(
+        task="eng_transcribe", eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir
+    )
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=num_workers,
+    )
+
+    processor = AutoProcessor.from_pretrained(
+        model, trust_remote_code=True, token=hf_token
+    )
+    if "s2t" in model:
+        AutoModelForSpeechSeq2Seq.from_pretrained(
+            model, trust_remote_code=True, token=hf_token
+        ).to(device)
+    # elif "nvidia" in model:
+    #     model = nemo_asr.models.ASRModel.from_pretrained(model)
+    else:
+        model = AutoModelForCTC.from_pretrained(
+            model,
+            trust_remote_code=True,
+            token=hf_token,
+        ).to(device)
+
+    normalizer = EnglishTextNormalizer()
+
+    hypotheses = []
+    references = []
+    if bootstrap:
+        per_sample_wer = []
+
+    if wandb_log:
+        wandb_table_cols = [
+            "eval_set",
+            "audio",
+            "prediction",
+            "target",
+            "subs",
+            "dels",
+            "ins",
+            "wer",
+        ]
+        run_id = wandb.util.generate_id()
+
+        exp_name = f"hf_{model}_{eval_set}_eval"
+
+        wandb.init(
+            id=run_id,
+            resume="allow",
+            project="open_whisper",
+            entity="dogml",
+            job_type="evals",
+            name=exp_name,
+            dir=wandb_log_dir,
+            tags=["eval", eval_set, "hf"],
+        )
+        eval_table = wandb.Table(columns=wandb_table_cols)
+
+    with torch.no_grad():
+        for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
+            audio_fp, audio_arr, audio_input, text_y = batch
+            # print(f"{audio_fp=}")
+            # print(f"{audio_arr.shape=}")
+            # print(f"{text_y=}")
+            # print(f"{audio_input.shape=}")
+
+            norm_tgt_text = [normalizer(text) for text in text_y]
+
+            if "nvidia" not in model:
+                input_values = processor(
+                    audio_arr, return_tensors="pt", padding="longest"
+                ).input_values
+                input_values = input_values.squeeze(0).to("cpu")
+                with torch.no_grad():
+                    logits = model(input_values).logits
+                predicted_ids = torch.argmax(logits, dim=-1)
+                results = processor.batch_decode(predicted_ids)
+            # else:
+            #     results = model.transcribe(list(audio_fp))
+
+            norm_pred_text = [
+                normalizer(results[i] if "nvidia" not in model else results[i].text)
+                for i in range(len(results))
+                if norm_tgt_text[i] != ""
+                and norm_tgt_text[i] != "ignore time segment in scoring"
+            ]
+            # print(f"{norm_pred_text=}")
+            if wandb_log:
+                audio_arr = [
+                    audio_arr.numpy()[i]
+                    for i in range(len(results))
+                    if norm_tgt_text[i] != ""
+                    and norm_tgt_text[i] != "ignore time segment in scoring"
+                ]
+            norm_tgt_text = [
+                norm_tgt_text[i]
+                for i in range(len(results))
+                if norm_tgt_text[i] != ""
+                and norm_tgt_text[i] != "ignore time segment in scoring"
+            ]
+            # print(f"{norm_tgt_text=}")
+
+            # break
+
+            references.extend(norm_tgt_text)
+            hypotheses.extend(norm_pred_text)
+
+            if wandb_log and (batch_idx + 1) // 10 == 1:
+                for i, text in enumerate(norm_pred_text):
+                    wer = (
+                        np.round(
+                            jiwer.wer(
+                                reference=norm_tgt_text[i],
+                                hypothesis=norm_pred_text[i],
+                            ),
+                            2,
+                        )
+                        * 100
+                    )
+                    measures = jiwer.compute_measures(
+                        truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                    )
+                    subs = measures["substitutions"]
+                    dels = measures["deletions"]
+                    ins = measures["insertions"]
+
+                    eval_table.add_data(
+                        eval_set,
+                        wandb.Audio(audio_arr[i], sample_rate=16000),
+                        norm_pred_text[i],
+                        norm_tgt_text[i],
+                        subs,
+                        dels,
+                        ins,
+                        wer,
+                    )
+
+                wandb.log({f"eval_table": eval_table})
+            elif bootstrap:
+                per_sample_wer.extend(
+                    [
+                        [
+                            jiwer.wer(
+                                reference=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                            ),
+                            len(norm_tgt_text[i]),
+                        ]
+                        for i in range(len(norm_pred_text))
+                    ]
+                )
+
+    avg_wer = jiwer.wer(references, hypotheses) * 100
+    avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
+    avg_subs = avg_measures["substitutions"]
+    avg_ins = avg_measures["insertions"]
+    avg_dels = avg_measures["deletions"]
+
+    if bootstrap:
+        with open(f"{log_dir}/{eval_set}_sample_wer.csv", "w") as f:
+            writer = csv.writer(f)
+            writer.writerow(["wer", "ref_length"])
+            for wer, length in per_sample_wer:
+                writer.writerow([wer, length])
+
+    print(
+        f"{eval_set} WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+    )
+
+    if wandb_log:
+        wandb.run.summary["avg_wer"] = avg_wer
+        wandb.run.summary["avg_subs"] = avg_subs
+        wandb.run.summary["avg_ins"] = avg_ins
+        wandb.run.summary["avg_dels"] = avg_dels
+    else:
+        with open(f"{log_dir}/eval_results.txt", "a") as f:
+            f.write(
+                f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
+            )
 
     return None
 
