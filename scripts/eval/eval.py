@@ -1626,7 +1626,7 @@ def hf_eval(
             input_values = processor(
                 audio_arr, return_tensors="pt", padding="longest"
             ).input_values
-            input_values = input_values.squeeze(0).to("cpu")
+            input_values = input_values.squeeze(0).to(device)
             with torch.no_grad():
                 logits = model(input_values).logits
             predicted_ids = torch.argmax(logits, dim=-1)
