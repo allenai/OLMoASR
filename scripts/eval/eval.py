@@ -1635,7 +1635,7 @@ def hf_eval(
             #     results = model.transcribe(list(audio_fp))
 
             norm_pred_text = [
-                normalizer(results[i] if "nvidia" not in model else results[i].text)
+                normalizer(results[i])
                 for i in range(len(results))
                 if norm_tgt_text[i] != ""
                 and norm_tgt_text[i] != "ignore time segment in scoring"
