@@ -1,4 +1,5 @@
 datasets==2.21.0
+transformers
 fire
 jiwer
 torch
@@ -12,3 +13,4 @@ regex
 webvtt_py
 librosa
 wandb==0.18.7
+nemo_toolkit[all]
