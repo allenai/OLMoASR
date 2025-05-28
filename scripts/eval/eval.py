@@ -1622,15 +1622,15 @@ def hf_eval(
 
             norm_tgt_text = [normalizer(text) for text in text_y]
 
-            if "nvidia" not in model:
-                input_values = processor(
-                    audio_arr, return_tensors="pt", padding="longest"
-                ).input_values
-                input_values = input_values.squeeze(0).to("cpu")
-                with torch.no_grad():
-                    logits = model(input_values).logits
-                predicted_ids = torch.argmax(logits, dim=-1)
-                results = processor.batch_decode(predicted_ids)
+            # if "nvidia" not in model:
+            input_values = processor(
+                audio_arr, return_tensors="pt", padding="longest"
+            ).input_values
+            input_values = input_values.squeeze(0).to("cpu")
+            with torch.no_grad():
+                logits = model(input_values).logits
+            predicted_ids = torch.argmax(logits, dim=-1)
+            results = processor.batch_decode(predicted_ids)
             # else:
             #     results = model.transcribe(list(audio_fp))
 
