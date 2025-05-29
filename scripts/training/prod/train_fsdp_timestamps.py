@@ -1787,6 +1787,7 @@ def validate(
         model.eval()
         val_loss = 0
         all_dataloaders_len += len(dataloader)
+        val_set_name = val_set.split("/")[-1]
 
         for batch_idx, batch in enumerate(dataloader):
             audio_arr, audio_input, text_input, text_y, padding_mask = batch
@@ -1811,7 +1812,7 @@ def validate(
 
             val_loss += loss_all
 
-            if batch_idx // 5 == 1 and wandb_log:
+            if batch_idx == 1 and wandb_log:
                 if rank == 0:
                     pred_text, unnorm_pred_text, tgt_text = gen_pred(
                         logits,
@@ -1825,7 +1826,7 @@ def validate(
                             normalizer,
                         )
                     )
-                    print(f"Validation WER: {val_wer}%")
+                    print(f"Validation WER for {val_set}: {val_wer}%")
                     wandb.log(
                         {
                             f"val/{val_set_name}_wer": val_wer,
@@ -1882,7 +1883,6 @@ def validate(
         avg_val_losses.append(avg_val_loss)
 
         if rank == 0:
-            val_set_name = val_set.split("/")[-1]
             print(f"Validation loss for {val_set}: {avg_val_loss}")
             wandb.log(
                 {
