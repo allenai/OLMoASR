@@ -1131,7 +1131,6 @@ def train(
     val_num_workers: int,
     val_cache_dir: str,
     val_wandb_log: bool,
-    hf_token: str,
     run_eval: bool,
     run_id: Optional[str],
     tags: Optional[List[str]],
@@ -1491,7 +1490,6 @@ def train(
                         n_text_ctx=model_dims.n_text_ctx,
                         cache_dir=val_cache_dir,
                         wandb_log=val_wandb_log,
-                        hf_token=hf_token,
                     )
                 
                 if (global_step % val_freq) == 0 and global_step > 0:
@@ -1752,7 +1750,6 @@ def validate(
     n_text_ctx: int,
     cache_dir: str,
     wandb_log: bool,
-    hf_token: str,
 ):
     val_sets = [
         "LIUM/tedlium",
@@ -1763,6 +1760,7 @@ def validate(
     avg_val_losses = []
     val_table = wandb.Table(columns=VAL_TABLE_COLS)
     all_dataloaders_len = 0
+    hf_token = os.getenv("HF_TOKEN")
 
     for val_set in val_sets:
         dataset = ValidationDataset(
@@ -1977,7 +1975,6 @@ def main(
     persistent_workers: bool = True,
     run_val: bool = True,
     val_freq: Optional[int] = 20000,
-    hf_token: Optional[str] = None,
     run_eval: bool = False,
     train_log_freq: int = 20000,
     eval_freq: Optional[int] = 20000,
@@ -2317,7 +2314,6 @@ def main(
             val_batch_size=val_batch_size,
             val_num_workers=num_workers,
             val_cache_dir=val_cache_dir,
-            hf_token=hf_token,
             run_eval=run_eval,
             run_id=run_id,
             tags=tags,
