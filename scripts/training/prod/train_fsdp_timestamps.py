@@ -1624,7 +1624,7 @@ def train(
     )
 
 
-def ValidationDataset(Dataset):
+class ValidationDataset(Dataset):
     def __init__(
         self: str, n_text_ctx: int, val_set: str, hf_token: str, cache_dir: str
     ):
