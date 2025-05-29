@@ -1491,7 +1491,7 @@ def train(
                         cache_dir=val_cache_dir,
                         wandb_log=val_wandb_log,
                     )
-                
+
                 if (global_step % val_freq) == 0 and global_step > 0:
                     print(f"Rank {rank} reaching barrier")
                 dist.barrier()
@@ -1813,10 +1813,12 @@ def validate(
                         text_y,
                         tokenizer,
                     )
-                    norm_tgt_pred_pairs, *_ = calc_pred_wer(
-                        tgt_text,
-                        pred_text,
-                        normalizer,
+                    norm_tgt_pred_pairs, val_wer, val_subs, val_dels, val_ins = (
+                        calc_pred_wer(
+                            tgt_text,
+                            pred_text,
+                            normalizer,
+                        )
                     )
 
                     for i, (
@@ -1865,15 +1867,21 @@ def validate(
         avg_val_losses.append(avg_val_loss)
 
         if rank == 0:
+            val_set_name = val_set.split("/")[-1]
             print(f"Validation loss for {val_set}: {avg_val_loss}")
+            print(f"Validation WER: {val_wer * 100:.2f}%")
             wandb.log(
                 {
-                    f"val/{val_set}_loss": avg_val_loss,
+                    f"val/{val_set_name}_loss": avg_val_loss,
+                    f"val/{val_set_name}_wer": val_wer * 100,
+                    f"val/{val_set_name}_subs": val_subs,
+                    f"val/{val_set_name}_dels": val_dels,
+                    f"val/{val_set_name}_ins": val_ins,
                     "global_step": global_step,
                 }
             )
 
-    wandb.log(f"val_table_{global_step}", val_table)
+    wandb.log({f"val_table_{global_step}": val_table})
     global_avg_val_loss = sum(avg_val_losses) / len(avg_val_losses)
 
     if rank == 0:
