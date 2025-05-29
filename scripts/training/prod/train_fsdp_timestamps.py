@@ -1869,11 +1869,11 @@ def validate(
         if rank == 0:
             val_set_name = val_set.split("/")[-1]
             print(f"Validation loss for {val_set}: {avg_val_loss}")
-            print(f"Validation WER: {val_wer * 100:.2f}%")
+            print(f"Validation WER: {val_wer}%")
             wandb.log(
                 {
                     f"val/{val_set_name}_loss": avg_val_loss,
-                    f"val/{val_set_name}_wer": val_wer * 100,
+                    f"val/{val_set_name}_wer": val_wer,
                     f"val/{val_set_name}_subs": val_subs,
                     f"val/{val_set_name}_dels": val_dels,
                     f"val/{val_set_name}_ins": val_ins,
