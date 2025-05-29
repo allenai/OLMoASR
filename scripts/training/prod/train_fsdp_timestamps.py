@@ -90,7 +90,7 @@ VARIANT_TO_PARAMS = {
     "large": 1550 * 10**6,
 }
 
-HARDWARE_TO_FLOPS = {"H100": 900 * 10**12, "L40": 366 * 10**12, "A100": 312 * 10**12}
+HARDWARE_TO_FLOPS = {"H100": 900 * 10**12, "L40": 366 * 10**12, "A100": 312 * 10**12, "A6000": 310 * 10**12}
 
 
 class AudioTextDataset(Dataset):
