@@ -75,7 +75,10 @@ from whisper.model import (
 )
 
 from scripts.eval.eval import EvalDataset
-from for_logging import TRAIN_TABLE_COLS, EVAL_TABLE_COLS
+from for_logging import TRAIN_TABLE_COLS, EVAL_TABLE_COLS, VAL_TABLE_COLS
+
+from datasets import load_dataset
+import librosa
 
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"
@@ -450,7 +453,7 @@ def open_dicts_file(samples_dicts_file) -> List[Dict]:
             samples_dicts = [json.loads(line.strip()) for line in f]
     elif samples_dicts_file.endswith(".zst"):
         samples_dicts = []
-        with open(samples_dicts_file, 'rb') as f:
+        with open(samples_dicts_file, "rb") as f:
             dctx = zstd.ZstdDecompressor()
             with dctx.stream_reader(f) as reader:
                 text_stream = io.TextIOWrapper(reader, encoding="utf-8")
@@ -733,6 +736,7 @@ def setup_wandb(
     wandb.define_metric("global_step")
     wandb.define_metric("local_step")
     wandb.define_metric("train/*", step_metric="global_step")
+    wandb.define_metric("val/*", step_metric="global_step")
     wandb.define_metric("efficiency/time_per_step=*", step_metric="global_step")
     wandb.define_metric(
         "efficiency/audio_min_per_GPU_second_gpu=*", step_metric="global_step"
@@ -1121,6 +1125,13 @@ def train(
     max_grad_norm: float,
     model_dims: Optional[ModelDimensions],
     model_variant: Optional[str],
+    run_val: bool,
+    val_freq: int,
+    val_batch_size: int,
+    val_num_workers: int,
+    val_cache_dir: str,
+    val_wandb_log: bool,
+    hf_token: str,
     run_eval: bool,
     run_id: Optional[str],
     tags: Optional[List[str]],
@@ -1465,6 +1476,30 @@ def train(
 
                     wandb.log(train_metrics)
 
+            # validation
+            if run_val:
+                if (global_step % val_freq) == 0 and global_step > 0:
+                    validate(
+                        model=model,
+                        precision=precision,
+                        tokenizer=tokenizer,
+                        normalizer=normalizer,
+                        rank=rank,
+                        global_step=global_step,
+                        batch_size=val_batch_size,
+                        num_workers=val_num_workers,
+                        n_text_ctx=model_dims.n_text_ctx,
+                        cache_dir=val_cache_dir,
+                        wandb_log=val_wandb_log,
+                        hf_token=hf_token,
+                    )
+                
+                if (global_step % val_freq) == 0 and global_step > 0:
+                    print(f"Rank {rank} reaching barrier")
+                dist.barrier()
+                if (global_step % val_freq) == 0 and global_step > 0:
+                    print(f"Rank {rank} passing barrier")
+
             # evaluation
             if run_eval:
                 if (global_step % eval_freq) == 0 and global_step > 0:
@@ -1591,6 +1626,268 @@ def train(
     )
 
 
+def ValidationDataset(Dataset):
+    def __init__(
+        self: str, n_text_ctx: int, val_set: str, hf_token: str, cache_dir: str
+    ):
+        valset2config = {
+            "LIUM/tedlium": {
+                "name": "release3",
+                "split": "validation",
+            },
+            "facebook/voxpopuli": {
+                "name": "en",
+                "split": "validation",
+            },
+            "mozilla-foundation/common_voice_5_1": {
+                "name": "en",
+                "split": "validation",
+            },
+            "distil-whisper/ami-sdm": {
+                "name": "sdm",
+                "split": "validation",
+            },
+        }
+        self.val_set = val_set
+        self.n_text_ctx = n_text_ctx
+        self.dataset = load_dataset(
+            path=val_set,
+            name=valset2config[val_set]["name"],
+            split=valset2config[val_set]["split"],
+            cache_dir=cache_dir,
+            trust_remote_code=True,
+            token=hf_token,
+        )
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        global tokenizer
+        if self.val_set == "LIUM/tedlium":
+            waveform = self.dataset[index]["audio"]["array"]
+            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+            text_y = self.dataset[index]["text"]
+            audio_arr, audio_input = self.preprocess_audio(waveform, sampling_rate)
+            text_input, text_y, padding_mask = self.preprocess_text(text_y)
+        elif self.val_set == "facebook/voxpopuli":
+            waveform = self.dataset[index]["audio"]["array"]
+            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+            text_y = self.dataset[index]["raw_text"]
+            audio_arr, audio_input = self.preprocess_audio(waveform, sampling_rate)
+            text_input, text_y, padding_mask = self.preprocess_text(text_y)
+        elif self.val_set == "mozilla-foundation/common_voice_5_1":
+            waveform = self.dataset[index]["audio"]["array"]
+            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+            text_y = self.dataset[index]["sentence"]
+            audio_arr, audio_input = self.preprocess_audio(waveform, sampling_rate)
+            text_input, text_y, padding_mask = self.preprocess_text(text_y)
+        elif self.val_set == "distil-whisper/ami-sdm":
+            waveform = self.dataset[index]["audio"]["array"]
+            sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+            text_y = self.dataset[index]["text"]
+            audio_arr, audio_input = self.preprocess_audio(waveform, sampling_rate)
+            text_input, text_y, padding_mask = self.preprocess_text(text_y)
+
+        return audio_arr, audio_input, text_input, text_y, padding_mask
+
+    def preprocess_audio(self, waveform: np.ndarray, sampling_rate: int):
+        if sampling_rate != 16000:
+            waveform = librosa.resample(
+                waveform, orig_sr=sampling_rate, target_sr=16000
+            )
+        audio_arr = audio.pad_or_trim(waveform)
+        audio_arr = audio_arr.astype(np.float32)
+        audio_input = audio.log_mel_spectrogram(audio_arr)
+        return audio_arr, audio_input
+
+    def preprocess_text(self, text: str):
+        if text.strip() == "":
+            tokens = (
+                list(tokenizer.sot_sequence_including_notimestamps)
+                + [tokenizer.no_speech]
+                + [tokenizer.eot]
+            )
+        else:
+            tokens = (
+                list(tokenizer.sot_sequence_including_notimestamps)
+                + tokenizer.encode(text)
+                + [tokenizer.eot]
+            )
+
+        text_input = tokens[:-1]
+        text_y = tokens[1:]
+
+        padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
+        padding_mask[:, len(text_input) :] = -np.inf
+
+        text_input = np.pad(
+            text_input,
+            pad_width=(0, self.n_text_ctx - len(text_input)),
+            mode="constant",
+            constant_values=51864,
+        )
+        text_y = np.pad(
+            text_y,
+            pad_width=(0, self.n_text_ctx - len(text_y)),
+            mode="constant",
+            constant_values=51864,
+        )
+
+        text_input = torch.tensor(text_input, dtype=torch.long)
+        text_y = torch.tensor(text_y, dtype=torch.long)
+
+        return text_input, text_y, padding_mask
+
+
+def validate(
+    model: FSDP,
+    precision: torch.dtype,
+    tokenizer: whisper.tokenizer.Tokenizer,
+    normalizer: EnglishTextNormalizer,
+    rank: int,
+    global_step: int,
+    batch_size: int,
+    num_workers: int,
+    n_text_ctx: int,
+    cache_dir: str,
+    wandb_log: bool,
+    hf_token: str,
+):
+    val_sets = [
+        "LIUM/tedlium",
+        "facebook/voxpopuli",
+        "mozilla-foundation/common_voice_5_1",
+        "distil-whisper/ami-sdm",
+    ]
+    avg_val_losses = []
+    val_table = wandb.Table(columns=VAL_TABLE_COLS)
+    all_dataloaders_len = 0
+
+    for val_set in val_sets:
+        dataset = ValidationDataset(
+            n_text_ctx=n_text_ctx,
+            val_set=val_set,
+            hf_token=hf_token,
+            cache_dir=cache_dir,
+        )
+        sampler = DistributedSampler(dataset, shuffle=False, drop_last=False)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=True,
+            shuffle=False,
+            sampler=sampler,
+            worker_init_fn=init_tokenizer,
+        )
+        model.eval()
+        val_loss = 0
+        all_dataloaders_len += len(dataloader)
+
+        for batch_idx, batch in enumerate(dataloader):
+            audio_arr, audio_input, text_input, text_y, padding_mask = batch
+
+            audio_input = audio_input.to(rank)
+            text_input = text_input.to(rank)
+            text_y = text_y.to(rank)
+            padding_mask = padding_mask.to(rank)
+
+            with autocast(device_type="cuda", dtype=precision):
+                with torch.no_grad():
+                    logits = model(audio_input, text_input, padding_mask)
+
+                    loss = F.cross_entropy(
+                        logits.view(-1, logits.shape[-1]),
+                        text_y.view(-1),
+                        ignore_index=51864,
+                    )
+
+            dist.all_reduce(loss, op=dist.ReduceOp.SUM)
+            loss_all = loss.item() / dist.get_world_size()
+
+            val_loss += loss_all
+
+            if batch_idx // 5 == 1 and wandb_log:
+                if rank == 0:
+                    pred_text, unnorm_pred_text, tgt_text = gen_pred(
+                        logits,
+                        text_y,
+                        tokenizer,
+                    )
+                    norm_tgt_pred_pairs, *_ = calc_pred_wer(
+                        tgt_text,
+                        pred_text,
+                        normalizer,
+                    )
+
+                    for i, (
+                        tgt_text_instance,
+                        pred_text_instance,
+                    ) in enumerate(norm_tgt_pred_pairs):
+                        wer = np.round(
+                            ow.utils.calculate_wer(
+                                (tgt_text_instance, pred_text_instance)
+                            ),
+                            2,
+                        )
+                        subs = 0
+                        dels = 0
+                        ins = 0
+                        if len(tgt_text_instance) == 0:
+                            subs = 0
+                            dels = 0
+                            ins = len(pred_text_instance.split())
+                        else:
+                            measures = jiwer.compute_measures(
+                                tgt_text_instance, pred_text_instance
+                            )
+                            subs = measures["substitutions"]
+                            dels = measures["deletions"]
+                            ins = measures["insertions"]
+
+                        val_table.add_data(
+                            val_set,
+                            wandb.Audio(audio_arr[i], sample_rate=16000),
+                            pred_text_instance,
+                            unnorm_pred_text[i],
+                            pred_text[i],
+                            tgt_text_instance,
+                            tgt_text[i],
+                            subs,
+                            dels,
+                            ins,
+                            len(tgt_text_instance.split()),
+                            wer,
+                        )
+
+                dist.barrier()
+
+        avg_val_loss = val_loss / len(dataloader)
+        avg_val_losses.append(avg_val_loss)
+
+        if rank == 0:
+            print(f"Validation loss for {val_set}: {avg_val_loss}")
+            wandb.log(
+                {
+                    f"val/{val_set}_loss": avg_val_loss,
+                    "global_step": global_step,
+                }
+            )
+
+    wandb.log(f"val_table_{global_step}", val_table)
+    global_avg_val_loss = sum(avg_val_losses) / len(avg_val_losses)
+
+    if rank == 0:
+        print(f"Global average validation loss: {global_avg_val_loss}")
+        wandb.log(
+            {
+                "val/global_avg_loss": global_avg_val_loss,
+                "global_step": global_step,
+            }
+        )
+
+
 def run_async_eval(
     rank: int,
     exp_name: str,
@@ -1662,6 +1959,7 @@ def main(
     ckpt_dir: str = "checkpoints",
     log_dir: str = "logs",
     eval_dir: str = "data/eval",
+    val_cache_dir: str = "data/val_cache",
     run_id_dir: str = "run_ids",
     lr: float = 1.5e-3,
     betas: tuple = (0.9, 0.98),
@@ -1671,11 +1969,15 @@ def main(
     eff_batch_size: int = 256,
     train_batch_size: int = 8,
     eval_batch_size: Optional[int] = 32,
+    val_batch_size: int = 32,
     num_workers: int = 10,
     prefetch_factor: int = 2,
     pin_memory: bool = True,
     shuffle: bool = True,
     persistent_workers: bool = True,
+    run_val: bool = True,
+    val_freq: Optional[int] = 20000,
+    hf_token: Optional[str] = None,
     run_eval: bool = False,
     train_log_freq: int = 20000,
     eval_freq: Optional[int] = 20000,
@@ -2010,6 +2312,12 @@ def main(
             max_grad_norm=max_grad_norm,
             model_dims=model_dims,
             model_variant=model_variant,
+            run_val=run_val,
+            val_freq=val_freq,
+            val_batch_size=val_batch_size,
+            val_num_workers=num_workers,
+            val_cache_dir=val_cache_dir,
+            hf_token=hf_token,
             run_eval=run_eval,
             run_id=run_id,
             tags=tags,
