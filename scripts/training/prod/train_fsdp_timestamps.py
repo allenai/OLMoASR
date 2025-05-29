@@ -90,7 +90,12 @@ VARIANT_TO_PARAMS = {
     "large": 1550 * 10**6,
 }
 
-HARDWARE_TO_FLOPS = {"H100": 900 * 10**12, "L40": 366 * 10**12, "A100": 312 * 10**12, "A6000": 310 * 10**12}
+HARDWARE_TO_FLOPS = {
+    "H100": 900 * 10**12,
+    "L40": 366 * 10**12,
+    "A100": 312 * 10**12,
+    "A6000": 310 * 10**12,
+}
 
 
 class AudioTextDataset(Dataset):
@@ -1820,6 +1825,16 @@ def validate(
                             normalizer,
                         )
                     )
+                    print(f"Validation WER: {val_wer}%")
+                    wandb.log(
+                        {
+                            f"val/{val_set_name}_wer": val_wer,
+                            f"val/{val_set_name}_subs": val_subs,
+                            f"val/{val_set_name}_dels": val_dels,
+                            f"val/{val_set_name}_ins": val_ins,
+                            "global_step": global_step,
+                        }
+                    )
 
                     for i, (
                         tgt_text_instance,
@@ -1869,14 +1884,9 @@ def validate(
         if rank == 0:
             val_set_name = val_set.split("/")[-1]
             print(f"Validation loss for {val_set}: {avg_val_loss}")
-            print(f"Validation WER: {val_wer}%")
             wandb.log(
                 {
                     f"val/{val_set_name}_loss": avg_val_loss,
-                    f"val/{val_set_name}_wer": val_wer,
-                    f"val/{val_set_name}_subs": val_subs,
-                    f"val/{val_set_name}_dels": val_dels,
-                    f"val/{val_set_name}_ins": val_ins,
                     "global_step": global_step,
                 }
             )
