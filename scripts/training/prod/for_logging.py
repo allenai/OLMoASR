@@ -16,10 +16,8 @@ TRAIN_TABLE_COLS = [
 ]
 
 VAL_TABLE_COLS = [
-    "run_id",
-    "audio_file",
+    "val_set",
     "audio_input",
-    "transcript_file",
     "pred_text",
     "unnorm_pred_text (pre padding removal)",
     "unnorm_pred_text",
