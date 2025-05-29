@@ -1881,7 +1881,8 @@ def validate(
                 }
             )
 
-    wandb.log({f"val_table_{global_step}": val_table})
+    if rank == 0:
+        wandb.log({f"val_table_{global_step}": val_table})
     global_avg_val_loss = sum(avg_val_losses) / len(avg_val_losses)
 
     if rank == 0:
