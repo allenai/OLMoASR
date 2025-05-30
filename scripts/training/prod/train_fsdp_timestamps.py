@@ -1784,6 +1784,7 @@ def validate(
             sampler=sampler,
             worker_init_fn=init_tokenizer,
         )
+        print(f"Rank {rank} validating on {val_set} with {len(dataloader)} batches")
         model.eval()
         val_loss = 0
         all_dataloaders_len += len(dataloader)
