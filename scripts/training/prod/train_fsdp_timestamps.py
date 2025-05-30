@@ -1792,99 +1792,99 @@ def validate(
         all_dataloaders_len += len(dataloader)
         val_set_name = val_set.split("/")[-1]
 
-        for batch_idx, batch in enumerate(dataloader):
-            audio_arr, audio_input, text_input, text_y, padding_mask = batch
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(dataloader):
+                with autocast(device_type="cuda", dtype=precision):
+                    audio_arr, audio_input, text_input, text_y, padding_mask = batch
 
-            audio_input = audio_input.to(rank)
-            text_input = text_input.to(rank)
-            text_y = text_y.to(rank)
-            padding_mask = padding_mask.to(rank)
+                    audio_input = audio_input.to(rank)
+                    text_input = text_input.to(rank)
+                    text_y = text_y.to(rank)
+                    padding_mask = padding_mask.to(rank)
 
-            # with autocast(device_type="cuda", dtype=precision):
-            with torch.no_grad():
-                logits = model(audio_input, text_input, padding_mask)
+                    logits = model(audio_input, text_input, padding_mask)
 
-                loss = F.cross_entropy(
-                    logits.view(-1, logits.shape[-1]),
-                    text_y.view(-1),
-                    ignore_index=51864,
-                )
-                    
-            print(f"Rank {rank}: Done forward pass")
-
-            dist.all_reduce(loss, op=dist.ReduceOp.SUM)
-            loss_all = loss.item() / dist.get_world_size()
-
-            val_loss += loss_all
-
-            if batch_idx == 1 and wandb_log:
-                if rank == 0:
-                    pred_text, unnorm_pred_text, tgt_text = gen_pred(
-                        logits,
-                        text_y,
-                        tokenizer,
+                    loss = F.cross_entropy(
+                        logits.view(-1, logits.shape[-1]),
+                        text_y.view(-1),
+                        ignore_index=51864,
                     )
-                    norm_tgt_pred_pairs, val_wer, val_subs, val_dels, val_ins = (
-                        calc_pred_wer(
-                            tgt_text,
-                            pred_text,
-                            normalizer,
+                        
+                print(f"Rank {rank}: Done forward pass")
+
+                dist.all_reduce(loss, op=dist.ReduceOp.SUM)
+                loss_all = loss.item() / dist.get_world_size()
+
+                val_loss += loss_all
+
+                if batch_idx == 1 and wandb_log:
+                    if rank == 0:
+                        pred_text, unnorm_pred_text, tgt_text = gen_pred(
+                            logits,
+                            text_y,
+                            tokenizer,
                         )
-                    )
-                    print(f"Validation WER for {val_set}: {val_wer}%")
-                    wandb.log(
-                        {
-                            f"val/{val_set_name}_wer": val_wer,
-                            f"val/{val_set_name}_subs": val_subs,
-                            f"val/{val_set_name}_dels": val_dels,
-                            f"val/{val_set_name}_ins": val_ins,
-                            "global_step": global_step,
-                        }
-                    )
-
-                    for i, (
-                        tgt_text_instance,
-                        pred_text_instance,
-                    ) in enumerate(norm_tgt_pred_pairs):
-                        wer = np.round(
-                            ow.utils.calculate_wer(
-                                (tgt_text_instance, pred_text_instance)
-                            ),
-                            2,
+                        norm_tgt_pred_pairs, val_wer, val_subs, val_dels, val_ins = (
+                            calc_pred_wer(
+                                tgt_text,
+                                pred_text,
+                                normalizer,
+                            )
                         )
-                        subs = 0
-                        dels = 0
-                        ins = 0
-                        if len(tgt_text_instance) == 0:
+                        print(f"Validation WER for {val_set}: {val_wer}%")
+                        wandb.log(
+                            {
+                                f"val/{val_set_name}_wer": val_wer,
+                                f"val/{val_set_name}_subs": val_subs,
+                                f"val/{val_set_name}_dels": val_dels,
+                                f"val/{val_set_name}_ins": val_ins,
+                                "global_step": global_step,
+                            }
+                        )
+
+                        for i, (
+                            tgt_text_instance,
+                            pred_text_instance,
+                        ) in enumerate(norm_tgt_pred_pairs):
+                            wer = np.round(
+                                ow.utils.calculate_wer(
+                                    (tgt_text_instance, pred_text_instance)
+                                ),
+                                2,
+                            )
                             subs = 0
                             dels = 0
-                            ins = len(pred_text_instance.split())
-                        else:
-                            measures = jiwer.compute_measures(
-                                tgt_text_instance, pred_text_instance
-                            )
-                            subs = measures["substitutions"]
-                            dels = measures["deletions"]
-                            ins = measures["insertions"]
+                            ins = 0
+                            if len(tgt_text_instance) == 0:
+                                subs = 0
+                                dels = 0
+                                ins = len(pred_text_instance.split())
+                            else:
+                                measures = jiwer.compute_measures(
+                                    tgt_text_instance, pred_text_instance
+                                )
+                                subs = measures["substitutions"]
+                                dels = measures["deletions"]
+                                ins = measures["insertions"]
 
-                        val_table.add_data(
-                            val_set,
-                            wandb.Audio(audio_arr[i], sample_rate=16000),
-                            pred_text_instance,
-                            unnorm_pred_text[i],
-                            pred_text[i],
-                            tgt_text_instance,
-                            tgt_text[i],
-                            subs,
-                            dels,
-                            ins,
-                            len(tgt_text_instance.split()),
-                            wer,
-                        )
-                        
-                print(f"Rank {rank} reaching barrier")
-                dist.barrier()
-                print(f"Rank {rank} reaching barrier")
+                            val_table.add_data(
+                                val_set,
+                                wandb.Audio(audio_arr[i], sample_rate=16000),
+                                pred_text_instance,
+                                unnorm_pred_text[i],
+                                pred_text[i],
+                                tgt_text_instance,
+                                tgt_text[i],
+                                subs,
+                                dels,
+                                ins,
+                                len(tgt_text_instance.split()),
+                                wer,
+                            )
+                            
+                    print(f"Rank {rank} reaching barrier")
+                    dist.barrier()
+                    print(f"Rank {rank} reaching barrier")
 
         avg_val_loss = val_loss / len(dataloader)
         avg_val_losses.append(avg_val_loss)
