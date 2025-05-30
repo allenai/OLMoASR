@@ -1802,7 +1802,7 @@ def validate(
                     text_y = text_y.to(rank)
                     padding_mask = padding_mask.to(rank)
 
-                    logits = model(audio_input, text_input, padding_mask)
+                    logits = model(audio_input, text_input, padding_mask, verbose=True)
 
                     loss = F.cross_entropy(
                         logits.view(-1, logits.shape[-1]),
