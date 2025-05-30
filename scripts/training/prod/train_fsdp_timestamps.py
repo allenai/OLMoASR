@@ -1800,15 +1800,15 @@ def validate(
             text_y = text_y.to(rank)
             padding_mask = padding_mask.to(rank)
 
-            with autocast(device_type="cuda", dtype=precision):
-                with torch.no_grad():
-                    logits = model(audio_input, text_input, padding_mask)
+            # with autocast(device_type="cuda", dtype=precision):
+            with torch.no_grad():
+                logits = model(audio_input, text_input, padding_mask)
 
-                    loss = F.cross_entropy(
-                        logits.view(-1, logits.shape[-1]),
-                        text_y.view(-1),
-                        ignore_index=51864,
-                    )
+                loss = F.cross_entropy(
+                    logits.view(-1, logits.shape[-1]),
+                    text_y.view(-1),
+                    ignore_index=51864,
+                )
                     
             print(f"Rank {rank}: Done forward pass")
 
