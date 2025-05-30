@@ -1489,6 +1489,7 @@ def train(
                         tokenizer=tokenizer,
                         normalizer=normalizer,
                         rank=rank,
+                        local_rank=local_rank,
                         global_step=global_step,
                         batch_size=val_batch_size,
                         num_workers=val_num_workers,
@@ -1749,6 +1750,7 @@ def validate(
     tokenizer: whisper.tokenizer.Tokenizer,
     normalizer: EnglishTextNormalizer,
     rank: int,
+    local_rank: int,
     global_step: int,
     batch_size: int,
     num_workers: int,
@@ -1797,10 +1799,10 @@ def validate(
                 with autocast(device_type="cuda", dtype=precision):
                     audio_arr, audio_input, text_input, text_y, padding_mask = batch
 
-                    audio_input = audio_input.to(rank)
-                    text_input = text_input.to(rank)
-                    text_y = text_y.to(rank)
-                    padding_mask = padding_mask.to(rank)
+                    audio_input = audio_input.to(local_rank)
+                    text_input = text_input.to(local_rank)
+                    text_y = text_y.to(local_rank)
+                    padding_mask = padding_mask.to(local_rank)
 
                     logits = model(audio_input, text_input, padding_mask, verbose=True)
 
