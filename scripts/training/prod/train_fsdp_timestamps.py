@@ -1774,7 +1774,9 @@ def validate(
             hf_token=hf_token,
             cache_dir=cache_dir,
         )
+        print(f"Rank {rank}: Complete downloading {val_set} dataset")
         sampler = DistributedSampler(dataset, shuffle=False, drop_last=False)
+        print(f"{rank}: Complete creating sampler for {val_set} dataset")
         dataloader = DataLoader(
             dataset,
             batch_size=batch_size,
@@ -1807,6 +1809,8 @@ def validate(
                         text_y.view(-1),
                         ignore_index=51864,
                     )
+                    
+            print(f"Rank {rank}: Done forward pass")
 
             dist.all_reduce(loss, op=dist.ReduceOp.SUM)
             loss_all = loss.item() / dist.get_world_size()
@@ -1877,8 +1881,10 @@ def validate(
                             len(tgt_text_instance.split()),
                             wer,
                         )
-
+                        
+                print(f"Rank {rank} reaching barrier")
                 dist.barrier()
+                print(f"Rank {rank} reaching barrier")
 
         avg_val_loss = val_loss / len(dataloader)
         avg_val_losses.append(avg_val_loss)
