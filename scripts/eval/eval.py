@@ -802,6 +802,7 @@ class EvalDataset(Dataset):
         lang: Optional[str] = None,
         hf_token: Optional[str] = None,
         eval_dir: str = "data/eval",
+        n_mels: int = 80,
     ):
         if task == "eng_transcribe":
             if eval_set == "librispeech_clean":
@@ -1028,6 +1029,7 @@ class EvalDataset(Dataset):
 
         self.eval_set = eval_set
         self.task = task
+        self.n_mels = n_mels
 
         if self.eval_set not in [
             "tedlium",
@@ -1065,7 +1067,7 @@ class EvalDataset(Dataset):
             if self.eval_set == "tedlium":
                 waveform, _, text_y, *_ = self.dataset[index]
                 audio_arr = audio.pad_or_trim(waveform[0])
-                audio_input = audio.log_mel_spectrogram(audio_arr)
+                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
             elif self.eval_set == "common_voice":
                 waveform = self.dataset[index]["audio"]["array"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
@@ -1078,7 +1080,7 @@ class EvalDataset(Dataset):
 
                 audio_arr = audio.pad_or_trim(waveform)
                 audio_arr = audio_arr.astype(np.float32)
-                audio_input = audio.log_mel_spectrogram(audio_arr)
+                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
             elif self.eval_set == "fleurs":
                 waveform = self.dataset[index]["audio"]["array"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
@@ -1091,7 +1093,7 @@ class EvalDataset(Dataset):
 
                 audio_arr = audio.pad_or_trim(waveform)
                 audio_arr = audio_arr.astype(np.float32)
-                audio_input = audio.log_mel_spectrogram(audio_arr)
+                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
             elif self.eval_set == "voxpopuli":
                 waveform = self.dataset[index]["audio"]["array"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
@@ -1104,7 +1106,7 @@ class EvalDataset(Dataset):
 
                 audio_arr = audio.pad_or_trim(waveform)
                 audio_arr = audio_arr.astype(np.float32)
-                audio_input = audio.log_mel_spectrogram(audio_arr)
+                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
             elif self.eval_set == "wsj":
                 result = subprocess.run(
                     self.audio_files[index],
@@ -1117,7 +1119,7 @@ class EvalDataset(Dataset):
                 audio_arr = audio_arr.squeeze(0)
                 audio_arr = audio.pad_or_trim(audio_arr)
                 audio_arr = audio_arr.float()
-                audio_input = audio.log_mel_spectrogram(audio_arr)
+                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
                 text_y = self.transcript_texts[index]
                 audio_fp = ""
             elif self.eval_set == "callhome" or self.eval_set == "switchboard":
@@ -1132,7 +1134,7 @@ class EvalDataset(Dataset):
                 # audio_arr = audio_arr.squeeze(0)
                 # audio_arr = audio.pad_or_trim(audio_arr)
                 # audio_arr = audio_arr.float()
-                # audio_input = audio.log_mel_spectrogram(audio_arr)
+                # audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
                 audio_arr, audio_input = self.preprocess_audio(
                     audio_fp, sr=16000, start_time=start_time, end_time=end_time
                 )
@@ -1255,7 +1257,7 @@ class EvalDataset(Dataset):
 
                 audio_arr = audio.pad_or_trim(waveform)
                 audio_arr = audio_arr.astype(np.float32)
-                audio_input = audio.log_mel_spectrogram(audio_arr)
+                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
 
             return audio_fp, audio_arr, audio_input, lang_id
 
@@ -1264,7 +1266,7 @@ class EvalDataset(Dataset):
         if start_time is not None and end_time is not None:
             audio_arr = audio_arr[int(start_time * sr) : int(end_time * sr)]
         audio_arr = audio.pad_or_trim(audio_arr)
-        mel_spec = audio.log_mel_spectrogram(audio_arr)
+        mel_spec = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
         return audio_arr, mel_spec
 
 
@@ -1289,6 +1291,7 @@ def short_form_eval(
         "switchboard",
     ],
     log_dir: str,
+    n_mels: int = 80,
     current_step: Optional[int] = None,
     train_exp_name: Optional[str] = None,
     train_run_id: Optional[str] = None,
@@ -1310,7 +1313,7 @@ def short_form_eval(
     device = torch.device("cuda") if cuda else torch.device("cpu")
 
     dataset = EvalDataset(
-        task="eng_transcribe", eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir
+        task="eng_transcribe", eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir, n_mels=n_mels,
     )
     dataloader = DataLoader(
         dataset,
@@ -1538,6 +1541,7 @@ def hf_eval(
         "switchboard",
     ],
     log_dir: str,
+    n_mels: int = 80,
     wandb_log: bool = False,
     wandb_log_dir: Optional[str] = None,
     eval_dir: str = "data/eval",
@@ -1552,7 +1556,7 @@ def hf_eval(
     device = "cuda" if cuda else "cpu"
 
     dataset = EvalDataset(
-        task="eng_transcribe", eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir
+        task="eng_transcribe", eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir, n_mels=n_mels,
     )
     dataloader = DataLoader(
         dataset,
@@ -1752,6 +1756,7 @@ def long_form_eval(
         "kincaid46",
     ],
     log_dir: str,
+    n_mels: int = 80,
     bootstrap: bool = False,
     exp_name: Optional[str] = None,
     wandb_log: bool = False,
@@ -1773,6 +1778,7 @@ def long_form_eval(
         eval_set=eval_set,
         hf_token=hf_token,
         eval_dir=eval_dir,
+        n_mels=n_mels,
     )
     dataloader = DataLoader(
         dataset,
