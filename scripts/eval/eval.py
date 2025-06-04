@@ -10,9 +10,17 @@ from collections import OrderedDict
 import librosa
 import torch
 from torch.utils.data import Dataset, DataLoader, IterableDataset
+from torch.amp import autocast
 from datasets import load_dataset
-from transformers import AutoProcessor, AutoModelForCTC, AutoModelForSpeechSeq2Seq
-# import nemo.collections.asr as nemo_asr
+from transformers import (
+    AutoProcessor,
+    AutoModel,
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    AutoModelForSeq2SeqLM,
+    GenerationConfig,
+)
+from nemo.collections.asr.models import ASRModel
 import jiwer
 from whisper import audio, DecodingOptions
 from whisper.tokenizer import get_tokenizer
@@ -1313,7 +1321,11 @@ def short_form_eval(
     device = torch.device("cuda") if cuda else torch.device("cpu")
 
     dataset = EvalDataset(
-        task="eng_transcribe", eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir, n_mels=n_mels,
+        task="eng_transcribe",
+        eval_set=eval_set,
+        hf_token=hf_token,
+        eval_dir=eval_dir,
+        n_mels=n_mels,
     )
     dataloader = DataLoader(
         dataset,
@@ -1553,10 +1565,14 @@ def hf_eval(
     os.makedirs(wandb_log_dir, exist_ok=True)
     os.makedirs(eval_dir, exist_ok=True)
 
-    device = "cuda" if cuda else "cpu"
+    device = torch.device("cuda") if cuda else torch.device("cpu")
 
     dataset = EvalDataset(
-        task="eng_transcribe", eval_set=eval_set, hf_token=hf_token, eval_dir=eval_dir, n_mels=n_mels,
+        task="eng_transcribe",
+        eval_set=eval_set,
+        hf_token=hf_token,
+        eval_dir=eval_dir,
+        n_mels=n_mels,
     )
     dataloader = DataLoader(
         dataset,
@@ -1565,24 +1581,23 @@ def hf_eval(
         drop_last=False,
         num_workers=num_workers,
     )
-    
-    model_name = model.split("/")[-1]
+
+    model_name = model.replace("/", "_").replace("-", "_")
 
     processor = AutoProcessor.from_pretrained(
         model, trust_remote_code=True, token=hf_token
     )
-    if "s2t" in model:
-        AutoModelForSpeechSeq2Seq.from_pretrained(
-            model, trust_remote_code=True, token=hf_token
-        ).to(device)
-    # elif "nvidia" in model:
-    #     model = nemo_asr.models.ASRModel.from_pretrained(model)
-    else:
-        model = AutoModelForCTC.from_pretrained(
-            model,
-            trust_remote_code=True,
-            token=hf_token,
-        ).to(device)
+    if "seamless" in model:
+        model = AutoModel.from_pretrained(model, trust_remote_code=True)
+    elif "phi" in model:
+        model = AutoModelForCausalLM.from_pretrained(model, trust_remote_code=True)
+        generation_config = GenerationConfig.from_pretrained(model, 'generation_config.json')
+    elif "Qwen" in model:
+        model = AutoModelForSeq2SeqLM.from_pretrained(model, trust_remote_code=True)
+    elif "nvidia" in model:
+        compute_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+        model = ASRModel.from_pretrained(model, map_location=device)
+        model.to(compute_dtype).eval()
 
     normalizer = EnglishTextNormalizer()
 
@@ -1621,24 +1636,74 @@ def hf_eval(
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             audio_fp, audio_arr, audio_input, text_y = batch
+            audio_arr = audio_arr.to(device)
             # print(f"{audio_fp=}")
             # print(f"{audio_arr.shape=}")
             # print(f"{text_y=}")
             # print(f"{audio_input.shape=}")
 
             norm_tgt_text = [normalizer(text) for text in text_y]
+            
+            # input_values = processor(
+            #         audio_arr, return_tensors="pt", padding="longest"
+            #     ).input_values
+            #     input_values = input_values.squeeze(0).to(device)
+            #     with torch.no_grad():
+            #         logits = model(input_values).logits
+            #     predicted_ids = torch.argmax(logits, dim=-1)
+            #     results = processor.batch_decode(predicted_ids)
 
-            # if "nvidia" not in model:
-            input_values = processor(
-                audio_arr, return_tensors="pt", padding="longest"
-            ).input_values
-            input_values = input_values.squeeze(0).to(device)
-            with torch.no_grad():
-                logits = model(input_values).logits
-            predicted_ids = torch.argmax(logits, dim=-1)
-            results = processor.batch_decode(predicted_ids)
-            # else:
-            #     results = model.transcribe(list(audio_fp))
+            if "seamless" in model_name:
+                audio_inputs = processor(audios=audio_arr, return_tensors="pt").to(device)
+                output_tokens = model.generate(**audio_inputs, tgt_lang="eng", generate_speech=False)
+                results = processor.decode(output_tokens[0].tolist()[0], skip_special_tokens=True)
+            elif "phi" in model_name:
+                user_prompt = '<|user|>'
+                assistant_prompt = '<|assistant|>'
+                prompt_suffix = '<|end|>'
+                speech_prompt = "Based on the attached audio, generate a comprehensive text transcription of the spoken content."
+                prompt = f'{user_prompt}<|audio_1|>{speech_prompt}{prompt_suffix}{assistant_prompt}'
+
+                audio_arr = list(torch.unbind(audio_arr, dim=0))
+                inputs = processor(text=prompt, audios=audio_arr, return_tensors='pt').to('cuda:0')
+                generate_ids = model.generate(
+                    **inputs,
+                    max_new_tokens=1000,
+                    generation_config=generation_config,
+                )
+                generate_ids = generate_ids[:, inputs['input_ids'].shape[1] :]
+                results = processor.batch_decode(
+                    generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+                )[0]
+            elif "Qwen" in model_name:
+                audio_arr = list(torch.unbind(audio_arr, dim=0))
+                prompt = "<|audio_bos|><|AUDIO|><|audio_eos|>Detect the language and recognize the speech: <|en|>"
+                audio_inputs = processor(text=prompt, audios=audio_arr, sampling_rate=16000, return_tensors="pt", padding=True)
+                
+                output_ids = model.generate(**inputs, max_new_tokens=256, min_new_tokens=1, do_sample=False)
+                output_ids = output_ids[:, inputs.input_ids.size(1):]
+                results = processor.batch_decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+            elif "nvidia" in model_name:
+                audio_arr = list(torch.unbind(audio_arr, dim=0))
+                with autocast(
+                    enabled=False, dtype=compute_dtype
+                ), torch.inference_mode(), torch.no_grad():
+                    if "canary" in model_name:
+                        results = model.transcribe(
+                            audio_arr,
+                            batch_size=batch_size,
+                            verbose=False,
+                            pnc="no",
+                            num_workers=num_workers,
+                        )
+                    else:
+                        results = model.transcribe(
+                            audio_arr,
+                            batch_size=batch_size,
+                            verbose=False,
+                            num_workers=num_workers,
+                        )
+                results = [result.text for result in results]
 
             norm_pred_text = [
                 normalizer(results[i])
