@@ -1584,9 +1584,11 @@ def hf_eval(
 
     model_name = model.replace("/", "_").replace("-", "_")
 
-    processor = AutoProcessor.from_pretrained(
-        model, trust_remote_code=True, token=hf_token
-    )
+    if "nvidia" not in model:
+        processor = AutoProcessor.from_pretrained(
+            model, trust_remote_code=True, token=hf_token
+        )
+        
     if "seamless" in model:
         model = AutoModel.from_pretrained(model, trust_remote_code=True)
     elif "phi" in model:
