@@ -1588,7 +1588,7 @@ def hf_eval(
         processor = AutoProcessor.from_pretrained(
             model, trust_remote_code=True, token=hf_token
         )
-        
+
     if "seamless" in model:
         model = AutoModel.from_pretrained(model, trust_remote_code=True)
     elif "phi" in model:
@@ -1687,9 +1687,7 @@ def hf_eval(
                 results = processor.batch_decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
             elif "nvidia" in model_name:
                 audio_arr = list(torch.unbind(audio_arr, dim=0))
-                with autocast(
-                    enabled=False, dtype=compute_dtype
-                ), torch.inference_mode(), torch.no_grad():
+                with torch.inference_mode(), torch.no_grad():
                     if "canary" in model_name:
                         results = model.transcribe(
                             audio_arr,
