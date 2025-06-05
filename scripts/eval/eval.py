@@ -1274,6 +1274,7 @@ class EvalDataset(Dataset):
         if start_time is not None and end_time is not None:
             audio_arr = audio_arr[int(start_time * sr) : int(end_time * sr)]
         audio_arr = audio.pad_or_trim(audio_arr)
+        audio_arr = audio_arr.astype(np.float32)
         mel_spec = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
         return audio_arr, mel_spec
 
@@ -1688,6 +1689,8 @@ def hf_eval(
                 results = processor.batch_decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
             elif "nvidia" in model_name:
                 audio_arr = list(torch.unbind(audio_arr, dim=0))
+                model.cfg.decoding.strategy = "greedy_batch"
+                model.change_decoding_strategy(model.cfg.decoding)
                 with torch.inference_mode(), torch.no_grad():
                     if "canary" in model_name:
                         results = model.transcribe(
