@@ -1715,7 +1715,7 @@ def hf_eval(
             # print(f"{norm_pred_text=}")
             if wandb_log:
                 audio_arr = [
-                    audio_arr.numpy()[i]
+                    audio_arr.numpy()[i] if "nvidia" not in model_name else audio_arr[i].cpu().numpy()
                     for i in range(len(results))
                     if norm_tgt_text[i] != ""
                     and norm_tgt_text[i] != "ignore time segment in scoring"
