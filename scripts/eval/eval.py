@@ -1638,7 +1638,8 @@ def hf_eval(
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             audio_fp, audio_arr, audio_input, text_y = batch
-            audio_arr = audio_arr.to(device)
+            if "nvidia" not in model_name:
+                audio_arr = audio_arr.to(device)
             # print(f"{audio_fp=}")
             # print(f"{audio_arr.shape=}")
             # print(f"{text_y=}")
