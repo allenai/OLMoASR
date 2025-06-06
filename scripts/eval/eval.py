@@ -827,6 +827,7 @@ class EvalDataset(Dataset):
                     trust_remote_code=True,
                     num_proc=15,
                     save_infos=True,
+                    token=hf_token,
                 )
             elif eval_set == "librispeech_other":
                 root_dir = f"{eval_dir}/librispeech_test_other"
