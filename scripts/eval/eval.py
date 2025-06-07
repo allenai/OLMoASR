@@ -818,17 +818,17 @@ class EvalDataset(Dataset):
                 if not os.path.exists(root_dir):
                     get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
 
-                # self.dataset = Librispeech(root_dir=root_dir)
-                self.dataset = load_dataset(
-                    path="openslr/librispeech_asr",
-                    name="clean",
-                    split="test",
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                    token=hf_token,
-                )
+                self.dataset = Librispeech(root_dir=root_dir)
+                # self.dataset = load_dataset(
+                #     path="openslr/librispeech_asr",
+                #     name="clean",
+                #     split="test",
+                #     cache_dir=eval_dir,
+                #     trust_remote_code=True,
+                #     num_proc=15,
+                #     save_infos=True,
+                #     token=hf_token,
+                # )
             elif eval_set == "librispeech_other":
                 root_dir = f"{eval_dir}/librispeech_test_other"
                 if not os.path.exists(root_dir):
@@ -1049,8 +1049,7 @@ class EvalDataset(Dataset):
         self.task = task
         self.n_mels = n_mels
 
-        if self.eval_set not in [
-            "librispeech_clean",
+        if self.eval_set not in [   
             "tedlium",
             "common_voice",
             "fleurs",
@@ -1066,7 +1065,6 @@ class EvalDataset(Dataset):
 
     def __len__(self):
         if self.eval_set in [
-            "librispeech_clean",
             "tedlium",
             "common_voice",
             "fleurs",
