@@ -1714,7 +1714,7 @@ def hf_eval(
                 output_ids = output_ids[:, inputs.input_ids.size(1):]
                 results = processor.batch_decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
             elif "nvidia" in model_name:
-                if eval_set in ["WSJ", "CallHome", "Switchboard"]:
+                if eval_set in ["wsj", "callhome", "switchboard"]:
                     audio_input = list(torch.unbind(audio_arr, dim=0))
                 else:
                     audio_input = audio_fp
