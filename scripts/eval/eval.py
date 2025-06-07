@@ -1085,24 +1085,11 @@ class EvalDataset(Dataset):
 
         if self.task == "eng_transcribe":
             if self.eval_set == "tedlium":
-                waveform, _, text_y, *_ = self.dataset[index]
-                audio_arr = audio.pad_or_trim(waveform[0])
-                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-            elif self.eval_set == "common_voice":
+                # waveform, _, text_y, *_ = self.dataset[index]
+                # audio_arr = audio.pad_or_trim(waveform[0])
+                # audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
                 waveform = self.dataset[index]["audio"]["array"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                text_y = self.dataset[index]["sentence"]
-
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
-
-                audio_arr = audio.pad_or_trim(waveform)
-                audio_arr = audio_arr.astype(np.float32)
-                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-            elif self.eval_set == "librispeech_clean":
-                waveform = self.dataset[index]["audio"]["array"]
+                audio_fp = self.dataset[index]["audio"]["path"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
                 text_y = self.dataset[index]["text"]
 
@@ -1114,8 +1101,23 @@ class EvalDataset(Dataset):
                 audio_arr = audio.pad_or_trim(waveform)
                 audio_arr = audio_arr.astype(np.float32)
                 audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
+            elif self.eval_set == "common_voice":
+                waveform = self.dataset[index]["audio"]["array"]
+                audio_fp = self.dataset[index]["audio"]["path"]
+                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
+                text_y = self.dataset[index]["sentence"]
+
+                if sampling_rate != 16000:
+                    waveform = librosa.resample(
+                        waveform, orig_sr=sampling_rate, target_sr=16000
+                    )
+
+                audio_arr = audio.pad_or_trim(waveform)
+                audio_arr = audio_arr.astype(np.float32)
+                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
             elif self.eval_set == "fleurs":
                 waveform = self.dataset[index]["audio"]["array"]
+                audio_fp = self.dataset[index]["audio"]["path"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
                 text_y = self.dataset[index]["transcription"]
 
@@ -1129,6 +1131,7 @@ class EvalDataset(Dataset):
                 audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
             elif self.eval_set == "voxpopuli":
                 waveform = self.dataset[index]["audio"]["array"]
+                audio_fp = self.dataset[index]["audio"]["path"]
                 sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
                 text_y = self.dataset[index]["normalized_text"]
 
@@ -1663,7 +1666,7 @@ def hf_eval(
 
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-            audio_fp, audio_arr, audio_input, text_y = batch
+            audio_fp, audio_arr, _, text_y = batch
             if "nvidia" not in model_name:
                 audio_arr = audio_arr.to(device)
             # print(f"{audio_fp=}")
@@ -1713,13 +1716,18 @@ def hf_eval(
                 output_ids = output_ids[:, inputs.input_ids.size(1):]
                 results = processor.batch_decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
             elif "nvidia" in model_name:
-                audio_arr = list(torch.unbind(audio_arr, dim=0))
+                if eval_set in ["WSJ", "CallHome", "Switchboard"]:
+                    audio_input = list(torch.unbind(audio_arr, dim=0))
+                else:
+                    audio_input = audio_fp
+                    
                 model.cfg.decoding.strategy = "greedy_batch"
                 model.change_decoding_strategy(model.cfg.decoding)
+
                 with torch.inference_mode(), torch.no_grad():
                     if "canary" in model_name:
                         results = model.transcribe(
-                            audio_arr,
+                            audio_input,
                             batch_size=batch_size,
                             verbose=False,
                             pnc="no",
@@ -1727,11 +1735,12 @@ def hf_eval(
                         )
                     else:
                         results = model.transcribe(
-                            audio_arr,
+                            audio_input,
                             batch_size=batch_size,
                             verbose=False,
                             num_workers=num_workers,
                         )
+                        
                 results = [result.text for result in results]
 
             norm_pred_text = [
