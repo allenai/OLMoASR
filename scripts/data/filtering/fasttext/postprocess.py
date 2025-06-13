@@ -20,6 +20,10 @@ def process_scores(attributes_dict):
 
 
 def join_docs_and_attributes(docs_jsonl_gz, attributes_jsonl_gz, output_dir):
+    assert (
+        docs_jsonl_gz.split("_")[-1].split(".")[0]
+        == attributes_jsonl_gz.split("_")[-1].split(".")[0]
+    )
     docs = []
     with gzip.open(docs_jsonl_gz, "rt") as f:
         for line in f:

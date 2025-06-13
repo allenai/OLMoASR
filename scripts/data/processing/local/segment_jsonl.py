@@ -746,7 +746,7 @@ def merge_man_mach_segs(
 
             # if there are remaining mach_segments, the manual transcript might not be good to use
             if len(mach_segments) > 0:
-                return None, None, None, None, None, 0, 0, 1, 0, 0, 0, 0, 0, 0
+                return None, None, None, None, None, 0, 0, 1, *man_counts
         segments = new_segments
 
         return (
@@ -761,7 +761,8 @@ def merge_man_mach_segs(
             *man_counts,
         )
     else:
-        return None, None, None, None, None, 1, 0, 0, 0, 0, 0, 0, 0, 0
+        print(f"{transcript['id']=}")
+        return None, None, None, None, None, 1, 0, 0, *man_counts
 
 
 def preprocess_jsonl(
@@ -847,7 +848,7 @@ def preprocess_jsonl(
                     count_1,
                     count_gt_1,
                     count_lt_1,
-                    count_failed_seg,
+                    count_no_seg,
                     count_failed_mach_seg,
                     count_bad_man_transcripts,
                     over_30_line_segment_count,
@@ -855,7 +856,7 @@ def preprocess_jsonl(
                     over_ctx_len_segment_count,
                     faulty_audio_segment_count,
                     faulty_transcript_count,
-                    _,
+                    failed_transcript_count,
                 ) = zip(
                     *[
                         merge_man_mach_segs(
@@ -899,7 +900,7 @@ def preprocess_jsonl(
                 stats["avg_1"] = avg_1
                 stats["avg_gt_1"] = avg_gt_1
                 stats["avg_lt_1"] = avg_lt_1
-                stats["failed_seg_video_id_count"] = sum(count_failed_seg)
+                stats["no_seg_video_id_count"] = sum(count_no_seg)
                 stats["failed_mach_seg_video_id_count"] = sum(count_failed_mach_seg)
                 stats["bad_man_transcripts_video_id_count"] = sum(
                     count_bad_man_transcripts
@@ -913,6 +914,7 @@ def preprocess_jsonl(
             stats["over_ctx_len_segment_count"] = sum(over_ctx_len_segment_count)
             stats["faulty_audio_segment_count"] = sum(faulty_audio_segment_count)
             stats["faulty_transcript_video_id_count"] = sum(faulty_transcript_count)
+            stats["failed_transcript_video_id_count"] = sum(failed_transcript_count)
         else:
             with gzip.open(json_file, "rt", encoding="utf-8") as f:
                 segments_list = [json.loads(line.strip()) for line in f]

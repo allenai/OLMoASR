@@ -59,7 +59,8 @@ def main(
     job_start_shard_idx = start_shard_idx + (job_idx * job_batch_size)
     job_end_shard_idx = start_shard_idx + ((job_idx + 1) * job_batch_size)
     data_shard_paths = sorted(glob.glob(source_dir + "/*.jsonl.gz"))[
-        job_start_shard_idx:job_end_shard_idx
+        job_start_shard_idx : job_end_shard_idx
+        + 1  # forgot to add 1 here! so last shard in output file is excluded
     ]
     print(f"{len(data_shard_paths)=}")
     print(f"{data_shard_paths[:5]=}")
@@ -119,7 +120,8 @@ def main(
     print(f"{len(ids_to_lang)} unique video ids")
 
     output_path = os.path.join(
-        output_dir, f"ids_to_lang_{job_start_shard_idx:08}_{job_end_shard_idx:08}.json.gz"
+        output_dir,
+        f"ids_to_lang_{job_start_shard_idx:08}_{job_end_shard_idx:08}.json.gz",
     )
 
     with gzip.open(output_path, "wt") as f:

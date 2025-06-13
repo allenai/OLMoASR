@@ -227,7 +227,6 @@ def main(
     print(f"{job_end_shard_idx=}")
     data_shard_paths = sorted(glob.glob(source_dir + "/*.jsonl.gz"))[
         job_start_shard_idx : job_end_shard_idx
-        + 1  # forgot to add 1 here! so last shard in output file is excluded
     ]
     print(f"{len(data_shard_paths)=}")
     print(f"{data_shard_paths[:5]=}")
