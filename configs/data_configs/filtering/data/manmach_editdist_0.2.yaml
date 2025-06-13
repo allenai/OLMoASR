@@ -1,0 +1,5 @@
+name: manmach_editdist_0.2
+pipeline:
+  - fxn: filter_bad_align_edit_dist
+    threshold: 0.2
+    comparison: le

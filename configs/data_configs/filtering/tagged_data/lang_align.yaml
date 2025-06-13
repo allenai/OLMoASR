@@ -1,0 +1,6 @@
+name: lang_align
+pipeline:
+  - tag: audio_lang
+    ref_value: en
+  - tag: text_lang
+    ref_value: en

@@ -1,0 +1,20 @@
+name: mjmix_segscore_1
+pipeline:
+  - tag: casing
+    ref_value:
+      - mixed
+      - lower
+  - tag: seg_sim_score
+    lower_bound: 0.9
+    upper_bound: 0.999999
+    inclusive: true
+  - tag: seg_num_words
+    lower_bound: 10
+    inclusive: true
+  - tag: seg_text
+    ref_value: None
+    comparison: not_in
+  - tag: audio_lang
+    ref_value: en
+  - tag: text_lang
+    ref_value: en

@@ -1,0 +1,12 @@
+name: mixed_no_repeats_lang_eq
+pipeline:
+  - tag: casing
+    ref_value:
+      - mixed
+      - lower
+  - tag: repeating_lines
+    ref_value: False
+  - tag: audio_lang
+    ref_value: en
+  - tag: text_lang
+    ref_value: en

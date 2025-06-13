@@ -1,0 +1,12 @@
+name: seg_sim_score_0.9_sim_score_0.9
+pipeline:
+  - tag: audio_lang
+    ref_value: en
+  - tag: text_lang
+    ref_value: en
+  - tag: seg_sim_score
+    lower_bound: 0.9
+    inclusive: true
+  - tag: sim_score
+    lower_bound: 0.9
+    inclusive: true

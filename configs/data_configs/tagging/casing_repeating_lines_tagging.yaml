@@ -1,0 +1,4 @@
+name: casing_repeating_lines_tagging
+pipeline:
+  - tag: casing
+  - tag: repeating_lines

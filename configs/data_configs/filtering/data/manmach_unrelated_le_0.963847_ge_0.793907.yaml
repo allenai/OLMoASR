@@ -1,0 +1,9 @@
+# top 15 bottom 15
+name: manmach_unrelated_le_0.963847_ge_0.793907
+pipeline:
+  - fxn: filter_unrelated
+    threshold: 0.963847
+    comparison: le
+  - fxn: filter_unrelated
+    threshold: 0.793907
+    comparison: ge

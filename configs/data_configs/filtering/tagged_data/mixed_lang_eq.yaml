@@ -1,0 +1,8 @@
+name: mixed_no_repeats_lang_eq
+pipeline:
+  - tag: casing
+    ref_value: mixed
+  - tag: audio_lang
+    ref_value: en
+  - tag: text_lang
+    ref_value: en
