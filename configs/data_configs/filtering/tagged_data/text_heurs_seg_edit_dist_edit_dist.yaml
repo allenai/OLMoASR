@@ -1,0 +1,19 @@
+name: text_heurs_seg_edit_dist_edit_dist
+pipeline:
+  - tag: audio_lang
+    ref_value: en
+  - tag: text_lang
+    ref_value: en
+  - tag: casing
+    ref_value:
+      - mixed
+      - lower
+  - tag: repeating_lines
+    ref_value: False
+  - tag: edit_dist
+    upper_bound: 0.5
+    inclusive: true
+  - tag: seg_edit_dist
+    upper_bound: 0.7
+    inclusive: true
+  - tag: seg_content

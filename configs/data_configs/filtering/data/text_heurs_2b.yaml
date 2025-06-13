@@ -1,0 +1,3 @@
+name: text_heurs_2b
+pipeline:
+  - fxn: has_proper_capitalization_after_punctuation_line
