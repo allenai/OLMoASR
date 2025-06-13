@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
-# from torch.nn.utils import clip_grad_norm_
+from torch.nn.utils import clip_grad_norm_
 from torch.autograd import set_detect_anomaly
 from torch.profiler import (
     profile,
@@ -573,10 +573,10 @@ def train(
         for batch_idx, batch in enumerate(train_dataloader):
             end_dl = time.time()
             model.train()
-            
+
             if batch_idx % accumulation_steps == 0 or accumulation_steps == 1:
                 start_step = time.time()
-                
+
             with autocast(device_type="cuda", dtype=precision):
                 (
                     *_,
@@ -606,7 +606,7 @@ def train(
                 train_loss = (
                     train_loss / accumulation_steps
                 )  # normalization of loss (gradient accumulation)
-                
+
             start_bwd = time.time()
             scaler.scale(train_loss).backward()
             end_bwd = time.time()
@@ -631,7 +631,7 @@ def train(
 
             # after accumulation_steps, update weights
             if ((batch_idx + 1) % accumulation_steps) == 0:
-                # dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
                 train_loss_all = total_loss.item() / dist.get_world_size()
                 # train_loss_all = 0.0
 
@@ -776,7 +776,13 @@ def main(
     prefetch_factor: int = 2,
     persistent_workers: bool = True,
     verbose: bool = False,
-    precision: Literal["bfloat16", "float16", "float32"] = "float16",
+    precision: Literal["bfloat16", "float16", "pure_float16", "float32"] = "bfloat16",
+    sharding_strategy: Literal[
+        "FULL_SHARD",
+        "SHARD_GRAD_OP",
+        "HYBRID_SHARD",
+        "_HYBRID_SHARD_ZERO2",
+    ] = "FULL_SHARD",
     hardware: str = "H100",
     log_dir: str = "logs",
 ):
@@ -784,12 +790,6 @@ def main(
     tags = ["debug"]
     model_dims = VARIANT_TO_DIMS[model_variant]
     os.makedirs(log_dir, exist_ok=True)
-
-    precision_dict = {
-        "float16": torch.float16,
-        "float32": torch.float32,
-        "bfloat16": torch.bfloat16,
-    }
 
     local_rank = int(os.getenv("LOCAL_RANK", "0"))
     local_world_size = int(os.getenv("LOCAL_WORLD_SIZE", "1"))
@@ -851,20 +851,82 @@ def main(
     )
     print(f"Rank: {rank}, {len(train_dataloader)=}")
 
-    # model instantiation
-    model = ow.model.Whisper(dims=model_dims).to(local_rank)
+    # model precision
+    if precision == "float16":
+        precision_policy = MixedPrecision(
+            param_dtype=torch.float16,
+            reduce_dtype=torch.float32,
+            buffer_dtype=torch.float16,
+        )
+        autocast_precision = torch.float16
+    elif precision == "float32":
+        precision_policy = MixedPrecision(
+            param_dtype=torch.float32,
+            reduce_dtype=torch.float32,
+            buffer_dtype=torch.float32,
+        )
+        autocast_precision = torch.float32
+    elif precision == "pure_float16":
+        precision_policy = MixedPrecision(
+            param_dtype=torch.float16,
+            reduce_dtype=torch.float16,
+            buffer_dtype=torch.float16,
+        )
+        autocast_precision = torch.float16
+    elif precision == "bfloat16":
+        precision_policy = MixedPrecision(
+            param_dtype=torch.bfloat16,
+            reduce_dtype=torch.bfloat16,
+            buffer_dtype=torch.bfloat16,
+        )
+        autocast_precision = torch.bfloat16
     
     if rank == 0:
-        size_model = 0
+        print(f"{precision_policy=}")
+        print(f"{autocast_precision=}")
+
+    # sharding strategy
+    if sharding_strategy == "FULL_SHARD":
+        sharding_strategy = ShardingStrategy.FULL_SHARD
+    elif sharding_strategy == "SHARD_GRAD_OP":
+        sharding_strategy = ShardingStrategy.SHARD_GRAD_OP
+    elif sharding_strategy == "HYBRID_SHARD":
+        sharding_strategy = ShardingStrategy.HYBRID_SHARD
+    elif sharding_strategy == "_HYBRID_SHARD_ZERO2":
+        sharding_strategy = ShardingStrategy._HYBRID_SHARD_ZERO2
+
+    if rank == 0:
+        print(f"{sharding_strategy=}")
+    
+    # model instantiation
+    model = ow.model.Whisper(dims=model_dims).to(local_rank)
+
+    size_model = 0
+    if rank == 0:
         for i, (name, param) in enumerate(model.named_parameters()):
             if param.data.is_floating_point():
                 size_model += param.numel() * torch.finfo(param.data.dtype).bits
             else:
                 size_model += param.numel() * torch.iinfo(param.data.dtype).bits
         print(f"model size: {size_model} / bit | {size_model / 8e6:.2f} / MB")
-        
-    # DDP
-    model = DDP(model, device_ids=[local_rank], output_device=local_rank)
+
+    auto_wrap_policy = functools.partial(
+        transformer_auto_wrap_policy,
+        transformer_layer_cls={
+            ResidualAttentionBlock,
+            AudioEncoder,
+            TextDecoder,
+            MultiHeadAttention,
+        },
+    )
+    model = FSDP(
+        model,
+        device_id=local_rank,
+        auto_wrap_policy=auto_wrap_policy,
+        mixed_precision=precision_policy,
+        backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
+        sharding_strategy=sharding_strategy,
+    )
 
     # optimizer and scheduler instantiation
     optimizer = prepare_optim(
@@ -883,11 +945,29 @@ def main(
         optimizer=optimizer,
     )
 
-    scaler = GradScaler()
+    # https://github.com/pytorch/pytorch/issues/76607
+    # if using FSDP mixed precision w/ fp16, need to use sharded grad scaler
+    if precision == "float16" or precision == "pure_float16":
+        scaler = sharded_grad_scaler.ShardedGradScaler()
+    elif precision == "float32":
+        scaler = None
+    else:
+        scaler = GradScaler()
 
     global_step = 0
     local_step = 0
     epoch = 0
+
+    # setting up activation checkpointing
+    non_reentrant_wrapper = functools.partial(
+        checkpoint_wrapper,
+        offload_to_cpu=False,
+        checkpoint_impl=CheckpointImpl.NO_REENTRANT,
+    )
+    check_fn = lambda submodule: isinstance(submodule, ResidualAttentionBlock)
+    apply_activation_checkpointing(
+        model, checkpoint_wrapper_fn=non_reentrant_wrapper, check_fn=check_fn
+    )
 
     # setting up wandb for logging
     if rank == 0:
@@ -933,7 +1013,7 @@ def main(
             accumulation_steps=accumulation_steps,
             max_grad_norm=max_grad_norm,
             verbose=verbose,
-            precision=precision_dict[precision],
+            precision=autocast_precision,
             log_dir=log_dir,
         )
 
