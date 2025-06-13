@@ -78,30 +78,42 @@ def parse_config(config_path):
     return config_dict
 
 
-def parse_man_content(man_content):
-    ext = lambda text: "vtt" if text.startswith("WEBVTT") else "srt"
+def get_man_text(man_content):
     reader = TranscriptReader(
-        file_path=None, transcript_string=man_content, ext=ext(man_content)
+        file_path=None,
+        transcript_string=man_content,
+        ext="vtt" if man_content.startswith("WEBVTT") else "srt",
     )
-
     t_dict, *_ = reader.read()
-    parsed_content = reader.extract_text(t_dict)
+    man_text = reader.extract_text(t_dict)
+    return man_text
 
-    return parsed_content
 
-
-def parse_mach_content(mach_content):
+def get_mach_text(mach_content):
     content = webvtt.from_string(mach_content)
-    parsed_content_list = []
-    for i, caption in enumerate(content):
-        if "\n" not in caption.text and i < len(content) - 1:
-            parsed_content_list.append(caption.text)
-        if i == len(content) - 1:
-            parsed_content_list.append(caption.text.split("\n")[-1])
+    modified_content = []
+    if len(content) > 0:
+        if len(content) > 1:
+            if content[0].text == content[1].text:
+                modified_content.append(content[0])
+                start = 2
+            else:
+                start = 0
+        elif len(content) == 1:
+            start = 0
 
-    parsed_content = " ".join(parsed_content_list)
+        for i in range(start, len(content)):
+            caption = content[i]
+            if "\n" not in caption.text:
+                modified_content.append(caption)
+            elif "\n" in caption.text and i == len(content) - 1:
+                caption.text = caption.text.split("\n")[-1]
+                modified_content.append(caption)
 
-    return parsed_content
+        mach_text = " ".join([caption.text for caption in modified_content])
+    else:
+        mach_text = ""
+    return mach_text
 
 
 def parse_into_iter(content, subtitle_file_name):
@@ -317,6 +329,7 @@ def has_proper_capitalization_after_punctuation_line(content):
                         return None
     return content
 
+
 def empty_caption(content):
     for caption in content:
         if caption.text.strip() == "":
@@ -431,8 +444,10 @@ def process_jsonl(jsonl_path, config_dict, output_dir):
         if "audio_lang" in line.keys():
             lang_dict = {
                 "audio_lang": line["audio_lang"],
-                "text_lang": line["text_lang"]
+                "text_lang": line["text_lang"],
             }
+        else:
+            lang_dict = None
         scores_dict = {
             k: v for k, v in line.items() if "score" in k or "edit_dist" in k
         }
