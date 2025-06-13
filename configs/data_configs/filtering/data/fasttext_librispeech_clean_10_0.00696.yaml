@@ -1,0 +1,6 @@
+name: fasttext_librispeech_clean_10_0.00696
+pipeline:
+  - fxn: filter_fasttext
+    threshold: 0.00696
+    comparison: ge
+    eval_set: librispeech_clean

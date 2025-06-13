@@ -1,0 +1,8 @@
+name: super_tagging
+pipeline:
+  - tag: casing
+  - tag: has_comma_period
+  - tag: repeating_lines
+  - tag: text_lang
+  - tag: has_proper_cap_after_punct_line
+  - tag: edit_dist

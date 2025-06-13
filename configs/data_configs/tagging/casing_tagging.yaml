@@ -1,0 +1,3 @@
+name: casing_tagging
+pipeline:
+  - tag: casing

@@ -1,0 +1,6 @@
+name: fasttext_tedlium_25_0.10611
+pipeline:
+  - fxn: filter_fasttext
+    threshold: 0.10611
+    comparison: ge
+    eval_set: tedlium

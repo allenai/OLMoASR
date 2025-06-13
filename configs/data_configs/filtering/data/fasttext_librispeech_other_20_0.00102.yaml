@@ -1,0 +1,6 @@
+name: fasttext_librispeech_other_20_0.00102
+pipeline:
+  - fxn: filter_fasttext
+    threshold: 0.00102
+    comparison: ge
+    eval_set: librispeech_other
