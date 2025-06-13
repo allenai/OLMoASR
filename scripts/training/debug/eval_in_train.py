@@ -12,6 +12,7 @@ import multiprocessing
 from itertools import chain
 from collections import defaultdict
 import gzip
+import subprocess
 
 import torch
 import torch.nn.functional as F
@@ -34,7 +35,6 @@ from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
 import open_whisper as ow
 
 from scripts.eval.eval import EvalDataset
-from for_logging import TRAIN_TABLE_COLS, EVAL_TABLE_COLS
 
 WANDB_EXAMPLES = 8
 os.environ["WANDB__SERVICE_WAIT"] = "300"
@@ -48,7 +48,16 @@ VARIANT_TO_PARAMS = {
 
 HARDWARE_TO_FLOPS = {"H100": 900 * 10**12, "L40": 366 * 10**12, "A100": 312 * 10**12}
 
+def setup(rank: int) -> None:
+    """Initializes the distributed process group
 
+    Args:
+        rank: The rank of the current process
+        world_size: The total number of processes
+    """
+    torch.cuda.set_device(rank)
+    dist.init_process_group("nccl")
+    
 def load_ckpt(
     exp_name: str,
     run_id: Optional[str],
@@ -101,6 +110,55 @@ def load_ckpt(
 
     return model
 
+def run_async_eval(
+    rank: int,
+    exp_name: str,
+    eval_script_path: str,
+    current_step: int,
+    batch_size: int,
+    num_workers: int,
+    ckpt: str,
+    eval_set: Literal[
+        "librispeech_clean",
+        "librispeech_other",
+        "artie_bias_corpus",
+        "fleurs",
+        "tedlium",
+        "voxpopuli",
+        "common_voice",
+        "ami_ihm",
+        "ami_sdm",
+    ],
+    train_run_id: Optional[str],
+    log_dir: str,
+    run_id_dir: str,
+    eval_dir: str,
+    wandb_log: bool = False,
+) -> None:
+    wandb_log_dir = os.getenv("WANDB_DIR")
+    hf_token = os.getenv("HF_TOKEN")
+    cmd = [
+        "python",
+        eval_script_path,
+        "short_form_eval",
+        f"--batch_size={batch_size}",
+        f"--num_workers={num_workers}",
+        f"--ckpt={ckpt}",
+        f"--eval_set={eval_set}",
+        f"--log_dir={log_dir}",
+        f"--current_step={current_step}",
+        f"--exp_name={exp_name}",
+        f"--train_run_id={train_run_id}",
+        f"--wandb_log={wandb_log}",
+        f"--wandb_log_dir={wandb_log_dir}",
+        f"--run_id_dir={run_id_dir}",
+        f"--eval_dir={eval_dir}",
+        f"--hf_token={hf_token}",
+    ]
+
+    if rank == 0:
+        subprocess.Popen(cmd)
+        
 
 def evaluate(
     rank: int,
@@ -166,6 +224,7 @@ def main(
     num_workers: int = 10,
     pin_memory: bool = True,
     persistent_workers: bool = True,
+    async_eval: bool = False,
 ) -> None:
     """Main function for training
 
@@ -200,20 +259,23 @@ def main(
 
     local_rank = int(os.getenv("LOCAL_RANK", "0"))
     rank = int(os.getenv("RANK", "0"))
+    
+    setup(local_rank)
 
     print("Preparing eval sets")
-    eval_set = "librispeech-clean"
-    eval_dataset = EvalDataset(eval_set=eval_set, eval_dir=eval_dir)
+    eval_set = "librispeech_clean"
+    if not async_eval:
+        eval_dataset = EvalDataset(eval_set=eval_set, eval_dir=eval_dir)
 
-    eval_dataloader = DataLoader(
-        eval_dataset,
-        batch_size=eval_batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        drop_last=False,
-        persistent_workers=persistent_workers,
-        pin_memory=pin_memory,
-    )
+        eval_dataloader = DataLoader(
+            eval_dataset,
+            batch_size=eval_batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            drop_last=False,
+            persistent_workers=persistent_workers,
+            pin_memory=pin_memory,
+        )
 
     # model instantiation
     model = load_ckpt(
@@ -225,25 +287,32 @@ def main(
         model_variant=model_variant,
     )
 
-    evaluate(
-        rank=rank,
-        local_rank=local_rank,
-        model=model,
-        eval_dataloader=eval_dataloader,
-        normalizer=normalizer,
-    )
+    if not async_eval:
+        evaluate(
+            rank=rank,
+            local_rank=local_rank,
+            model=model,
+            eval_dataloader=eval_dataloader,
+            normalizer=normalizer,
+        )
+    else:
+        run_async_eval(
+            rank=rank,
+            exp_name=exp_name,
+            eval_script_path="scripts/eval/eval.py",
+            current_step=0,
+            batch_size=eval_batch_size,
+            num_workers=2,
+            ckpt=ckpt_file_name,
+            eval_set=eval_set,
+            train_run_id=None,
+            log_dir="data/eval",
+            run_id_dir="",
+            eval_dir=eval_dir,
+            wandb_log=False,
+        )
 
 
 if __name__ == "__main__":
     torch.cuda.empty_cache()
-    main(
-        model_variant="tiny",
-        exp_name="debug_evals_in_train",
-        ckpt_file_name="/weka/huongn/checkpoint_00064000_tiny_ddp-train_grad-acc_fp16_non_ddp_inf.pt",
-        ckpt_dir="/weka/huongn/ow_ckpts",
-        eval_dir="/weka/huongn/ow_eval",
-        eval_batch_size=1,
-        num_workers=2,
-        pin_memory=True,
-        persistent_workers=True,
-    )
+    Fire(main)

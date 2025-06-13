@@ -631,8 +631,8 @@ def train(
 
             # after accumulation_steps, update weights
             if ((batch_idx + 1) % accumulation_steps) == 0:
-                # dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
-                # train_loss_all = total_loss.item() / dist.get_world_size()
+                dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+                train_loss_all = total_loss.item() / dist.get_world_size()
                 train_loss_all = 0.0
 
                 scaler.unscale_(optimizer)
@@ -783,6 +783,7 @@ def main(
     run_id = None
     tags = ["debug"]
     model_dims = VARIANT_TO_DIMS[model_variant]
+    os.makedirs(log_dir, exist_ok=True)
 
     precision_dict = {
         "float16": torch.float16,
@@ -800,6 +801,9 @@ def main(
 
     print(
         f"""
+        {model_variant=},
+        {train_steps=},
+        {epoch_steps=},
         {local_rank=}, 
         {local_world_size=}, 
         {rank=}, 
@@ -846,6 +850,14 @@ def main(
 
     # model instantiation
     model = ow.model.Whisper(dims=model_dims).to(local_rank)
+    
+    size_model = 0
+    for i, (name, param) in enumerate(model.named_parameters()):
+        if param.data.is_floating_point():
+            size_model += param.numel() * torch.finfo(param.data.dtype).bits
+        else:
+            size_model += param.numel() * torch.iinfo(param.data.dtype).bits
+    print(f"model size: {size_model} / bit | {size_model / 8e6:.2f} / MB")
 
     # optimizer and scheduler instantiation
     optimizer = prepare_optim(
