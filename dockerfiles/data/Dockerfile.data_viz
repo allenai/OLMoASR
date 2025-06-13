@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     wget \
+    unzip \
     imagemagick && \
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
     apt-get install -y nodejs && \
@@ -26,10 +27,9 @@ RUN apt-get update && apt-get install -y \
 RUN npm install -g http-server
 
 # Download Helvetica font (TTF format)
-RUN mkdir -p /usr/share/fonts/truetype/helvetica && \
-    wget -q -O /usr/share/fonts/truetype/helvetica/helvetica.ttf \
-    "https://github.com/google/fonts/raw/main/apache/helvetica/Helvetica.ttf" && \
-    fc-cache -fv
+RUN wget -P /usr/share/fonts https://font.download/dl/font/helvetica-255.zip && \
+    unzip helvetica-255.zip && \
+    rm helvetica-255.zip
 
 # Verify installations (optional)
 RUN node -v && npm -v && yarn -v && convert -version

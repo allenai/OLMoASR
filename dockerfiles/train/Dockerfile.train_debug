@@ -8,15 +8,20 @@ ENV LANG=C.UTF-8
 # creating a directory for the project
 WORKDIR /stage/
 
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    build-essential \
+    curl \
+    wget
+
 # copying requirements file
-COPY requirements-main.txt requirements-main.txt
+COPY requirements/requirements-train.txt requirements-train.txt
 
 # installing dependencies
-RUN pip install -r requirements-main.txt
+RUN pip install -r requirements-train.txt
 
 # copying necessary files and directories to container
 COPY open_whisper open_whisper/
 COPY scripts/eval scripts/eval/
 COPY scripts/training scripts/training/
-COPY logs logs/
 COPY scripts/data/filtering scripts/data/filtering/
