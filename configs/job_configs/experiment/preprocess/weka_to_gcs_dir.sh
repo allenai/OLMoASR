@@ -1,0 +1,24 @@
+gantry run \
+  --name "weka_to_gcs" \
+  --task-name "weka_to_gcs_tars_8M" \
+  --description "data transfer from weka to gcs" \
+  --allow-dirty \
+  --not-preemptible \
+  --beaker-image huongn/gcs_to_weka \
+  --workspace ai2/open-whisper \
+  --cluster ai2/saturn-cirrascale \
+  --cluster ai2/jupiter-cirrascale-2 \
+  --cluster ai2/neptune-cirrascale \
+  --cluster ai2/ceres-cirrascale \
+  --pip requirements/requirements-filter.txt \
+  --budget ai2/oe-data \
+  --priority high \
+  --weka oe-data-default:/weka \
+  -- /bin/bash -c "python scripts/data/data_transfer/file_transfer_gcs.py upload_dir \
+    --local_dir=/weka/huongn/tars/8M/seg_250_10K \
+    --bucket_name=ow-temp-tars \
+    --bucket_prefix=8M \
+    --service_account=349753783513-compute@developer.gserviceaccount.com \
+    --key_file=/gcp_service_key.json \
+    --log_file=/results/huongn/weka_to_gcs.log
+    "
