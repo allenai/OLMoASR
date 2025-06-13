@@ -1,5 +1,5 @@
 # Base image - PyTorch
-FROM pytorch/pytorch:2.4.0-cuda11.8-cudnn9-runtime
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
 
 # Setting environment variables
 ENV LC_ALL=C.UTF-8
@@ -10,24 +10,27 @@ ENV PATH="/usr/local/aws-cli/v2/current/bin:$PATH"
 WORKDIR /stage/
 
 # Install necessary system packages and AWS CLI
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     git \
+    ffmpeg \
     wget \
     unzip \
     curl \
     tar \
     build-essential \
-    python3-dev \
- && curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
- && unzip awscliv2.zip \
- && ./aws/install \
- && rm -rf awscliv2.zip aws
+    python3-dev && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf awscliv2.zip aws
 
 # Copy requirements file
-COPY requirements-data-process.txt requirements-data-process.txt
+COPY requirements/requirements-data.txt requirements-data.txt
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements-data-process.txt
+RUN pip install --no-cache-dir -r requirements-data.txt
 
 # Copy necessary files and directories to the container
 COPY open_whisper/ open_whisper/
