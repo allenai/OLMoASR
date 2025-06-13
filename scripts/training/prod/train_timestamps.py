@@ -283,7 +283,6 @@ class AudioTextDataset(Dataset):
                             token_ranges.append((start_idx, end_idx))
                         
                         if invalid is True:
-                            # If any token range is None, skip this segment
                             tokens = (
                                 list(tokenizer.sot_sequence_including_notimestamps)
                                 + list(chain(*tokens))
