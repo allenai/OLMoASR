@@ -297,7 +297,7 @@ def process_line(line, config):
         elif tag == "seg_content":
             new_transcript_string, mod_count = mod_text(line[tag])
             line[tag] = new_transcript_string
-            hitlist[tag] += mod_count
+            # hitlist[tag] += mod_count
 
         if keep is False:
             hitlist[tag] += 1

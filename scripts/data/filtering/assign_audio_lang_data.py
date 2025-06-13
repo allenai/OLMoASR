@@ -20,15 +20,21 @@ def assign_audio_lang(output_dir: str, shard_file: str, shard_to_map_file: Dict)
 
     for d in data:
         video_id = d["id"]
-        d["audio_lang"] = id_to_lang[video_id]
+        if video_id in id_to_lang:
+            d["audio_lang"] = id_to_lang[video_id]
+        else:
+            d["audio_lang"] = "en"
+            
+            with open(f"{output_dir}/missing_audio_lang.txt", "a") as f:
+                f.write(f"{video_id}, {shard_file}, {audio_lang_mapping_file}\n")
 
     with gzip.open(f"{output_dir}/{os.path.basename(shard_file)}", "wt") as f:
         for d in data:
             f.write(json.dumps(d) + "\n")
 
 
-def parallel_assign_audio_lang(args):
-    return assign_audio_lang(*args)
+def parallel_assign_audio_lang(args, shard_to_map_file):
+    return assign_audio_lang(*args, shard_to_map_file=shard_to_map_file)
 
 
 def main(input_dir, output_dir, audio_lang_mapping_dir):

@@ -15,6 +15,7 @@ sudo yum install cmake -y
 sudo yum install openssl-devel -y
 sudo yum install g++ -y
 sudo yum install htop -y
+sudo yum install python3-devel -y
 aws configure set aws_access_key_id AKIASHLPW4FE63DTIAPD #<---- fill in here 
 aws configure set aws_secret_access_key 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 #<--- fill in here
 aws configure set default.region us-east-1
@@ -33,8 +34,10 @@ mkdir filtered_jsonls
 GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxx" # Replace with your token
 GITHUB_USER="huongngo-8"
 REPO="open_whisper"
+BRANCH="your-branch-name"  # Replace with the branch you want to clone
 
-git clone https://$GITHUB_USER:$GITHUB_TOKEN@github.com/$GITHUB_USER/$REPO.git
+# Clone the specific branch
+git clone --branch $BRANCH --single-branch https://$GITHUB_USER:$GITHUB_TOKEN@github.com/$GITHUB_USER/$REPO.git
 
 # create virtual environment
 python3 -m venv /mnt/raid0/env
@@ -48,10 +51,16 @@ echo "source /mnt/raid0/env/bin/activate" >> /home/ec2-user/.profile
 source /home/ec2-user/.bashrc
 source /home/ec2-user/.profile
 
+echo 'export PYTHONPATH=/mnt/raid0/open_whisper:$PYTHONPATH' >> /home/ec2-user/.bashrc
+source /home/ec2-user/.bashrc
+
 # install the requirements
+pip install wheel
 pip install -r open_whisper/requirements/requirements-data.txt
+python -m spacy download en_core_web_sm
 
 # run the script
-python3 open_whisper/scripts/data/filtering/data_filter.py --config=manmach_unrelated_0.8.yaml --input-dir=unfiltered_jsonls --output-dir=filtered_jsonls
+python3 open_whisper/scripts/data/filtering/data_filter.py --config=CONFIG --input-dir=INPUT_DIR --output-dir=OUTPUT_DIR
+# python3 open_whisper/scripts/data/filtering/seg_data_filter.py --config=CONFIG --input-dir=INPUT_DIR --output-dir=OUTPUT_DIR
 
 /mnt/raid0/s5cmd cp "filtered_jsonls/*" "s3://allennlp-mattj/openwhisper/pretraining_data/text_heurs_1_manmach_0.8_jan_25/"
