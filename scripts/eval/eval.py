@@ -1,4 +1,39 @@
-from typing import Literal, Optional
+"""
+OLMoASR Evaluation Module
+
+This module provides comprehensive evaluation functionality for automatic speech recognition (ASR) models,
+supporting both short-form and long-form transcription tasks across multiple datasets.
+
+Key Features:
+    - Support for 20+ evaluation datasets (LibriSpeech, TEDLIUM, CORAAL, etc.)
+    - Short-form and long-form transcription evaluation
+    - Weights & Biases integration for experiment tracking
+    - Bootstrap sampling for confidence intervals
+    - Multi-modal audio processing pipeline
+    - Extensible dataset loader architecture
+
+Usage:
+    # Short-form evaluation
+    python eval.py short_form_eval --batch_size 32 --ckpt model.pt --eval_set librispeech_clean --log_dir logs/
+
+    # Long-form evaluation  
+    python eval.py long_form_eval --batch_size 8 --ckpt model.pt --eval_set tedlium --log_dir logs/
+
+Classes:
+    AudioSegment: Data class representing audio segments with timing
+    AudioProcessor: Utility class for audio preprocessing operations
+    TextCleaner: Text normalization and cleaning utilities
+    BaseDatasetLoader: Abstract base class for dataset loaders
+    DatasetFactory: Factory pattern for creating dataset loaders
+    EvalDataset: PyTorch Dataset for evaluation data
+    WandBLogger: Weights & Biases logging utilities
+
+Functions:
+    short_form_eval: Main evaluation function for short-form transcription
+    long_form_eval: Main evaluation function for long-form transcription
+"""
+
+from typing import Literal, Optional, Tuple, Dict, Any, Union
 import os
 import glob
 import json
@@ -6,348 +41,485 @@ import re
 import io
 import numpy as np
 import pandas as pd
-from collections import OrderedDict
 import librosa
 import torch
-from torch.utils.data import Dataset, DataLoader, IterableDataset
-from torch.amp import autocast
+from torch.utils.data import Dataset, DataLoader
 from datasets import load_dataset
-from transformers import (
-    AutoProcessor,
-    AutoModel,
-    AutoTokenizer,
-    AutoModelForCausalLM,
-    AutoModelForSeq2SeqLM,
-    GenerationConfig,
-)
-from nemo.collections.asr.models import ASRModel
 import jiwer
 from whisper import audio, DecodingOptions
-from whisper.tokenizer import get_tokenizer
-from whisper.decoding import detect_language
-from whisper.normalizers import EnglishTextNormalizer, BasicTextNormalizer
+from whisper.normalizers import EnglishTextNormalizer
 from open_whisper import load_model
 from fire import Fire
 from tqdm import tqdm
 from scripts.eval.get_eval_set import get_eval_set
 from scripts.eval.gen_inf_ckpt import gen_inf_ckpt
 import wandb
-from tqdm import tqdm
 from torchaudio.datasets import TEDLIUM
 import torchaudio
-from typing import Union
-from pathlib import Path
-from torchaudio.datasets.tedlium import _RELEASE_CONFIGS
-from torchaudio._internal import download_url_to_file
-from torchaudio.datasets.utils import _extract_tar
 import csv
 import subprocess
+from dataclasses import dataclass
+from abc import ABC, abstractmethod
 
-# voxlingua imports
-# from speechbrain.inference.classifiers import EncoderClassifier
 
-SHORT_FORM_EVAL_SETS = [
-    "librispeech_clean",
-    "librispeech_other",
-    "artie_bias_corpus",
-    "fleurs",
+# Constants
+SAMPLE_RATE = 16000
+DEFAULT_N_MELS = 80
+HF_DATASETS = {
     "tedlium",
-    "voxpopuli",
     "common_voice",
-    "ami_ihm",
-    "ami_sdm",
-]
-
-LONG_FORM_EVAL_SETS = ["tedlium_long"]
-ML_EVAL_SETS = ["fleurs"]
-TRANSLATE_EVAL_SETS = []
-LANG_ID_EVAL_SETS = ["fleurs"]
-
-FLEURS_LANG_TO_ID = OrderedDict(
-    [
-        ("Afrikaans", "af"),
-        ("Amharic", "am"),
-        ("Arabic", "ar"),
-        ("Armenian", "hy"),
-        ("Assamese", "as"),
-        ("Asturian", "ast"),
-        ("Azerbaijani", "az"),
-        ("Belarusian", "be"),
-        ("Bengali", "bn"),
-        ("Bosnian", "bs"),
-        ("Bulgarian", "bg"),
-        ("Burmese", "my"),
-        ("Catalan", "ca"),
-        ("Cebuano", "ceb"),
-        ("Mandarin Chinese", "cmn_hans"),
-        ("Cantonese Chinese", "yue_hant"),
-        ("Croatian", "hr"),
-        ("Czech", "cs"),
-        ("Danish", "da"),
-        ("Dutch", "nl"),
-        ("English", "en"),
-        ("Estonian", "et"),
-        ("Filipino", "fil"),
-        ("Finnish", "fi"),
-        ("French", "fr"),
-        ("Fula", "ff"),
-        ("Galician", "gl"),
-        ("Ganda", "lg"),
-        ("Georgian", "ka"),
-        ("German", "de"),
-        ("Greek", "el"),
-        ("Gujarati", "gu"),
-        ("Hausa", "ha"),
-        ("Hebrew", "he"),
-        ("Hindi", "hi"),
-        ("Hungarian", "hu"),
-        ("Icelandic", "is"),
-        ("Igbo", "ig"),
-        ("Indonesian", "id"),
-        ("Irish", "ga"),
-        ("Italian", "it"),
-        ("Japanese", "ja"),
-        ("Javanese", "jv"),
-        ("Kabuverdianu", "kea"),
-        ("Kamba", "kam"),
-        ("Kannada", "kn"),
-        ("Kazakh", "kk"),
-        ("Khmer", "km"),
-        ("Korean", "ko"),
-        ("Kyrgyz", "ky"),
-        ("Lao", "lo"),
-        ("Latvian", "lv"),
-        ("Lingala", "ln"),
-        ("Lithuanian", "lt"),
-        ("Luo", "luo"),
-        ("Luxembourgish", "lb"),
-        ("Macedonian", "mk"),
-        ("Malay", "ms"),
-        ("Malayalam", "ml"),
-        ("Maltese", "mt"),
-        ("Maori", "mi"),
-        ("Marathi", "mr"),
-        ("Mongolian", "mn"),
-        ("Nepali", "ne"),
-        ("Northern-Sotho", "nso"),
-        ("Norwegian", "nb"),
-        ("Nyanja", "ny"),
-        ("Occitan", "oc"),
-        ("Oriya", "or"),
-        ("Oromo", "om"),
-        ("Pashto", "ps"),
-        ("Persian", "fa"),
-        ("Polish", "pl"),
-        ("Portuguese", "pt"),
-        ("Punjabi", "pa"),
-        ("Romanian", "ro"),
-        ("Russian", "ru"),
-        ("Serbian", "sr"),
-        ("Shona", "sn"),
-        ("Sindhi", "sd"),
-        ("Slovak", "sk"),
-        ("Slovenian", "sl"),
-        ("Somali", "so"),
-        ("Sorani-Kurdish", "ckb"),
-        ("Spanish", "es"),
-        ("Swahili", "sw"),
-        ("Swedish", "sv"),
-        ("Tajik", "tg"),
-        ("Tamil", "ta"),
-        ("Telugu", "te"),
-        ("Thai", "th"),
-        ("Turkish", "tr"),
-        ("Ukrainian", "uk"),
-        ("Umbundu", "umb"),
-        ("Urdu", "ur"),
-        ("Uzbek", "uz"),
-        ("Vietnamese", "vi"),
-        ("Welsh", "cy"),
-        ("Wolof", "wo"),
-        ("Xhosa", "xh"),
-        ("Yoruba", "yo"),
-        ("Zulu", "zu"),
-    ]
-)
-
-OW_TO_FLEURS = {
-    "no": "nb",
-    "jw": "jv",
-    "zh": "cmn_hans",
-    "yue": "yue_hant",
-    "tl": "fil",
+    "fleurs",
+    "voxpopuli",
+    "meanwhile",
+    "rev16",
+    "earnings21",
+    "earnings22",
 }
-OW_NOT_IN_FLEURS = [
-    "la",
-    "br",
-    "eu",
-    "sq",
-    "si",
-    "yi",
-    "fo",
-    "ht",
-    "tk",
-    "nn",
-    "sa",
-    "bo",
-    "tl",
-    "mg",
-    "tt",
-    "haw",
-    "ba",
-    "su",
-    "ht",
-    "si",
-]
-FLEURS_NOT_IN_OW = [
-    "ast",
-    "ceb",
-    "ff",
-    "lg",
-    "ig",
-    "ga",
-    "kea",
-    "kam",
-    "ky",
-    "luo",
-    "nso",
-    "ny",
-    "or",
-    "om",
-    "ckb",
-    "umb",
-    "wo",
-    "xh",
-    "zu",
-]
-
-# for voxlingua107 lang id model
-VOX_TO_FLEURS = {"iw": "he", "zh": "cmn_hans", "jw": "jv", "no": "nb", "tl": "fil"}
-VOX_NOT_IN_FLEURS = [
-    "ab",
-    "ba",
-    "bo",
-    "br",
-    "eo",
-    "eu",
-    "fo",
-    "gn",
-    "gv",
-    "haw",
-    "ht",
-    "ia",
-    "la",
-    "mg",
-    "nn",
-    "sa",
-    "sco",
-    "si",
-    "sq",
-    "su",
-    "tk",
-    "tt",
-    "war",
-    "yi",
-]
-FLEURS_NOT_IN_VOX = [
-    "ast",
-    "ff",
-    "lg",
-    "ig",
-    "ga",
-    "kea",
-    "kam",
-    "ky",
-    "luo",
-    "nso",
-    "ny",
-    "or",
-    "om",
-    "ckb",
-    "umb",
-    "wo",
-    "xh",
-    "zu",
-]
+LONG_FORM_DATASETS = {
+    "meanwhile",
+    "rev16",
+    "earnings21",
+    "earnings22",
+    "coraal",
+    "kincaid46",
+    "tedlium",
+}
 
 
-class Librispeech:
-    def __init__(self, root_dir):
+@dataclass
+class AudioSegment:
+    """Represents an audio segment with optional timing information.
+
+    This data class encapsulates audio file paths along with optional start and end times
+    for segmented audio processing, commonly used in datasets like CallHome and SwitchBoard.
+
+    Attributes:
+        file_path (str): Path to the audio file
+        start_time (Optional[float]): Start time in seconds, None for full audio
+        end_time (Optional[float]): End time in seconds, None for full audio
+
+    Example:
+        >>> segment = AudioSegment("audio.wav", 10.5, 25.3)
+        >>> print(f"Duration: {segment.end_time - segment.start_time}s")
+        Duration: 14.8s
+    """
+
+    file_path: str
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+
+
+class AudioProcessor:
+    """Handles common audio processing operations for ASR evaluation.
+
+    This utility class provides static methods for loading, preprocessing, and transforming
+    audio data for both short-form and long-form transcription tasks. It standardizes
+    audio processing across different dataset formats and sources.
+
+    Methods:
+        load_and_preprocess_audio: Load and preprocess audio files with optional segmentation
+        preprocess_hf_audio: Preprocess audio arrays from HuggingFace datasets
+    """
+
+    @staticmethod
+    def load_and_preprocess_audio(
+        audio_file: str,
+        sr: int = SAMPLE_RATE,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        n_mels: int = DEFAULT_N_MELS,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Load and preprocess audio file with optional time-based segmentation.
+
+        Loads an audio file, optionally extracts a time segment, pads/trims to standard
+        length, and computes mel-spectrogram features for ASR model input.
+
+        Args:
+            audio_file (str): Path to the audio file to load
+            sr (int, optional): Target sampling rate. Defaults to SAMPLE_RATE (16000).
+            start_time (Optional[float], optional): Start time in seconds for segmentation.
+                Defaults to None.
+            end_time (Optional[float], optional): End time in seconds for segmentation.
+                Defaults to None.
+            n_mels (int, optional): Number of mel-spectrogram bins. Defaults to DEFAULT_N_MELS.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: A tuple containing:
+                - audio_arr: Preprocessed audio waveform as float32 array
+                - mel_spec: Log mel-spectrogram features for model input
+
+        Example:
+            >>> audio_arr, mel_spec = AudioProcessor.load_and_preprocess_audio(
+            ...     "speech.wav", start_time=10.0, end_time=20.0
+            ... )
+            >>> print(f"Audio shape: {audio_arr.shape}, Mel shape: {mel_spec.shape}")
+        """
+        audio_arr = audio.load_audio(audio_file, sr=sr)
+        if start_time is not None and end_time is not None:
+            audio_arr = audio_arr[int(start_time * sr) : int(end_time * sr)]
+        audio_arr = audio.pad_or_trim(audio_arr)
+        audio_arr = audio_arr.astype(np.float32)
+        mel_spec = audio.log_mel_spectrogram(audio_arr, n_mels=n_mels)
+        return audio_arr, mel_spec
+
+    @staticmethod
+    def preprocess_hf_audio(
+        waveform: np.ndarray,
+        sampling_rate: int,
+        n_mels: int = DEFAULT_N_MELS,
+        for_long_form: bool = False,
+    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        """Preprocess audio arrays from HuggingFace datasets.
+
+        Processes raw audio waveforms from HuggingFace dataset format, handling
+        resampling, normalization, and feature extraction for both short-form
+        and long-form transcription tasks.
+
+        Args:
+            waveform (np.ndarray): Raw audio waveform array
+            sampling_rate (int): Original sampling rate of the waveform
+            n_mels (int, optional): Number of mel-spectrogram bins for short-form.
+                Defaults to DEFAULT_N_MELS.
+            for_long_form (bool, optional): If True, return only waveform for long-form
+                transcription. If False, also compute mel-spectrogram. Defaults to False.
+
+        Returns:
+            Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+                - If for_long_form=True: Preprocessed audio waveform only
+                - If for_long_form=False: Tuple of (audio_waveform, mel_spectrogram)
+
+        Example:
+            >>> # Short-form preprocessing
+            >>> audio_arr, mel_spec = AudioProcessor.preprocess_hf_audio(
+            ...     waveform, 22050, for_long_form=False
+            ... )
+            >>> # Long-form preprocessing
+            >>> audio_arr = AudioProcessor.preprocess_hf_audio(
+            ...     waveform, 22050, for_long_form=True
+            ... )
+        """
+        if sampling_rate != SAMPLE_RATE:
+            waveform = librosa.resample(
+                waveform, orig_sr=sampling_rate, target_sr=SAMPLE_RATE
+            )
+
+        audio_arr = waveform.astype(np.float32)
+
+        if for_long_form:
+            return audio_arr
+
+        audio_arr = audio.pad_or_trim(audio_arr)
+        audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=n_mels)
+        return audio_arr, audio_input
+
+
+class TextCleaner:
+    """Handles text cleaning operations for different datasets.
+
+    This utility class provides dataset-specific text normalization and cleaning
+    operations to ensure consistent transcript processing across different evaluation
+    datasets, particularly for specialized corpora like CORAAL.
+
+    Methods:
+        clean_coraal_text: Specialized text cleaning for CORAAL dialect corpus
+    """
+
+    @staticmethod
+    def clean_coraal_text(text: str) -> str:
+        """Clean CORAAL dataset text according to corpus conventions.
+
+        Applies CORAAL-specific text normalization including dialect word mapping,
+        marker removal, and unintelligible segment handling. This ensures fair
+        evaluation by standardizing transcript format.
+
+        Args:
+            text (str): Raw CORAAL transcript text with corpus-specific markup
+
+        Returns:
+            str: Cleaned transcript text ready for evaluation
+
+        Note:
+            CORAAL (Corpus of Regional African American Language) uses specific
+            markup conventions for dialectal features, background noise, and
+            unintelligible segments that need standardized handling.
+
+        Example:
+            >>> raw_text = "We(BR) aksed for [unintelligible] busses"
+            >>> clean_text = TextCleaner.clean_coraal_text(raw_text)
+            >>> print(clean_text)
+            "We asked for  buses"
+        """
+        text = text.replace("[", "{").replace("]", "}")
+
+        # Relabel CORAAL words
+        replacements = {
+            "busses": "buses",
+            "aks": "ask",
+            "aksing": "asking",
+            "aksed": "asked",
+        }
+        words = text.split()
+        words = [replacements.get(word, word) for word in words]
+        text = " ".join(words)
+
+        # Remove CORAAL flags and markers
+        patterns_to_remove = [
+            r"(?i)\/unintelligible\/",
+            r"(?i)\/inaudible\/",
+            r"\/RD(.*?)\/",
+            r"\/(\?)\1*\/",
+        ]
+        for pattern in patterns_to_remove:
+            text = re.sub(pattern, "", text)
+
+        # Remove nonlinguistic markers
+        markers = [("<", ">"), ("(", ")"), ("{", "}")]
+        for start, end in markers:
+            text = re.sub(f" ?\\{start}[^{end}]+\\{end}", "", text)
+
+        return text
+
+
+class BaseDatasetLoader(ABC):
+    """Abstract base class for dataset loaders.
+
+    Defines the common interface for all dataset loaders in the evaluation pipeline.
+    Each concrete loader implements dataset-specific logic for loading audio files
+    and their corresponding transcripts.
+
+    Attributes:
+        root_dir (str): Root directory containing the dataset files
+
+    Methods:
+        load: Abstract method to load dataset audio files and transcripts
+    """
+
+    def __init__(self, root_dir: str):
+        """Initialize the dataset loader with root directory.
+
+        Args:
+            root_dir (str): Path to the root directory containing dataset files
+        """
         self.root_dir = root_dir
 
-    def load(self):
+    @abstractmethod
+    def load(self) -> Tuple[list, list]:
+        """Load audio files and transcripts from the dataset.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of audio file paths or AudioSegment objects
+                - List of corresponding transcript strings
+
+        Raises:
+            NotImplementedError: If not implemented by concrete subclass
+        """
+        pass
+
+
+class LibrispeechLoader(BaseDatasetLoader):
+    """Dataset loader for LibriSpeech test sets.
+
+    LibriSpeech is a large corpus of approximately 1000 hours of English speech
+    derived from LibriVox audiobooks. This loader handles both 'test-clean' and
+    'test-other' evaluation subsets.
+
+    Dataset Structure:
+        - Audio files in FLAC format organized by speaker/chapter
+        - Transcript files (.txt) contain utterance ID and normalized text
+        - Standard format: SPEAKER-CHAPTER-UTTERANCE_ID transcript_text
+
+    Returns:
+        Tuple of audio file paths and corresponding transcript texts
+
+    Reference:
+        Panayotov, V., et al. "Librispeech: an ASR corpus based on public domain audio books."
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load LibriSpeech audio files and transcripts.
+
+        Recursively searches for transcript files and maps them to corresponding
+        FLAC audio files using the LibriSpeech naming convention.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of audio file paths (FLAC format)
+                - List of corresponding transcript strings
+        """
         transcript_files = []
         audio_text = {}
+
         for root, _, files in os.walk(self.root_dir):
-            for file in files:
-                if file.endswith(".txt"):
-                    transcript_files.append(os.path.join(root, file))
+            transcript_files.extend(
+                os.path.join(root, file) for file in files if file.endswith(".txt")
+            )
 
         for file in sorted(transcript_files):
             with open(file, "r") as f:
                 for line in f:
-                    audio_codes = line.split(" ")[0].split("-")
+                    parts = line.split(" ")
+                    audio_codes = parts[0].split("-")
                     audio_file = os.path.join(
                         self.root_dir,
                         audio_codes[0],
                         audio_codes[1],
                         f"{audio_codes[0]}-{audio_codes[1]}-{audio_codes[2]}.flac",
                     )
-                    audio_text[audio_file] = " ".join(line.split(" ")[1:]).strip()
+                    audio_text[audio_file] = " ".join(parts[1:]).strip()
 
         return list(audio_text.keys()), list(audio_text.values())
 
 
-class ArtieBiasCorpus:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+class ArtieBiasCorpusLoader(BaseDatasetLoader):
+    """Dataset loader for Artie Bias Corpus.
 
-    def load(self):
-        audio_files = []
-        transcript_texts = []
+    The Artie Bias Corpus is designed to evaluate ASR systems for bias and fairness
+    across different demographic groups. It contains demographically-annotated speech
+    samples to test for systematic performance differences.
+
+    Dataset Structure:
+        - TSV file format with audio paths and transcripts
+        - Includes demographic metadata for bias analysis
+        - Audio files in various formats (typically WAV/MP3)
+
+    Returns:
+        Tuple of audio file paths and corresponding transcript texts
+
+    Reference:
+        Meyer, J., et al. "Artie Bias Corpus: An Open Dataset for Detecting Demographic
+        Bias in Speech Recognition Systems."
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load Artie Bias Corpus audio files and transcripts.
+
+        Parses the TSV metadata file to extract audio file paths and their
+        corresponding transcript texts.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of audio file paths
+                - List of corresponding transcript strings
+        """
+        audio_files, transcript_texts = [], []
+
         with open(os.path.join(self.root_dir, "artie-bias-corpus.tsv"), "r") as f:
-            next(f)
+            next(f)  # Skip header
             for line in f:
-                audio_file = os.path.join(self.root_dir, line.split("\t")[1].strip())
-                transcript_text = line.split("\t")[2].strip()
-                audio_files.append(audio_file)
-                transcript_texts.append(transcript_text)
+                parts = line.split("\t")
+                audio_files.append(os.path.join(self.root_dir, parts[1].strip()))
+                transcript_texts.append(parts[2].strip())
 
         return audio_files, transcript_texts
 
 
-class Fleurs:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+class FleursLoader(BaseDatasetLoader):
+    """Dataset loader for FLEURS (Few-shot Learning Evaluation of Universal Representations of Speech).
 
-    def load(self):
+    FLEURS is a multilingual speech dataset spanning 102 languages, designed for
+    few-shot learning evaluation. This loader specifically handles the English subset.
+
+    Dataset Structure:
+        - TSV file format with audio paths and transcripts
+        - Standardized across all language subsets
+        - Audio files in MP3/WAV format
+
+    Returns:
+        Tuple of audio file paths and corresponding transcript texts
+
+    Reference:
+        Conneau, A., et al. "FLEURS: Few-shot Learning Evaluation of Universal
+        Representations of Speech."
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load FLEURS dataset audio files and transcripts.
+
+        Parses the test.tsv file to extract audio file paths and transcriptions
+        for the English language subset.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of audio file paths from test directory
+                - List of corresponding transcript strings
+        """
         with open(f"{self.root_dir}/test.tsv", "r") as f:
             file_text = [line.split("\t")[1:3] for line in f]
             audio_files, transcript_texts = zip(*file_text)
             audio_files = [f"{self.root_dir}/test/{f}" for f in audio_files]
+        return list(audio_files), list(transcript_texts)
 
-        return audio_files, transcript_texts
 
+class VoxPopuliLoader(BaseDatasetLoader):
+    """Dataset loader for VoxPopuli dataset.
 
-class VoxPopuli:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+    VoxPopuli is a large-scale multilingual speech corpus for representation learning
+    and speech recognition, extracted from European Parliament event recordings.
+    This loader handles the English subset.
 
-    def load(self):
+    Dataset Structure:
+        - TSV file format with utterance IDs and normalized text
+        - Audio files derived from parliamentary proceedings
+        - Covers formal, political speech domain
+
+    Returns:
+        Tuple of audio file paths and corresponding transcript texts
+
+    Reference:
+        Wang, C., et al. "VoxPopuli: A Large-Scale Multilingual Speech Corpus for
+        Representation Learning, Semi-Supervised Learning and Interpretation."
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load VoxPopuli audio files and transcripts.
+
+        Parses the ASR test TSV file to extract audio file paths and normalized
+        transcript texts for English parliamentary speech.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of audio file paths (WAV format)
+                - List of corresponding normalized transcript strings
+        """
         with open(f"{self.root_dir}/asr_test.tsv", "r") as f:
-            next(f)
+            next(f)  # Skip header
             file_text = [line.split("\t")[:2] for line in f]
             audio_files, transcript_texts = zip(*file_text)
             audio_files = [f"{self.root_dir}/test/{f}.wav" for f in audio_files]
+        return list(audio_files), list(transcript_texts)
 
-        return audio_files, transcript_texts
 
+class AMILoader(BaseDatasetLoader):
+    """Dataset loader for AMI Meeting Corpus.
 
-class AMI:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+    The AMI corpus consists of 100 hours of meeting recordings captured using
+    multiple microphones. This loader supports both Individual Headset Microphone (IHM)
+    and Single Distant Microphone (SDM) conditions.
 
-    def load(self):
+    Dataset Structure:
+        - Text file with utterance IDs and transcripts
+        - Audio files organized by meeting session
+        - Multiple microphone configurations available
+
+    Returns:
+        Tuple of audio file paths and corresponding transcript texts
+
+    Reference:
+        Carletta, J., et al. "The AMI Meeting Corpus: A Pre-announcement."
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load AMI corpus audio files and transcripts.
+
+        Parses the text file to extract utterance IDs and maps them to
+        corresponding audio files in the evaluation subset.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of audio file paths (WAV format)
+                - List of corresponding transcript strings
+        """
         with open(f"{self.root_dir}/text", "r") as f:
             file_text = [line.split(" ", 1) for line in f]
             audio_files, transcript_texts = zip(*file_text)
@@ -355,72 +527,90 @@ class AMI:
                 f"{self.root_dir}/{f.split('_')[1]}/eval_{f.lower()}.wav"
                 for f in audio_files
             ]
+        return list(audio_files), list(transcript_texts)
 
-        return audio_files, transcript_texts
 
+class CORAALLoader(BaseDatasetLoader):
+    """Dataset loader for CORAAL (Corpus of Regional African American Language).
 
-class CORAAL:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+    CORAAL is a corpus of African American Language featuring audio-aligned transcripts
+    from multiple U.S. regions. This loader handles dialect-specific text normalization
+    and corpus markup conventions.
 
-    def load(self):
-        audio_files = []
-        transcript_texts = []
+    Dataset Structure:
+        - CSV file with segment metadata and transcripts
+        - Audio files organized by geographical region
+        - Specialized markup for dialectal features
 
+    Returns:
+        Tuple of audio file paths and corresponding cleaned transcript texts
+
+    Reference:
+        Kendall, T., & Farrington, C. "The Corpus of Regional African American Language."
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load CORAAL audio files and cleaned transcripts.
+
+        Parses the CORAAL transcripts CSV and applies specialized text cleaning
+        to handle dialectal markup and corpus conventions.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of audio file paths (WAV/MP3 format)
+                - List of cleaned transcript strings
+        """
+        audio_files, transcript_texts = [], []
         segments = pd.read_csv(
             f"{self.root_dir}/CORAAL_transcripts.csv", quotechar='"'
         ).values.tolist()
-
-        def remove_markers(line, markers):
-            # Remove any text within markers, e.g. 'We(BR) went' -> 'We went'
-            # markers = list of pairs, e.g. ['()', '[]'] denoting breath or noise in transcripts
-            for s, e in markers:
-                line = re.sub(" ?\\" + s + "[^" + e + "]+\\" + e, "", line)
-            return line
-
-        def clean_within_coraal(text):
-
-            text = text.replace("\[", "\{")
-            text = text.replace("\]", "\}")
-            # Relabel CORAAL words. For consideration: aks -> ask?
-            split_words = text.split()
-            split_words = [x if x != "busses" else "buses" for x in split_words]
-            split_words = [x if x != "aks" else "ask" for x in split_words]
-            split_words = [x if x != "aksing" else "asking" for x in split_words]
-            split_words = [x if x != "aksed" else "asked" for x in split_words]
-            text = " ".join(split_words)
-
-            # remove CORAAL unintelligible flags
-            text = re.sub("(?i)\/unintelligible\/", "", "".join(text))
-            text = re.sub("(?i)\/inaudible\/", "", "".join(text))
-            text = re.sub("\/RD(.*?)\/", "", "".join(text))
-            text = re.sub("\/(\?)\1*\/", "", "".join(text))
-
-            # remove nonlinguistic markers
-            text = remove_markers(text, ["<>", "()", "{}"])
-
-            return text
 
         for segment in segments:
             segment_filename, _, _, _, source, _, _, content, *_ = segment
             sub_folder = os.path.join(self.root_dir, "CORAAL_audio", source.lower())
             audio_file = os.path.join(sub_folder, segment_filename)
+
             if not os.path.exists(audio_file):
                 audio_file = audio_file.replace(".wav", ".mp3")
+
             audio_files.append(audio_file)
-            content = clean_within_coraal(content)
-            transcript_texts.append(content)
+            transcript_texts.append(TextCleaner.clean_coraal_text(content))
 
         return audio_files, transcript_texts
 
 
-class chime6:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+class Chime6Loader(BaseDatasetLoader):
+    """Dataset loader for CHiME-6 Challenge dataset.
 
-    def load(self):
-        audio_files = []
-        transcript_texts = []
+    CHiME-6 focuses on distant multi-microphone conversational speech recognition
+    in everyday home environments. The challenge addresses far-field speech recognition
+    with multiple speakers and environmental noise.
+
+    Dataset Structure:
+        - JSON transcript files with segment metadata
+        - Audio segments with precise timing information
+        - Multi-microphone array recordings
+
+    Returns:
+        Tuple of audio file paths and corresponding transcript texts
+
+    Reference:
+        Watanabe, S., et al. "CHiME-6 Challenge: Tackling Multispeaker Speech Recognition
+        for Unsegmented Recordings."
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load CHiME-6 audio segments and transcripts.
+
+        Parses JSON transcript files to extract audio segment paths and their
+        corresponding word-level transcriptions.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of audio segment file paths
+                - List of corresponding transcript strings
+        """
+        audio_files, transcript_texts = [], []
 
         for p in glob.glob(f"{self.root_dir}/transcripts/*.json"):
             with open(p, "r") as f:
@@ -440,16 +630,39 @@ class chime6:
         return audio_files, transcript_texts
 
 
-class WSJ:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+class WSJLoader(BaseDatasetLoader):
+    """Dataset loader for Wall Street Journal (WSJ) corpus.
 
-    def load(self):
-        audio_files = []
-        transcript_files = []
+    The WSJ corpus contains read speech from the Wall Street Journal newspaper,
+    representing formal, news-domain speech. This loader handles the Kaldi-format
+    data organization with separate text and audio script files.
+
+    Dataset Structure:
+        - Kaldi format with wav.scp and text files
+        - Shell commands for audio extraction
+        - Formal, read speech content
+
+    Returns:
+        Tuple of audio extraction commands and corresponding transcript texts
+
+    Reference:
+        Paul, D. B., & Baker, J. M. "The design for the Wall Street Journal-based CSR corpus."
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load WSJ audio extraction commands and transcripts.
+
+        Parses Kaldi-format text and wav.scp files to create mappings between
+        utterance IDs, audio extraction commands, and transcript texts.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of shell commands for audio extraction
+                - List of corresponding transcript strings
+        """
+        audio_files, transcript_files = [], []
 
         for direc in glob.glob(f"{self.root_dir}/test_eval*"):
-            id_2_text = {}
             with open(f"{direc}/text") as f:
                 id_2_text = {
                     line.strip()
@@ -470,264 +683,158 @@ class WSJ:
         return audio_files, transcript_files
 
 
-class CallHome:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+class CallHomeLoader(BaseDatasetLoader):
+    """Dataset loader for CallHome English corpus.
 
-    def load(self):
-        audio_files = []
-        transcript_files = []
+    CallHome consists of conversational telephone speech between family members
+    and friends, representing informal, spontaneous speech patterns. This loader
+    handles the HUB5 evaluation format with multi-channel audio.
 
-        with open(
-            f"{self.root_dir}/2000_hub5_eng_eval_tr/reference/hub5e00.english.000405.stm",
-            "r",
-        ) as f:
+    Dataset Structure:
+        - HUB5 STM format with timing and channel information
+        - SPHERE audio files requiring channel extraction
+        - Conversational telephone speech
+
+    Returns:
+        Tuple of AudioSegment objects with timing and corresponding transcript texts
+
+    Reference:
+        Canavan, A., et al. "CALLHOME American English Speech."
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load CallHome audio segments and transcripts.
+
+        Delegates to the shared HUB5 data loading logic with English prefix
+        to extract CallHome-specific segments.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of AudioSegment tuples (wav_file, start_time, end_time)
+                - List of corresponding transcript strings
+        """
+        return self._load_hub5_data("en")
+
+
+class SwitchBoardLoader(BaseDatasetLoader):
+    """Dataset loader for Switchboard corpus.
+
+    Switchboard contains conversational telephone speech between strangers discussing
+    predetermined topics. Like CallHome, it uses the HUB5 evaluation format but
+    represents more structured conversational speech.
+
+    Dataset Structure:
+        - HUB5 STM format with timing and channel information
+        - SPHERE audio files requiring channel extraction
+        - Topic-guided conversational speech
+
+    Returns:
+        Tuple of AudioSegment objects with timing and corresponding transcript texts
+
+    Reference:
+        Godfrey, J. J., et al. "SWITCHBOARD: telephone speech corpus for research and development."
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load Switchboard audio segments and transcripts.
+
+        Delegates to the shared HUB5 data loading logic with Switchboard prefix
+        to extract Switchboard-specific segments.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of AudioSegment tuples (wav_file, start_time, end_time)
+                - List of corresponding transcript strings
+        """
+        return self._load_hub5_data("sw")
+
+    def _load_hub5_data(self, prefix: str) -> Tuple[list, list]:
+        """Common logic for CallHome and SwitchBoard datasets.
+
+        Parses HUB5 STM format files to extract audio segments with precise timing
+        information. Handles channel separation using Sox audio processing.
+
+        Args:
+            prefix (str): Dataset prefix ("en" for CallHome, "sw" for Switchboard)
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of AudioSegment tuples (wav_file, start_time, end_time)
+                - List of corresponding transcript strings
+
+        Note:
+            Requires Sox audio processing tool for SPHERE format conversion
+            and channel extraction.
+        """
+        audio_files, transcript_files = [], []
+
+        stm_path = f"{self.root_dir}/2000_hub5_eng_eval_tr/reference/hub5e00.english.000405.stm"
+        with open(stm_path, "r") as f:
             for line in f:
-                if line.startswith(";;"):
+                if line.startswith(";;") or not line.startswith(prefix):
                     continue
-                elif line.startswith("en"):
-                    audio_file = (
-                        f"{self.root_dir}/hub5e_00/english/"
-                        + line.split(" ")[0]
-                        + ".sph"
+
+                parts = line.split(" ")
+                audio_file = f"{self.root_dir}/hub5e_00/english/{parts[0]}.sph"
+                channel = parts[1]
+
+                wav_file = f"{audio_file.split('.')[0]}_{channel}.wav"
+                if not os.path.exists(wav_file):
+                    remix_channel = "1" if channel == "A" else "2"
+                    subprocess.run(
+                        ["sox", audio_file, wav_file, "remix", remix_channel],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
                     )
-                    channel = line.split(" ")[1]
-                    if channel == "A":
-                        wav_file = audio_file.split(".")[0] + "_A.wav"
-                        if not os.path.exists(wav_file):
-                            _ = subprocess.run(
-                                ["sox", audio_file, wav_file, "remix", "1"],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                            )
-                    elif channel == "B":
-                        wav_file = audio_file.split(".")[0] + "_B.wav"
-                        if not os.path.exists(wav_file):
-                            _ = subprocess.run(
-                                ["sox", audio_file, wav_file, "remix", "2"],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                            )
-                    transcript_text = re.split(r"<[^>]+>", line)[-1].strip()
-                    start_time = float(line.split(" ")[3])
-                    if line.split(" ")[4] != "":
-                        end_time = float(line.split(" ")[4])
-                    elif line.split(" ")[5] != "":
-                        end_time = float(line.split(" ")[5])
-                    else:
-                        end_time = float(line.split(" ")[6])
-                    audio_files.append((wav_file, start_time, end_time))
-                    transcript_files.append(transcript_text)
+
+                transcript_text = re.split(r"<[^>]+>", line)[-1].strip()
+                start_time = float(parts[3])
+
+                # Find end_time from available parts
+                end_time = None
+                for i in [4, 5, 6]:
+                    if i < len(parts) and parts[i]:
+                        end_time = float(parts[i])
+                        break
+
+                audio_files.append((wav_file, start_time, end_time))
+                transcript_files.append(transcript_text)
 
         return audio_files, transcript_files
 
 
-class SwitchBoard:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+class Kincaid46Loader(BaseDatasetLoader):
+    """Dataset loader for Kincaid46 corpus.
 
-    def load(self):
-        audio_files = []
-        transcript_files = []
+    Kincaid46 is a specialized evaluation dataset containing 46 utterances designed
+    to test specific aspects of speech recognition performance. The dataset focuses
+    on carefully selected linguistic content for controlled evaluation.
 
-        with open(
-            f"{self.root_dir}/2000_hub5_eng_eval_tr/reference/hub5e00.english.000405.stm",
-            "r",
-        ) as f:
-            for line in f:
-                if line.startswith(";;"):
-                    continue
-                elif line.startswith("sw"):
-                    audio_file = (
-                        f"{self.root_dir}/hub5e_00/english/"
-                        + line.split(" ")[0]
-                        + ".sph"
-                    )
-                    channel = line.split(" ")[1]
-                    if channel == "A":
-                        wav_file = audio_file.split(".")[0] + "_A.wav"
-                        if not os.path.exists(wav_file):
-                            _ = subprocess.run(
-                                ["sox", audio_file, wav_file, "remix", "1"],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                            )
-                    elif channel == "B":
-                        wav_file = audio_file.split(".")[0] + "_B.wav"
-                        if not os.path.exists(wav_file):
-                            _ = subprocess.run(
-                                ["sox", audio_file, wav_file, "remix", "2"],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                            )
-                    transcript_text = re.split(r"<[^>]+>", line)[-1].strip()
-                    start_time = float(line.split(" ")[3])
-                    if line.split(" ")[4] != "":
-                        end_time = float(line.split(" ")[4])
-                    elif line.split(" ")[5] != "":
-                        end_time = float(line.split(" ")[5])
-                    else:
-                        end_time = float(line.split(" ")[6])
-                    audio_files.append((wav_file, start_time, end_time))
-                    transcript_files.append(transcript_text)
+    Dataset Structure:
+        - CSV file format with metadata and transcripts
+        - M4A audio files with zero-padded naming convention
+        - Compact size for targeted evaluation scenarios
 
-        return audio_files, transcript_files
+    Returns:
+        Tuple of audio file paths and corresponding transcript texts
 
+    Note:
+        This is a smaller, specialized corpus primarily used for specific
+        evaluation scenarios or as a subset for quick testing.
+    """
 
-class TEDLIUM_long(TEDLIUM):
-    def __init__(
-        self,
-        root: Union[str, Path],
-        release: str = "release1",
-        subset: str = "train",
-        download: bool = False,
-        audio_ext: str = ".sph",
-    ) -> None:
-        self._ext_audio = audio_ext
-        if release in _RELEASE_CONFIGS.keys():
-            folder_in_archive = _RELEASE_CONFIGS[release]["folder_in_archive"]
-            url = _RELEASE_CONFIGS[release]["url"]
-            subset = subset if subset else _RELEASE_CONFIGS[release]["subset"]
-        else:
-            # Raise warning
-            raise RuntimeError(
-                "The release {} does not match any of the supported tedlium releases{} ".format(
-                    release,
-                    _RELEASE_CONFIGS.keys(),
-                )
-            )
-        if subset not in _RELEASE_CONFIGS[release]["supported_subsets"]:
-            # Raise warning
-            raise RuntimeError(
-                "The subset {} does not match any of the supported tedlium subsets{} ".format(
-                    subset,
-                    _RELEASE_CONFIGS[release]["supported_subsets"],
-                )
-            )
+    def load(self) -> Tuple[list, list]:
+        """Load Kincaid46 audio files and transcripts.
 
-        # Get string representation of 'root' in case Path object is passed
-        root = os.fspath(root)
+        Parses the CSV metadata file and maps entries to corresponding M4A audio
+        files using a zero-padded naming convention.
 
-        basename = os.path.basename(url)
-        archive = os.path.join(root, basename)
-
-        basename = basename.split(".")[0]
-
-        if release == "release3":
-            if subset == "train":
-                self._path = os.path.join(
-                    root, folder_in_archive, _RELEASE_CONFIGS[release]["data_path"]
-                )
-            else:
-                self._path = os.path.join(root, folder_in_archive, "legacy", subset)
-        else:
-            self._path = os.path.join(
-                root, folder_in_archive, _RELEASE_CONFIGS[release]["data_path"], subset
-            )
-
-        if download:
-            if not os.path.isdir(self._path):
-                if not os.path.isfile(archive):
-                    checksum = _RELEASE_CONFIGS[release]["checksum"]
-                    download_url_to_file(url, archive, hash_prefix=checksum)
-                _extract_tar(archive)
-        else:
-            if not os.path.exists(self._path):
-                raise RuntimeError(
-                    f"The path {self._path} doesn't exist. "
-                    "Please check the ``root`` path or set `download=True` to download it"
-                )
-
-        # Create list for all samples
-        self._filelist = []
-        stm_path = os.path.join(self._path, "stm")
-        for file in sorted(os.listdir(stm_path)):
-            if file.endswith(".stm"):
-                # stm_path = os.path.join(self._path, "stm", file)
-                # with open(stm_path) as f:
-                #     l = len(f.readlines())
-                #     file = file.replace(".stm", "")
-                #     self._filelist.extend((file, line) for line in range(l))
-                file = file.replace(".stm", "")
-                self._filelist.append(file)
-        # Create dict path for later read
-        self._dict_path = os.path.join(
-            root, folder_in_archive, _RELEASE_CONFIGS[release]["dict"]
-        )
-        self._phoneme_dict = None
-
-    def _load_tedlium_item(self, fileid, path):
-        transcript_path = os.path.join(path, "stm", fileid)
-        transcript_segs = []
-        init_start_time = None
-        final_end_time = None
-        init_talk_id = None
-        init_speaker_id = None
-        init_identifier = None
-
-        with open(transcript_path + ".stm") as f:
-            lines = f.readlines()
-        l = len(lines)
-
-        for i, line in enumerate(lines):
-            talk_id, _, speaker_id, start_time, end_time, identifier, transcript_seg = (
-                line.split(" ", 6)
-            )
-
-            if i == 0:
-                init_start_time = start_time
-
-            if i == 1:
-                init_talk_id = talk_id
-                init_speaker_id = speaker_id
-                init_identifier = identifier
-
-            if i == l - 1:
-                final_end_time = end_time
-
-            # transcript_segs.append(transcript_seg.strip())
-
-            if transcript_seg.strip() != "ignore_time_segment_in_scoring":
-                transcript_segs.append(transcript_seg.strip())
-            # transcript = f.readlines()[line]
-            # talk_id, _, speaker_id, start_time, end_time, identifier, transcript = transcript.split(" ", 6)
-
-        start_time = init_start_time
-        end_time = final_end_time
-        talk_id = init_talk_id
-        speaker_id = init_speaker_id
-        identifier = init_identifier
-
-        transcript = " ".join(transcript_segs)
-
-        wave_path = os.path.join(path, "sph", fileid)
-        waveform, sample_rate = self._load_audio(
-            wave_path + self._ext_audio, start_time=start_time, end_time=end_time
-        )
-
-        return (waveform, sample_rate, transcript, talk_id, speaker_id, identifier)
-
-    def _load_audio(self, path, start_time, end_time, sample_rate=16000):
-        start_time = int(float(start_time) * sample_rate)
-        end_time = int(float(end_time) * sample_rate)
-
-        kwargs = {"frame_offset": start_time, "num_frames": end_time - start_time}
-
-        return torchaudio.load(path, **kwargs)
-
-    def __getitem__(self, n):
-        fileid = self._filelist[n]
-        return self._load_tedlium_item(fileid, self._path)
-
-
-# Kincaid46
-class Kincaid46:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
-
-    def load(self):
-        audio_files = []
-        transcript_texts = []
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of M4A audio file paths
+                - List of corresponding transcript strings from CSV column 5
+        """
+        audio_files, transcript_texts = [], []
 
         with open(f"{self.root_dir}/text.csv", "r") as f:
             reader = csv.reader(f)
@@ -735,21 +842,44 @@ class Kincaid46:
                 if i == 0:
                     continue
                 audio_file = os.path.join(self.root_dir, "audio", f"{(i - 1):02}.m4a")
-                transcript_text = row[5]
+                transcript_texts.append(row[5])
                 audio_files.append(audio_file)
-                transcript_texts.append(transcript_text)
 
         return audio_files, transcript_texts
 
 
-# CORAAL_long
-class CORAAL_long:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+class CORAALLongLoader(BaseDatasetLoader):
+    """Dataset loader for CORAAL long-form transcription variant.
 
-    def load(self):
-        audio_files = []
-        transcript_texts = []
+    This loader handles the long-form version of the CORAAL corpus, designed for
+    extended speech recognition evaluation. Unlike the segmented CORAAL corpus,
+    this version provides longer continuous audio segments.
+
+    Dataset Structure:
+        - JSONL format with audio paths and full transcripts
+        - Longer audio segments for long-form evaluation
+        - Pre-cleaned transcript text (no additional markup processing needed)
+
+    Returns:
+        Tuple of audio file paths and corresponding transcript texts
+
+    Reference:
+        Extended version of Kendall, T., & Farrington, C. "The Corpus of Regional
+        African American Language" adapted for long-form transcription tasks.
+    """
+
+    def load(self) -> Tuple[list, list]:
+        """Load CORAAL long-form audio files and transcripts.
+
+        Parses the JSONL file to extract audio file paths and their corresponding
+        full transcript texts for long-form evaluation.
+
+        Returns:
+            Tuple[list, list]: A tuple containing:
+                - List of audio file paths
+                - List of complete transcript strings
+        """
+        audio_files, transcript_texts = [], []
 
         with open(f"{self.root_dir}/coraal_transcripts.jsonl", "r") as f:
             for line in f:
@@ -760,549 +890,759 @@ class CORAAL_long:
         return audio_files, transcript_texts
 
 
-class MLS:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+class DatasetFactory:
+    """Factory pattern implementation for creating dataset loaders.
 
-    def load(self):
-        main_dir = f"{self.root_dir}/test"
-        transcript_fp = f"{main_dir}/transcripts.txt"
-        audio_dir = f"{main_dir}/audio"
+    This factory class provides a centralized way to instantiate appropriate dataset
+    loaders based on evaluation set names. It maintains a registry of all supported
+    datasets and their corresponding loader classes.
 
-        with open(transcript_fp, "r") as f:
-            audio_text_tpl = [line.strip().split("\t") for line in f]
+    The factory pattern allows for easy extension of new datasets without modifying
+    existing code, promoting the open-closed principle.
 
-        audio_text = {}
-        for audio_file, text in audio_text_tpl:
-            audio_fp = os.path.join(
-                audio_dir,
-                audio_file.split("_")[0],
-                audio_file.split("_")[1],
-                f"{audio_file}.opus",
-            )
-            audio_text[audio_fp] = text.strip()
+    Attributes:
+        _loaders (Dict[str, Type[BaseDatasetLoader]]): Registry mapping dataset names
+            to their corresponding loader classes
 
-        return list(audio_text.keys()), list(audio_text.values())
+    Methods:
+        create_loader: Factory method to instantiate appropriate dataset loader
+
+    Supported Datasets:
+        - LibriSpeech (clean/other): Large audiobook corpus
+        - Artie Bias Corpus: Bias evaluation dataset
+        - FLEURS: Multilingual few-shot learning corpus
+        - VoxPopuli: Parliamentary speech corpus
+        - AMI: Meeting corpus (IHM/SDM)
+        - CORAAL: African American Language corpus (standard/long)
+        - CHiME-6: Multi-microphone challenge corpus
+        - WSJ: Wall Street Journal read speech
+        - CallHome: Conversational telephone speech
+        - Switchboard: Topic-guided conversation corpus
+        - Kincaid46: Specialized evaluation corpus
+
+    Example:
+        >>> factory = DatasetFactory()
+        >>> loader = factory.create_loader("librispeech_clean", "/path/to/data")
+        >>> audio_files, transcripts = loader.load()
+    """
+
+    _loaders = {
+        "librispeech_clean": LibrispeechLoader,
+        "librispeech_other": LibrispeechLoader,
+        "artie_bias_corpus": ArtieBiasCorpusLoader,
+        "fleurs": FleursLoader,
+        "voxpopuli": VoxPopuliLoader,
+        "ami_ihm": AMILoader,
+        "ami_sdm": AMILoader,
+        "coraal": CORAALLoader,
+        "chime6": Chime6Loader,
+        "wsj": WSJLoader,
+        "callhome": CallHomeLoader,
+        "switchboard": SwitchBoardLoader,
+        "kincaid46": Kincaid46Loader,
+        "coraal_long": CORAALLongLoader,
+    }
+
+    @classmethod
+    def create_loader(cls, eval_set: str, root_dir: str) -> BaseDatasetLoader:
+        """Create appropriate dataset loader for the specified evaluation set.
+
+        Factory method that instantiates the correct dataset loader class based on
+        the evaluation set name. Provides type safety and centralized loader management.
+
+        Args:
+            eval_set (str): Name of the evaluation dataset (must be in supported list)
+            root_dir (str): Root directory path containing the dataset files
+
+        Returns:
+            BaseDatasetLoader: Instantiated dataset loader for the specified eval_set
+
+        Raises:
+            ValueError: If eval_set is not in the supported datasets registry
+
+        Example:
+            >>> loader = DatasetFactory.create_loader("librispeech_clean", "/data/libri")
+            >>> audio_files, transcripts = loader.load()
+            >>> print(f"Loaded {len(audio_files)} audio files")
+        """
+        if eval_set not in cls._loaders:
+            raise ValueError(f"Unknown eval_set: {eval_set}")
+        return cls._loaders[eval_set](root_dir)
+
+
+# Legacy classes for backwards compatibility
+Librispeech = LibrispeechLoader
+ArtieBiasCorpus = ArtieBiasCorpusLoader
+Fleurs = FleursLoader
+VoxPopuli = VoxPopuliLoader
+AMI = AMILoader
+CORAAL = CORAALLoader
+chime6 = Chime6Loader
+WSJ = WSJLoader
+CallHome = CallHomeLoader
+SwitchBoard = SwitchBoardLoader
+Kincaid46 = Kincaid46Loader
+CORAAL_long = CORAALLongLoader
 
 
 class EvalDataset(Dataset):
+    """PyTorch Dataset for ASR evaluation across multiple datasets and tasks.
+
+    This dataset class provides a unified interface for loading and preprocessing
+    evaluation data for both short-form and long-form speech recognition tasks.
+    It handles the complexity of different dataset formats, audio preprocessing,
+    and HuggingFace integration.
+
+    The dataset supports two main evaluation paradigms:
+    1. Short-form transcription: Fixed-length audio segments with mel-spectrograms
+    2. Long-form transcription: Variable-length audio for extended speech
+
+    Attributes:
+        eval_set (str): Name of the evaluation dataset
+        task (str): Transcription task type ("eng_transcribe" or "long_form_transcribe")
+        n_mels (int): Number of mel-spectrogram bins for short-form tasks
+        audio_processor (AudioProcessor): Audio preprocessing utilities
+        dataset: Loaded dataset (HuggingFace or custom loader)
+        audio_files (list): Audio file paths (for custom datasets)
+        transcript_texts (list): Transcript texts (for custom datasets)
+
+    Supported Datasets:
+        Short-form: LibriSpeech, TEDLIUM, WSJ, CallHome, Switchboard, Common Voice,
+                   Artie Bias Corpus, CORAAL, CHiME-6, AMI, VoxPopuli, FLEURS
+        Long-form: TEDLIUM, Meanwhile, Rev16, Earnings21, Earnings22, CORAAL, Kincaid46
+
+    Example:
+        >>> # Short-form evaluation
+        >>> dataset = EvalDataset(
+        ...     task="eng_transcribe",
+        ...     eval_set="librispeech_clean",
+        ...     eval_dir="data/eval"
+        ... )
+        >>> dataloader = DataLoader(dataset, batch_size=32)
+        >>>
+        >>> # Long-form evaluation
+        >>> dataset = EvalDataset(
+        ...     task="long_form_transcribe",
+        ...     eval_set="tedlium",
+        ...     eval_dir="data/eval"
+        ... )
+    """
+
     def __init__(
         self,
-        task: Literal[
-            "eng_transcribe",
-            "long_form_transcribe",
-            "ml_transcribe",
-            "translate",
-            "lang_id",
-        ],
+        task: Literal["eng_transcribe", "long_form_transcribe"],
         eval_set: Literal[
             "librispeech_clean",
             "librispeech_other",
-            "multilingual_librispeech",
-            "artie_bias_corpus",
-            "fleurs",
             "tedlium",
-            "voxpopuli",
+            "wsj",
+            "callhome",
+            "switchboard",
             "common_voice",
+            "artie_bias_corpus",
+            "coraal",
+            "chime6",
             "ami_ihm",
             "ami_sdm",
+            "voxpopuli",
+            "fleurs",
+            "meanwhile",
+            "kincaid46",
+            "rev16",
+            "earnings21",
+            "earnings22",
         ],
-        lang: Optional[str] = None,
         hf_token: Optional[str] = None,
         eval_dir: str = "data/eval",
-        n_mels: int = 80,
+        n_mels: int = DEFAULT_N_MELS,
     ):
-        if task == "eng_transcribe":
-            if eval_set == "librispeech_clean":
-                root_dir = f"{eval_dir}/librispeech_test_clean"
-                if not os.path.exists(root_dir):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+        """Initialize the evaluation dataset.
 
-                self.dataset = Librispeech(root_dir=root_dir)
-                # self.dataset = load_dataset(
-                #     path="openslr/librispeech_asr",
-                #     name="clean",
-                #     split="test",
-                #     cache_dir=eval_dir,
-                #     trust_remote_code=True,
-                #     num_proc=15,
-                #     save_infos=True,
-                #     token=hf_token,
-                # )
-            elif eval_set == "librispeech_other":
-                root_dir = f"{eval_dir}/librispeech_test_other"
-                if not os.path.exists(root_dir):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+        Sets up the appropriate dataset loader based on the evaluation set and task type.
+        Handles both HuggingFace datasets and custom dataset loaders with automatic
+        data downloading if needed.
 
-                self.dataset = Librispeech(root_dir=root_dir)
-            elif eval_set == "multilingual_librispeech":
-                root_dir = f"{eval_dir}/mls/mls_{lang}_opus"
-                if not os.path.exists(root_dir):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir, lang=lang)
+        Args:
+            task (Literal): Type of transcription task - either "eng_transcribe" for
+                short-form or "long_form_transcribe" for extended audio
+            eval_set (Literal): Name of the evaluation dataset to load
+            hf_token (Optional[str], optional): HuggingFace authentication token for
+                private datasets. Defaults to None.
+            eval_dir (str, optional): Directory for storing evaluation datasets.
+                Defaults to "data/eval".
+            n_mels (int, optional): Number of mel-spectrogram bins for short-form tasks.
+                Defaults to DEFAULT_N_MELS.
 
-                self.dataset = MLS(root_dir=root_dir)
-            elif eval_set == "artie_bias_corpus":
-                root_dir = f"{eval_dir}/artie-bias-corpus"
-                if not os.path.exists(root_dir):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+        Raises:
+            ValueError: If eval_set is not supported for the specified task
+            FileNotFoundError: If required dataset files are not found and cannot be downloaded
 
-                self.dataset = ArtieBiasCorpus(root_dir=root_dir)
-            elif eval_set == "fleurs":
-                if not os.path.exists(f"{eval_dir}/google___fleurs/en_us"):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-                self.dataset = load_dataset(
-                    path="google/fleurs",
-                    name="en_us",
-                    split="test",
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                )
-            elif eval_set == "tedlium":
-                if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-                self.dataset = TEDLIUM(
-                    root=f"{eval_dir}", release="release3", subset="test"
-                )
-            elif eval_set == "voxpopuli":
-                if not os.path.exists(f"{eval_dir}/facebook___voxpopuli"):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-                self.dataset = load_dataset(
-                    path="facebook/voxpopuli",
-                    name="en",
-                    split="test",
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                )
-            elif eval_set == "common_voice":
-                if not os.path.exists(
-                    f"{eval_dir}/mozilla-foundation___common_voice_5_1"
-                ):
-                    get_eval_set(
-                        eval_set=eval_set, eval_dir=eval_dir, hf_token=hf_token
-                    )
-
-                self.dataset = load_dataset(
-                    path="mozilla-foundation/common_voice_5_1",
-                    name="en",
-                    split="test",
-                    token=hf_token,
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                )
-            elif eval_set == "ami_ihm":
-                root_dir = f"{eval_dir}/ami/ihm"
-                if not os.path.exists(root_dir):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-                self.dataset = AMI(root_dir=root_dir)
-            elif eval_set == "ami_sdm":
-                root_dir = f"{eval_dir}/ami/sdm"
-                if not os.path.exists(root_dir):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-                self.dataset = AMI(root_dir=root_dir)
-            elif eval_set == "coraal":
-                root_dir = f"{eval_dir}/coraal"
-                if not os.path.exists(root_dir):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-                self.dataset = CORAAL(root_dir=root_dir)
-            elif eval_set == "chime6":
-                root_dir = f"{eval_dir}/chime6"
-                if not os.path.exists(root_dir):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-                self.dataset = chime6(root_dir=root_dir)
-            elif eval_set == "wsj":
-                root_dir = f"{eval_dir}/kaldi/egs/wsj/s5/data"
-                self.dataset = WSJ(root_dir=root_dir)
-            elif eval_set == "callhome":
-                root_dir = eval_dir
-                self.dataset = CallHome(root_dir=root_dir)
-            elif eval_set == "switchboard":
-                root_dir = eval_dir
-                self.dataset = SwitchBoard(root_dir=root_dir)
-        elif task == "long_form_transcribe":
-            if eval_set == "tedlium":
-                self.dataset = load_dataset(
-                    path="distil-whisper/tedlium-long-form",
-                    split="test",
-                    token=hf_token,
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                )
-
-                # if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
-                #     get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-
-                # self.dataset = TEDLIUM_long(
-                #     root=f"{eval_dir}", release="release3", subset="test"
-                # )
-            elif eval_set == "meanwhile":
-                self.dataset = load_dataset(
-                    path="distil-whisper/meanwhile",
-                    split="test",
-                    token=hf_token,
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                )
-            elif eval_set == "rev16":
-                self.dataset = load_dataset(
-                    path="distil-whisper/rev16",
-                    name="whisper_subset",
-                    split="test",
-                    token=hf_token,
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                )
-            elif eval_set == "earnings21":
-                self.dataset = load_dataset(
-                    path="distil-whisper/earnings21",
-                    name="full",
-                    split="test",
-                    token=hf_token,
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                )
-            elif eval_set == "earnings22":
-                self.dataset = load_dataset(
-                    path="distil-whisper/earnings22",
-                    name="full",
-                    split="test",
-                    token=hf_token,
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                )
-            elif eval_set == "coraal":
-                if not os.path.exists(f"{eval_dir}/coraal_long"):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-                root_dir = f"{eval_dir}/coraal_long"
-                self.dataset = CORAAL_long(root_dir=root_dir)
-            elif eval_set == "kincaid46":
-                if not os.path.exists(f"{eval_dir}/kincaid46"):
-                    get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
-                root_dir = f"{eval_dir}/kincaid46"
-                self.dataset = Kincaid46(root_dir=root_dir)
-        elif task == "ml_transcribe":
-            if eval_set == "fleurs":
-                if len(os.listdir(f"{eval_dir}/google__fleurs")) < 102:
-                    get_eval_set(eval_set="fleurs", eval_dir=eval_dir)
-
-                self.dataset = load_dataset(
-                    path="google/fleurs",
-                    name="all",
-                    split="test",
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                )
-            else:
-                if not os.path.exists(f"{eval_dir}/google___fleurs/{lang}"):
-                    get_eval_set(eval_set="fleurs", eval_dir=eval_dir, lang=lang)
-
-                self.dataset = load_dataset(
-                    path="google/fleurs",
-                    name=lang,
-                    split="test",
-                    cache_dir=eval_dir,
-                    trust_remote_code=True,
-                    num_proc=15,
-                    save_infos=True,
-                )
-        elif task == "translate":
-            pass
-        elif task == "lang_id":
-            if not os.path.exists(f"{eval_dir}/google___fleurs/all"):
-                get_eval_set(eval_set="fleurs", lang="all", eval_dir=eval_dir)
-
-            self.dataset = load_dataset(
-                path="google/fleurs",
-                name="all",
-                split="test",
-                cache_dir=eval_dir,
-                trust_remote_code=True,
-                num_proc=15,
-                save_infos=True,
-            )
-
+        Example:
+            >>> dataset = EvalDataset(
+            ...     task="eng_transcribe",
+            ...     eval_set="librispeech_clean",
+            ...     eval_dir="/data/eval",
+            ...     n_mels=80
+            ... )
+        """
         self.eval_set = eval_set
         self.task = task
         self.n_mels = n_mels
+        self.audio_processor = AudioProcessor()
 
-        if self.eval_set not in [   
-            "tedlium",
-            "common_voice",
-            "fleurs",
-            "voxpopuli",
-            "meanwhile",
-            "rev16",
-            "earnings21",
-            "earnings22",
+        if eval_set in HF_DATASETS:
+            self._init_hf_dataset(eval_set, eval_dir, hf_token, task)
+        else:
+            self._init_custom_dataset(eval_set, eval_dir, task)
+
+    def _init_hf_dataset(
+        self, eval_set: str, eval_dir: str, hf_token: Optional[str], task: str
+    ):
+        """Initialize HuggingFace datasets."""
+        dataset_configs = {
+            "fleurs": {
+                "path": "google/fleurs",
+                "name": "en_us",
+                "cache_subdir": "google___fleurs/en_us",
+            },
+            "voxpopuli": {
+                "path": "facebook/voxpopuli",
+                "name": "en",
+                "cache_subdir": "facebook___voxpopuli",
+            },
+            "common_voice": {
+                "path": "mozilla-foundation/common_voice_5_1",
+                "name": "en",
+                "cache_subdir": "mozilla-foundation___common_voice_5_1",
+            },
+            "tedlium": {
+                "path": (
+                    "distil-whisper/tedlium-long-form"
+                    if task == "long_form_transcribe"
+                    else None
+                )
+            },
+            "meanwhile": {"path": "distil-whisper/meanwhile"},
+            "rev16": {"path": "distil-whisper/rev16", "name": "whisper_subset"},
+            "earnings21": {"path": "distil-whisper/earnings21", "name": "full"},
+            "earnings22": {"path": "distil-whisper/earnings22", "name": "full"},
+        }
+
+        config = dataset_configs[eval_set]
+
+        if eval_set == "tedlium" and task == "eng_transcribe":
+            # Use TEDLIUM from torchaudio for eng_transcribe
+            if not os.path.exists(f"{eval_dir}/TEDLIUM_release-3"):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+            self.dataset = TEDLIUM(root=eval_dir, release="release3", subset="test")
+        else:
+            # Check if dataset exists
+            cache_subdir = config.get(
+                "cache_subdir", config["path"].replace("/", "___")
+            )
+            if not os.path.exists(f"{eval_dir}/{cache_subdir}"):
+                get_eval_set(eval_set=eval_set, eval_dir=eval_dir, hf_token=hf_token)
+
+            # Load dataset
+            load_kwargs = {
+                "path": config["path"],
+                "split": "test",
+                "cache_dir": eval_dir,
+                "trust_remote_code": True,
+                "num_proc": 15,
+                "save_infos": True,
+            }
+
+            if "name" in config:
+                load_kwargs["name"] = config["name"]
+            if hf_token:
+                load_kwargs["token"] = hf_token
+
+            self.dataset = load_dataset(**load_kwargs)
+
+    def _init_custom_dataset(self, eval_set: str, eval_dir: str, task: str):
+        """Initialize custom datasets."""
+        root_dirs = {
+            "librispeech_clean": f"{eval_dir}/librispeech_test_clean",
+            "librispeech_other": f"{eval_dir}/librispeech_test_other",
+            "artie_bias_corpus": f"{eval_dir}/artie-bias-corpus",
+            "ami_ihm": f"{eval_dir}/ami/ihm",
+            "ami_sdm": f"{eval_dir}/ami/sdm",
+            "coraal": (
+                f"{eval_dir}/coraal_long"
+                if task == "long_form_transcribe"
+                else f"{eval_dir}/coraal"
+            ),
+            "chime6": f"{eval_dir}/chime6",
+            "wsj": f"{eval_dir}/kaldi/egs/wsj/s5/data",
+            "callhome": eval_dir,
+            "switchboard": eval_dir,
+            "kincaid46": f"{eval_dir}/kincaid46",
+        }
+
+        root_dir = root_dirs[eval_set]
+
+        # Download dataset if needed
+        if not os.path.exists(root_dir) and eval_set not in [
+            "wsj",
+            "callhome",
+            "switchboard",
         ]:
-            audio_files, transcript_texts = self.dataset.load()
-            self.audio_files = audio_files
-            self.transcript_texts = transcript_texts
+            get_eval_set(eval_set=eval_set, eval_dir=eval_dir)
+
+        # Create appropriate loader
+        loader_eval_set = (
+            "coraal_long"
+            if task == "long_form_transcribe" and eval_set == "coraal"
+            else eval_set
+        )
+        self.dataset = DatasetFactory.create_loader(loader_eval_set, root_dir)
+
+        # Load data for non-HF datasets
+        audio_files, transcript_texts = self.dataset.load()
+        self.audio_files = audio_files
+        self.transcript_texts = transcript_texts
 
     def __len__(self):
-        if self.eval_set in [
-            "tedlium",
-            "common_voice",
-            "fleurs",
-            "voxpopuli",
-            "meanwhile",
-            "rev16",
-            "earnings21",
-            "earnings22",
-        ]:
+        """Return the number of samples in the dataset.
+
+        Returns:
+            int: Total number of audio samples available for evaluation
+
+        Note:
+            For HuggingFace datasets, returns the length of the loaded dataset.
+            For custom datasets, returns the length of the audio files list.
+        """
+        if self.eval_set in HF_DATASETS:
             return len(self.dataset)
         return len(self.audio_files)
 
     def __getitem__(self, index):
-        audio_fp = ""
-        audio_arr = ""
+        """Get a single sample from the dataset.
 
+        Dispatches to appropriate method based on the transcription task type.
+        Returns preprocessed audio and transcript for model evaluation.
+
+        Args:
+            index (int): Index of the sample to retrieve
+
+        Returns:
+            Tuple: Task-specific tuple containing audio data and transcript
+                - For short-form: (audio_fp, audio_arr, audio_input, text_y)
+                - For long-form: (audio_fp, audio_arr, audio_input, text_y)
+
+        Example:
+            >>> dataset = EvalDataset(task="eng_transcribe", eval_set="librispeech_clean")
+            >>> audio_fp, audio_arr, mel_spec, transcript = dataset[0]
+            >>> print(f"Audio shape: {audio_arr.shape}, Transcript: {transcript}")
+        """
         if self.task == "eng_transcribe":
-            if self.eval_set == "tedlium":
-                # waveform, _, text_y, *_ = self.dataset[index]
-                # audio_arr = audio.pad_or_trim(waveform[0])
-                # audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-                waveform = self.dataset[index]["audio"]["array"]
-                audio_fp = self.dataset[index]["audio"]["path"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                text_y = self.dataset[index]["text"]
+            return self._get_short_form_item(index)
+        else:
+            return self._get_long_form_item(index)
 
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
+    def _get_short_form_item(self, index):
+        """Get item for short-form transcription.
 
-                audio_arr = audio.pad_or_trim(waveform)
-                audio_arr = audio_arr.astype(np.float32)
-                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-            elif self.eval_set == "common_voice":
-                waveform = self.dataset[index]["audio"]["array"]
-                audio_fp = self.dataset[index]["audio"]["path"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                text_y = self.dataset[index]["sentence"]
+        Retrieves and preprocesses audio for fixed-length transcription tasks.
+        Handles both HuggingFace and custom dataset formats.
 
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
+        Args:
+            index (int): Index of the sample to retrieve
 
-                audio_arr = audio.pad_or_trim(waveform)
-                audio_arr = audio_arr.astype(np.float32)
-                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-            elif self.eval_set == "fleurs":
-                waveform = self.dataset[index]["audio"]["array"]
-                audio_fp = self.dataset[index]["audio"]["path"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                text_y = self.dataset[index]["transcription"]
+        Returns:
+            Tuple[str, np.ndarray, torch.Tensor, str]: A tuple containing:
+                - audio_fp: Audio file path (empty string for some datasets)
+                - audio_arr: Raw audio waveform array
+                - audio_input: Mel-spectrogram tensor for model input
+                - text_y: Ground truth transcript string
+        """
+        if self.eval_set in HF_DATASETS:
+            return self._get_hf_short_form_item(index)
+        else:
+            return self._get_custom_short_form_item(index)
 
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
+    def _get_hf_short_form_item(self, index):
+        """Get HuggingFace dataset item for short-form transcription.
 
-                audio_arr = audio.pad_or_trim(waveform)
-                audio_arr = audio_arr.astype(np.float32)
-                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-            elif self.eval_set == "voxpopuli":
-                waveform = self.dataset[index]["audio"]["array"]
-                audio_fp = self.dataset[index]["audio"]["path"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                text_y = self.dataset[index]["normalized_text"]
+        Processes audio and text from HuggingFace dataset format, handling
+        dataset-specific text field mappings and audio preprocessing.
 
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
+        Args:
+            index (int): Index of the sample to retrieve
 
-                audio_arr = audio.pad_or_trim(waveform)
-                audio_arr = audio_arr.astype(np.float32)
-                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-            elif self.eval_set == "wsj":
-                result = subprocess.run(
-                    self.audio_files[index],
-                    shell=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                audio_bytes = io.BytesIO(result.stdout)
-                audio_arr, _ = torchaudio.load(audio_bytes)
-                audio_arr = audio_arr.squeeze(0)
-                audio_arr = audio.pad_or_trim(audio_arr)
-                audio_arr = audio_arr.float()
-                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-                text_y = self.transcript_texts[index]
-                audio_fp = ""
-            elif self.eval_set == "callhome" or self.eval_set == "switchboard":
-                audio_fp, start_time, end_time = self.audio_files[index]
-                # num_frames = int(end_time * 8000) - int(start_time * 8000)
-                # audio_arr, _ = torchaudio.load(audio_fp, frame_offset=int(start_time * 8000), num_frames=num_frames)
-                # # audio_arr = audio_arr.mean(dim=0, keepdim=True)
-                # if channel == "A":
-                #     audio_arr = audio_arr[0, :]
-                # elif channel == "B":
-                #     audio_arr = audio_arr[1, :]
-                # audio_arr = audio_arr.squeeze(0)
-                # audio_arr = audio.pad_or_trim(audio_arr)
-                # audio_arr = audio_arr.float()
-                # audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-                audio_arr, audio_input = self.preprocess_audio(
-                    audio_fp, sr=16000, start_time=start_time, end_time=end_time
-                )
-                text_y = self.transcript_texts[index]
+        Returns:
+            Tuple[str, np.ndarray, torch.Tensor, str]: A tuple containing:
+                - audio_fp: Audio file path from HuggingFace metadata
+                - audio_arr: Preprocessed audio waveform
+                - audio_input: Mel-spectrogram features
+                - text_y: Ground truth transcript from appropriate field
+        """
+        item = self.dataset[index]
+
+        text_field_map = {
+            "tedlium": "text",
+            "common_voice": "sentence",
+            "fleurs": "transcription",
+            "voxpopuli": "normalized_text",
+        }
+
+        waveform = item["audio"]["array"]
+        audio_fp = item["audio"]["path"]
+        sampling_rate = item["audio"]["sampling_rate"]
+        text_y = item[text_field_map[self.eval_set]]
+
+        audio_arr, audio_input = self.audio_processor.preprocess_hf_audio(
+            waveform, sampling_rate, self.n_mels, for_long_form=False
+        )
+
+        return audio_fp, audio_arr, audio_input, text_y
+
+    def _get_custom_short_form_item(self, index):
+        """Get custom dataset item for short-form transcription.
+
+        Handles dataset-specific loading and preprocessing for non-HuggingFace
+        datasets including special cases like WSJ command execution and
+        segmented audio from CallHome/Switchboard.
+
+        Args:
+            index (int): Index of the sample to retrieve
+
+        Returns:
+            Tuple[str, np.ndarray, torch.Tensor, str]: A tuple containing:
+                - audio_fp: Audio file path (or empty for WSJ)
+                - audio_arr: Preprocessed audio waveform
+                - audio_input: Mel-spectrogram features
+                - text_y: Ground truth transcript
+
+        Note:
+            WSJ dataset requires shell command execution for audio extraction.
+            CallHome/Switchboard use time-segmented audio with precise timing.
+        """
+        audio_fp = ""
+        text_y = self.transcript_texts[index]
+
+        if self.eval_set == "wsj":
+            result = subprocess.run(
+                self.audio_files[index],
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            audio_bytes = io.BytesIO(result.stdout)
+            audio_arr, _ = torchaudio.load(audio_bytes)
+            audio_arr = audio_arr.squeeze(0)
+            audio_arr = audio.pad_or_trim(audio_arr).float()
+            audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
+        elif self.eval_set in ["callhome", "switchboard"]:
+            audio_fp, start_time, end_time = self.audio_files[index]
+            audio_arr, audio_input = self.audio_processor.load_and_preprocess_audio(
+                audio_fp,
+                sr=SAMPLE_RATE,
+                start_time=start_time,
+                end_time=end_time,
+                n_mels=self.n_mels,
+            )
+        else:
+            audio_fp = self.audio_files[index]
+            audio_arr, audio_input = self.audio_processor.load_and_preprocess_audio(
+                audio_fp, n_mels=self.n_mels
+            )
+
+        return audio_fp, audio_arr, audio_input, text_y
+
+    def _get_long_form_item(self, index):
+        """Get item for long-form transcription.
+
+        Retrieves and preprocesses audio for variable-length transcription tasks.
+        Does not apply padding or compute mel-spectrograms for long-form evaluation.
+
+        Args:
+            index (int): Index of the sample to retrieve
+
+        Returns:
+            Tuple[str, np.ndarray, str, str]: A tuple containing:
+                - audio_fp: Audio file path (empty for most datasets)
+                - audio_arr: Full-length audio waveform
+                - audio_input: Empty string (no mel-spectrogram for long-form)
+                - text_y: Ground truth transcript string
+        """
+        if self.eval_set in HF_DATASETS:
+            return self._get_hf_long_form_item(index)
+        else:
+            return self._get_custom_long_form_item(index)
+
+    def _get_hf_long_form_item(self, index):
+        """Get HuggingFace dataset item for long-form transcription.
+
+        Processes long-form audio from HuggingFace datasets without padding
+        or mel-spectrogram computation. Handles dataset-specific text fields.
+
+        Args:
+            index (int): Index of the sample to retrieve
+
+        Returns:
+            Tuple[str, np.ndarray, str, str]: A tuple containing:
+                - Empty string for audio file path
+                - audio_arr: Full-length preprocessed audio waveform
+                - Empty string for audio input
+                - text_y: Ground truth transcript from appropriate field
+        """
+        item = self.dataset[index]
+
+        text_field_map = {
+            "tedlium": "text",
+            "meanwhile": "text",
+            "rev16": "transcription",
+            "earnings21": "transcription",
+            "earnings22": "transcription",
+        }
+
+        waveform = item["audio"]["array"]
+        sampling_rate = item["audio"]["sampling_rate"]
+        text_y = item[text_field_map[self.eval_set]]
+
+        audio_arr = self.audio_processor.preprocess_hf_audio(
+            waveform, sampling_rate, for_long_form=True
+        )
+
+        return "", audio_arr, "", text_y
+
+    def _get_custom_long_form_item(self, index):
+        """Get custom dataset item for long-form transcription.
+
+        Loads and preprocesses audio from custom dataset formats for
+        long-form evaluation without padding or feature extraction.
+
+        Args:
+            index (int): Index of the sample to retrieve
+
+        Returns:
+            Tuple[str, np.ndarray, str, str]: A tuple containing:
+                - Empty string for audio file path
+                - audio_arr: Full-length preprocessed audio waveform
+                - Empty string for audio input
+                - text_y: Ground truth transcript
+        """
+        waveform, sampling_rate = torchaudio.load(self.audio_files[index])
+        waveform = waveform.squeeze(0).cpu().numpy()
+        text_y = self.transcript_texts[index]
+
+        audio_arr = self.audio_processor.preprocess_hf_audio(
+            waveform, sampling_rate, for_long_form=True
+        )
+
+        return "", audio_arr, "", text_y
+
+    # Keep original method for backwards compatibility
+    def preprocess_audio(
+        self, audio_file, sr=SAMPLE_RATE, start_time=None, end_time=None
+    ):
+        """Legacy method for backwards compatibility.
+
+        Delegates to AudioProcessor for audio preprocessing. Maintained for
+        compatibility with existing code that may call this method directly.
+
+        Args:
+            audio_file (str): Path to audio file
+            sr (int, optional): Target sampling rate. Defaults to SAMPLE_RATE.
+            start_time (Optional[float], optional): Start time for segmentation.
+            end_time (Optional[float], optional): End time for segmentation.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Audio waveform and mel-spectrogram
+
+        Deprecated:
+            Use AudioProcessor.load_and_preprocess_audio() directly instead.
+        """
+        return self.audio_processor.load_and_preprocess_audio(
+            audio_file, sr, start_time, end_time, self.n_mels
+        )
+
+
+class WandBLogger:
+    """Handles Weights & Biases logging for ASR evaluation experiments.
+
+    This utility class provides standardized WandB integration for tracking
+    ASR evaluation experiments. It handles run initialization, model metadata
+    extraction, and logging configuration for both standalone evaluations
+    and training-integrated evaluations.
+
+    Key Features:
+        - Automatic model type and size detection from checkpoint paths
+        - Run ID persistence for experiment continuity
+        - Standardized project and entity configuration
+        - Evaluation table creation for detailed results logging
+
+    Methods:
+        init_wandb: Initialize WandB run with experiment configuration
+        _get_model_info: Extract model metadata from checkpoint paths
+
+    Example:
+        >>> table = WandBLogger.init_wandb(
+        ...     ckpt="models/whisper/large/model.pt",
+        ...     eval_set="librispeech_clean",
+        ...     wandb_log_dir="logs/wandb"
+        ... )
+        >>> # Run evaluation and log results to table
+    """
+
+    @staticmethod
+    def init_wandb(
+        ckpt: str,
+        eval_set: str,
+        train_exp_name: Optional[str] = None,
+        train_run_id: Optional[str] = None,
+        run_id_dir: Optional[str] = None,
+        wandb_log_dir: str = "wandb",
+    ):
+        """Initialize WandB run for evaluation experiment tracking.
+
+        Sets up a WandB run with appropriate configuration for ASR evaluation,
+        including model metadata, experiment naming, and run ID management
+        for experiment continuity.
+
+        Args:
+            ckpt (str): Path to model checkpoint file
+            eval_set (str): Name of evaluation dataset
+            train_exp_name (Optional[str], optional): Training experiment name for
+                linked evaluation runs. Defaults to None.
+            train_run_id (Optional[str], optional): Training run ID for linking
+                evaluation to training. Defaults to None.
+            run_id_dir (Optional[str], optional): Directory for storing persistent
+                run IDs. Defaults to None.
+            wandb_log_dir (str, optional): Directory for WandB logs.
+                Defaults to "wandb".
+
+        Returns:
+            wandb.Table: Initialized WandB table for logging evaluation results
+                with columns: eval_set, audio, prediction, target, subs, dels, ins, wer
+
+        Example:
+            >>> # Standalone evaluation
+            >>> table = WandBLogger.init_wandb(
+            ...     ckpt="models/whisper_large.pt",
+            ...     eval_set="librispeech_clean"
+            ... )
+            >>>
+            >>> # Training-linked evaluation
+            >>> table = WandBLogger.init_wandb(
+            ...     ckpt="checkpoints/epoch_10.pt",
+            ...     eval_set="tedlium",
+            ...     train_exp_name="whisper_training",
+            ...     train_run_id="abc123",
+            ...     run_id_dir="run_ids/"
+            ... )
+
+        Note:
+            Run IDs are persisted to disk for training experiments to allow
+            resumable evaluation tracking across multiple evaluation runs.
+        """
+        if train_exp_name is not None:
+            run_id_file = f"{run_id_dir}/{train_exp_name}_eval.txt"
+            if not os.path.exists(run_id_file):
+                run_id = wandb.util.generate_id()
+                with open(run_id_file, "w") as f:
+                    f.write(run_id)
             else:
-                audio_fp = self.audio_files[index]
-                audio_arr, audio_input = self.preprocess_audio(audio_fp)
-                text_y = self.transcript_texts[index]
+                with open(run_id_file, "r") as f:
+                    run_id = f.read().strip()
+        else:
+            run_id = wandb.util.generate_id()
 
-            return audio_fp, audio_arr, audio_input, text_y
-        elif self.task == "long_form_transcribe":
-            if self.eval_set == "tedlium":
-                waveform = self.dataset[index]["audio"]["array"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                text_y = self.dataset[index]["text"]
+        # Determine model info
+        model_info = WandBLogger._get_model_info(ckpt)
+        exp_name = (
+            f"{eval_set}_eval"
+            if model_info["type"] == "whisper"
+            else f"ow_{eval_set}_eval"
+        )
 
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
+        config = {
+            "ckpt": "/".join(ckpt.split("/")[-2:]),
+            "model": model_info["type"],
+            "model_size": model_info["size"],
+        }
+        if train_run_id is not None:
+            config["train_run_id"] = train_run_id
 
-                # audio_arr = audio.pad_or_trim(waveform)
-                # audio_arr = audio_arr.astype(np.float32)
-                audio_arr = waveform.astype(np.float32)
-                audio_input = ""
+        wandb.init(
+            id=run_id,
+            resume="allow",
+            project="open_whisper",
+            entity="dogml",
+            job_type="evals",
+            name=exp_name if train_exp_name is None else train_exp_name,
+            dir=wandb_log_dir,
+            config=config,
+            tags=["eval", eval_set, model_info["type"], model_info["size"]],
+        )
 
-                # audio_arr, _, text_y, talk_id, speaker_id, identifier = self.dataset[
-                #     index
-                # ]
-                # audio_input = ""
-                # audio_fp = "_".join([talk_id, speaker_id, identifier])
-            elif self.eval_set == "meanwhile":
-                waveform = self.dataset[index]["audio"]["array"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                text_y = self.dataset[index]["text"]
+        return wandb.Table(
+            columns=[
+                "eval_set",
+                "audio",
+                "prediction",
+                "target",
+                "subs",
+                "dels",
+                "ins",
+                "wer",
+            ]
+        )
 
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
+    @staticmethod
+    def _get_model_info(ckpt: str) -> Dict[str, str]:
+        """Extract model type and size from checkpoint path.
 
-                audio_arr = waveform.astype(np.float32)
-                audio_input = ""
-            elif self.eval_set == "rev16":
-                waveform = self.dataset[index]["audio"]["array"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                text_y = self.dataset[index]["transcription"]
+        Analyzes checkpoint file path to automatically determine model type
+        (whisper variants) and size for consistent experiment tagging and
+        organization in WandB.
 
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
+        Args:
+            ckpt (str): Path to model checkpoint file
 
-                audio_arr = waveform.astype(np.float32)
-                audio_input = ""
-            elif self.eval_set == "earnings21":
-                waveform = self.dataset[index]["audio"]["array"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                text_y = self.dataset[index]["transcription"]
+        Returns:
+            Dict[str, str]: Dictionary containing:
+                - "type": Model type ("whisper", "open-whisper", "yodas", "owsm")
+                - "size": Model size ("tiny", "small", "base", "medium", "large", "unknown")
 
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
+        Example:
+            >>> info = WandBLogger._get_model_info("models/ow_ckpts/large/model.pt")
+            >>> print(info)
+            {"type": "open-whisper", "size": "large"}
+            >>>
+            >>> info = WandBLogger._get_model_info("whisper_ckpts/base.pt")
+            >>> print(info)
+            {"type": "whisper", "size": "base"}
 
-                audio_arr = waveform.astype(np.float32)
-                audio_input = ""
-            elif self.eval_set == "earnings22":
-                waveform = self.dataset[index]["audio"]["array"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                text_y = self.dataset[index]["transcription"]
+        Note:
+            Model type detection is based on directory structure conventions:
+            - ow_ckpts/ -> "open-whisper"
+            - yodas/ -> "yodas"
+            - owsm/ -> "owsm"
+            - other -> "whisper"
+        """
+        path_parts = ckpt.split("/")
 
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
+        if len(path_parts) >= 3:
+            model_dir = path_parts[-3]
+            if model_dir == "ow_ckpts":
+                model_type = "open-whisper"
+            elif model_dir == "yodas":
+                model_type = "yodas"
+            elif model_dir == "owsm":
+                model_type = "owsm"
+            else:
+                model_type = "whisper"
+        else:
+            model_type = "whisper"
 
-                audio_arr = waveform.astype(np.float32)
-                audio_input = ""
-            elif self.eval_set == "coraal":
-                waveform, sampling_rate = torchaudio.load(self.audio_files[index])
-                waveform = waveform.squeeze(0).cpu().numpy()
-                text_y = self.transcript_texts[index]
+        # Extract model size
+        model_sizes = ["tiny", "small", "base", "medium", "large"]
+        model_size = next((size for size in model_sizes if size in ckpt), "unknown")
 
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
-
-                audio_arr = waveform.astype(np.float32)
-                audio_input = ""
-            elif self.eval_set == "kincaid46":
-                waveform, sampling_rate = torchaudio.load(self.audio_files[index])
-                waveform = waveform.squeeze(0).cpu().numpy()
-                text_y = self.transcript_texts[index]
-
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
-
-                audio_arr = waveform.astype(np.float32)
-                audio_input = ""
-            return audio_fp, audio_arr, audio_input, text_y
-        elif self.task == "ml_transcribe":
-            pass
-        elif self.task == "translate":
-            pass
-        elif self.task == "lang_id":
-            if self.eval_set == "fleurs":
-                waveform = self.dataset[index]["audio"]["array"]
-                sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-                language = self.dataset[index]["language"]
-                lang_id = FLEURS_LANG_TO_ID[language]
-
-                if sampling_rate != 16000:
-                    waveform = librosa.resample(
-                        waveform, orig_sr=sampling_rate, target_sr=16000
-                    )
-
-                audio_arr = audio.pad_or_trim(waveform)
-                audio_arr = audio_arr.astype(np.float32)
-                audio_input = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-
-            return audio_fp, audio_arr, audio_input, lang_id
-
-    def preprocess_audio(self, audio_file, sr=16000, start_time=None, end_time=None):
-        audio_arr = audio.load_audio(audio_file, sr=sr)
-        if start_time is not None and end_time is not None:
-            audio_arr = audio_arr[int(start_time * sr) : int(end_time * sr)]
-        audio_arr = audio.pad_or_trim(audio_arr)
-        audio_arr = audio_arr.astype(np.float32)
-        mel_spec = audio.log_mel_spectrogram(audio_arr, n_mels=self.n_mels)
-        return audio_arr, mel_spec
+        return {"type": model_type, "size": model_size}
 
 
 def short_form_eval(
@@ -1326,7 +1666,7 @@ def short_form_eval(
         "switchboard",
     ],
     log_dir: str,
-    n_mels: int = 80,
+    n_mels: int = DEFAULT_N_MELS,
     current_step: Optional[int] = None,
     train_exp_name: Optional[str] = None,
     train_run_id: Optional[str] = None,
@@ -1338,15 +1678,119 @@ def short_form_eval(
     cuda: bool = True,
     bootstrap: bool = False,
 ):
+    """Evaluate ASR model performance on short-form transcription tasks.
+
+    This is the main evaluation function for fixed-length audio segments (typically
+    30 seconds or less). It supports multiple evaluation datasets, automatic metric
+    computation, and optional experiment tracking via Weights & Biases.
+
+    The function handles the complete evaluation pipeline:
+    1. Checkpoint preparation and model loading
+    2. Dataset initialization and preprocessing
+    3. Batch inference with progress tracking
+    4. Metric computation (WER, substitutions, insertions, deletions)
+    5. Results logging (files, WandB, console output)
+    6. Optional bootstrap sampling for confidence intervals
+
+    Args:
+        batch_size (int): Number of audio samples per batch for inference
+        num_workers (int): Number of worker processes for data loading
+        ckpt (str): Path to model checkpoint file
+        eval_set (Literal): Name of evaluation dataset (see supported datasets below)
+        log_dir (str): Directory for saving evaluation results and logs
+        n_mels (int, optional): Number of mel-spectrogram bins. Defaults to DEFAULT_N_MELS.
+        current_step (Optional[int], optional): Training step number for linked evaluation.
+            Defaults to None.
+        train_exp_name (Optional[str], optional): Training experiment name for organization.
+            Defaults to None.
+        train_run_id (Optional[str], optional): Training run ID for linking to training.
+            Defaults to None.
+        wandb_log (bool, optional): Enable Weights & Biases logging. Defaults to False.
+        wandb_log_dir (Optional[str], optional): Directory for WandB logs. Defaults to None.
+        run_id_dir (Optional[str], optional): Directory for persistent run IDs. Defaults to None.
+        eval_dir (str, optional): Root directory for evaluation datasets. Defaults to "data/eval".
+        hf_token (Optional[str], optional): HuggingFace token for private datasets. Defaults to None.
+        cuda (bool, optional): Use CUDA acceleration if available. Defaults to True.
+        bootstrap (bool, optional): Enable bootstrap sampling for confidence intervals.
+            Defaults to False.
+
+    Supported Datasets:
+        - librispeech_clean: LibriSpeech test-clean (clean read speech)
+        - librispeech_other: LibriSpeech test-other (noisy read speech)
+        - artie_bias_corpus: Demographic bias evaluation corpus
+        - fleurs: Multilingual evaluation corpus (English subset)
+        - tedlium: TED talk corpus
+        - voxpopuli: Parliamentary speech corpus
+        - common_voice: Mozilla Common Voice corpus
+        - ami_ihm: AMI meeting corpus (individual headset mic)
+        - ami_sdm: AMI meeting corpus (single distant mic)
+        - coraal: African American Language corpus
+        - chime6: Multi-microphone conversation corpus
+        - wsj: Wall Street Journal read speech
+        - callhome: Conversational telephone speech
+        - switchboard: Topic-guided conversation corpus
+
+    Returns:
+        None: Results are logged to specified output destinations
+
+    Raises:
+        FileNotFoundError: If checkpoint file or required data not found
+        ValueError: If eval_set is not supported or invalid parameters
+        RuntimeError: If CUDA requested but not available
+
+    Example:
+        >>> # Basic evaluation
+        >>> short_form_eval(
+        ...     batch_size=32,
+        ...     num_workers=4,
+        ...     ckpt="models/whisper_large.pt",
+        ...     eval_set="librispeech_clean",
+        ...     log_dir="results/"
+        ... )
+        >>>
+        >>> # Training-linked evaluation with WandB
+        >>> short_form_eval(
+        ...     batch_size=16,
+        ...     num_workers=8,
+        ...     ckpt="checkpoints/step_5000.pt",
+        ...     eval_set="tedlium",
+        ...     log_dir="eval_logs/",
+        ...     current_step=5000,
+        ...     train_exp_name="whisper_training",
+        ...     train_run_id="abc123",
+        ...     wandb_log=True,
+        ...     wandb_log_dir="wandb_logs/",
+        ...     bootstrap=True
+        ... )
+
+    Output Files:
+        - {log_dir}/eval_results.txt: Summary results (standalone evaluation)
+        - {log_dir}/{train_exp_name}_{train_run_id}.txt: Training-linked results
+        - {log_dir}/{eval_set}_sample_wer.csv: Per-sample WER (if bootstrap=True)
+
+    Metrics Computed:
+        - Word Error Rate (WER): Primary ASR evaluation metric
+        - Substitutions: Number of word substitution errors
+        - Insertions: Number of word insertion errors
+        - Deletions: Number of word deletion errors
+
+    Note:
+        Checkpoints are automatically converted to inference format if needed.
+        For training-linked evaluation, temporary inference checkpoints are
+        cleaned up automatically after evaluation.
+    """
+    # Prepare checkpoint
     if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
 
-    os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(wandb_log_dir, exist_ok=True)
-    os.makedirs(eval_dir, exist_ok=True)
+    # Create directories
+    for directory in [log_dir, wandb_log_dir, eval_dir]:
+        if directory:
+            os.makedirs(directory, exist_ok=True)
 
-    device = torch.device("cuda") if cuda else torch.device("cpu")
+    device = torch.device("cuda" if cuda else "cpu")
 
+    # Initialize dataset and dataloader
     dataset = EvalDataset(
         task="eng_transcribe",
         eval_set=eval_set,
@@ -1362,147 +1806,64 @@ def short_form_eval(
         num_workers=num_workers,
     )
 
+    # Load model
     model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
     model.eval()
 
     normalizer = EnglishTextNormalizer()
+    hypotheses, references = [], []
+    per_sample_wer = [] if bootstrap else None
 
-    hypotheses = []
-    references = []
-    if bootstrap:
-        per_sample_wer = []
-
+    # Initialize wandb if needed
+    eval_table = None
     if wandb_log:
-        wandb_table_cols = [
-            "eval_set",
-            "audio",
-            "prediction",
-            "target",
-            "subs",
-            "dels",
-            "ins",
-            "wer",
-        ]
-        if train_exp_name is not None:
-            if not os.path.exists(f"{run_id_dir}/{train_exp_name}_eval.txt"):
-                run_id = wandb.util.generate_id()
-                with open(f"{run_id_dir}/{train_exp_name}_eval.txt", "w") as f:
-                    f.write(run_id)
-            else:
-                with open(f"{run_id_dir}/{train_exp_name}_eval.txt", "r") as f:
-                    run_id = f.read().strip()
-        else:
-            run_id = wandb.util.generate_id()
-
-        if ckpt.split("/")[-3] == "ow_ckpts":
-            ow_or_w = "open-whisper"
-        elif ckpt.split("/")[-3] == "yodas":
-            ow_or_w = "yodas"
-        elif ckpt.split("/")[-3] == "owsm":
-            ow_or_w = "owsm"
-        else:
-            ow_or_w = "whisper"
-        exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
-        model_sizes = ["tiny", "small", "base", "medium", "large"]
-        model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
-        config = {
-            "ckpt": "/".join(ckpt.split("/")[-2:]),
-            "model": ow_or_w,
-            "model_size": model_size,
-        }
-        if train_run_id is not None:
-            config["train_run_id"] = train_run_id
-
-        wandb.init(
-            id=run_id,
-            resume="allow",
-            project="open_whisper",
-            entity="dogml",
-            job_type="evals",
-            name=exp_name if train_exp_name is None else train_exp_name,
-            dir=wandb_log_dir,
-            config=config,
-            tags=["eval", eval_set, ow_or_w, model_size],
+        eval_table = WandBLogger.init_wandb(
+            ckpt, eval_set, train_exp_name, train_run_id, run_id_dir, wandb_log_dir
         )
-        eval_table = wandb.Table(columns=wandb_table_cols)
 
+    # Main evaluation loop
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             audio_fp, audio_arr, audio_input, text_y = batch
-            # print(f"{audio_fp=}")
-            # print(f"{audio_arr.shape=}")
-            # print(f"{text_y=}")
-            # print(f"{audio_input.shape=}")
 
+            # Normalize and filter texts
             norm_tgt_text = [normalizer(text) for text in text_y]
+            valid_indices = [
+                i
+                for i, text in enumerate(norm_tgt_text)
+                if text and text != "ignore time segment in scoring"
+            ]
+
+            if not valid_indices:
+                continue
+
+            # Run inference
             audio_input = audio_input.to(device)
-
             options = DecodingOptions(language="en", without_timestamps=True)
-
             results = model.decode(audio_input, options=options)
 
-            norm_pred_text = [
-                normalizer(results[i].text)
-                for i in range(len(results))
-                if norm_tgt_text[i] != ""
-                and norm_tgt_text[i] != "ignore time segment in scoring"
-            ]
-            # print(f"{norm_pred_text=}")
-            if wandb_log:
-                audio_arr = [
-                    audio_arr.numpy()[i]
-                    for i in range(len(results))
-                    if norm_tgt_text[i] != ""
-                    and norm_tgt_text[i] != "ignore time segment in scoring"
-                ]
-            norm_tgt_text = [
-                norm_tgt_text[i]
-                for i in range(len(results))
-                if norm_tgt_text[i] != ""
-                and norm_tgt_text[i] != "ignore time segment in scoring"
-            ]
-            # print(f"{norm_tgt_text=}")
-
-            # break
+            # Process results
+            norm_pred_text = [normalizer(results[i].text) for i in valid_indices]
+            norm_tgt_text = [norm_tgt_text[i] for i in valid_indices]
 
             references.extend(norm_tgt_text)
             hypotheses.extend(norm_pred_text)
 
-            if wandb_log and (batch_idx + 1) // 10 == 1:
-                for i, text in enumerate(norm_pred_text):
-                    wer = (
-                        np.round(
-                            jiwer.wer(
-                                reference=norm_tgt_text[i],
-                                hypothesis=norm_pred_text[i],
-                            ),
-                            2,
-                        )
-                        * 100
-                    )
-                    measures = jiwer.compute_measures(
-                        truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
-                    )
-                    subs = measures["substitutions"]
-                    dels = measures["deletions"]
-                    ins = measures["insertions"]
+            # Handle logging and bootstrap sampling
+            if wandb_log and eval_table and (batch_idx + 1) // 10 == 1:
+                audio_arr_filtered = [audio_arr.numpy()[i] for i in valid_indices]
+                _add_to_wandb_table(
+                    eval_table,
+                    eval_set,
+                    audio_arr_filtered,
+                    norm_pred_text,
+                    norm_tgt_text,
+                )
 
-                    eval_table.add_data(
-                        eval_set,
-                        wandb.Audio(audio_arr[i], sample_rate=16000),
-                        norm_pred_text[i],
-                        norm_tgt_text[i],
-                        subs,
-                        dels,
-                        ins,
-                        wer,
-                    )
+                log_key = f"eval_table_{current_step}" if train_run_id else "eval_table"
+                wandb.log({log_key: eval_table})
 
-                if train_run_id is not None:
-                    wandb.log({f"eval_table_{current_step}": eval_table})
-                else:
-                    wandb.log({f"eval_table": eval_table})
-            elif bootstrap:
+            elif bootstrap and per_sample_wer is not None:
                 per_sample_wer.extend(
                     [
                         [
@@ -1515,332 +1876,27 @@ def short_form_eval(
                     ]
                 )
 
+    # Calculate final metrics
     avg_wer = jiwer.wer(references, hypotheses) * 100
     avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
-    avg_subs = avg_measures["substitutions"]
-    avg_ins = avg_measures["insertions"]
-    avg_dels = avg_measures["deletions"]
 
-    if bootstrap:
-        with open(f"{log_dir}/{eval_set}_sample_wer.csv", "w") as f:
-            writer = csv.writer(f)
-            writer.writerow(["wer", "ref_length"])
-            for wer, length in per_sample_wer:
-                writer.writerow([wer, length])
-
-    print(
-        f"{eval_set} WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+    # Log results
+    _log_results(
+        eval_set,
+        avg_wer,
+        avg_measures,
+        log_dir,
+        wandb_log,
+        train_run_id,
+        train_exp_name,
+        current_step,
+        bootstrap,
+        per_sample_wer,
     )
 
-    if wandb_log and train_run_id is not None:
-        wandb.log({f"eval/{eval_set}_wer": avg_wer, "global_step": current_step})
-        wandb.log({f"eval/{eval_set}_subs": avg_subs, "global_step": current_step})
-        wandb.log({f"eval/{eval_set}_ins": avg_ins, "global_step": current_step})
-        wandb.log({f"eval/{eval_set}_dels": avg_dels, "global_step": current_step})
-    elif not wandb_log and train_run_id is not None:
-        with open(f"{log_dir}/{train_exp_name}_{train_run_id}.txt", "a") as f:
-            f.write(
-                f"Current step {current_step}, {eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
-            )
-    elif wandb_log and train_run_id is None:
-        wandb.run.summary["avg_wer"] = avg_wer
-        wandb.run.summary["avg_subs"] = avg_subs
-        wandb.run.summary["avg_ins"] = avg_ins
-        wandb.run.summary["avg_dels"] = avg_dels
-    elif not wandb_log and train_run_id is None:
-        with open(f"{log_dir}/eval_results.txt", "a") as f:
-            f.write(
-                f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
-            )
-
+    # Cleanup
     if train_run_id is not None:
         os.remove(ckpt)
-
-    return None
-
-
-def hf_eval(
-    batch_size: int,
-    num_workers: int,
-    model: str,
-    eval_set: Literal[
-        "librispeech_clean",
-        "librispeech_other",
-        "artie_bias_corpus",
-        "fleurs",
-        "tedlium",
-        "voxpopuli",
-        "common_voice",
-        "ami_ihm",
-        "ami_sdm",
-        "coraal",
-        "chime6",
-        "wsj",
-        "callhome",
-        "switchboard",
-    ],
-    log_dir: str,
-    n_mels: int = 80,
-    wandb_log: bool = False,
-    wandb_log_dir: Optional[str] = None,
-    eval_dir: str = "data/eval",
-    hf_token: Optional[str] = None,
-    cuda: bool = True,
-    bootstrap: bool = False,
-):
-    os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(wandb_log_dir, exist_ok=True)
-    os.makedirs(eval_dir, exist_ok=True)
-
-    device = torch.device("cuda") if cuda else torch.device("cpu")
-
-    dataset = EvalDataset(
-        task="eng_transcribe",
-        eval_set=eval_set,
-        hf_token=hf_token,
-        eval_dir=eval_dir,
-        n_mels=n_mels,
-    )
-    dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        drop_last=False,
-        num_workers=num_workers,
-    )
-
-    model_name = model.replace("/", "_").replace("-", "_")
-
-    if "nvidia" not in model:
-        processor = AutoProcessor.from_pretrained(
-            model, trust_remote_code=True, token=hf_token
-        )
-
-    if "seamless" in model:
-        model = AutoModel.from_pretrained(model, trust_remote_code=True)
-    elif "phi" in model:
-        model = AutoModelForCausalLM.from_pretrained(model, trust_remote_code=True)
-        generation_config = GenerationConfig.from_pretrained(model, 'generation_config.json')
-    elif "Qwen" in model:
-        model = AutoModelForSeq2SeqLM.from_pretrained(model, trust_remote_code=True)
-    elif "nvidia" in model:
-        compute_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-        model = ASRModel.from_pretrained(model, map_location=device)
-        model.to(compute_dtype).eval()
-
-    normalizer = EnglishTextNormalizer()
-
-    hypotheses = []
-    references = []
-    if bootstrap:
-        per_sample_wer = []
-
-    if wandb_log:
-        wandb_table_cols = [
-            "eval_set",
-            "audio",
-            "prediction",
-            "target",
-            "subs",
-            "dels",
-            "ins",
-            "wer",
-        ]
-        run_id = wandb.util.generate_id()
-
-        exp_name = f"hf_{model_name}_{eval_set}_eval"
-
-        wandb.init(
-            id=run_id,
-            resume="allow",
-            project="open_whisper",
-            entity="dogml",
-            job_type="evals",
-            name=exp_name,
-            dir=wandb_log_dir,
-            tags=["eval", eval_set, "hf"],
-        )
-        eval_table = wandb.Table(columns=wandb_table_cols)
-
-    with torch.no_grad():
-        for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-            audio_fp, audio_arr, _, text_y = batch
-            if "nvidia" not in model_name:
-                audio_arr = audio_arr.to(device)
-            # print(f"{audio_fp=}")
-            # print(f"{audio_arr.shape=}")
-            # print(f"{text_y=}")
-            # print(f"{audio_input.shape=}")
-
-            norm_tgt_text = [normalizer(text) for text in text_y]
-            
-            # input_values = processor(
-            #         audio_arr, return_tensors="pt", padding="longest"
-            #     ).input_values
-            #     input_values = input_values.squeeze(0).to(device)
-            #     with torch.no_grad():
-            #         logits = model(input_values).logits
-            #     predicted_ids = torch.argmax(logits, dim=-1)
-            #     results = processor.batch_decode(predicted_ids)
-
-            if "seamless" in model_name:
-                audio_inputs = processor(audios=audio_arr, return_tensors="pt").to(device)
-                output_tokens = model.generate(**audio_inputs, tgt_lang="eng", generate_speech=False)
-                results = processor.decode(output_tokens[0].tolist()[0], skip_special_tokens=True)
-            elif "phi" in model_name:
-                user_prompt = '<|user|>'
-                assistant_prompt = '<|assistant|>'
-                prompt_suffix = '<|end|>'
-                speech_prompt = "Based on the attached audio, generate a comprehensive text transcription of the spoken content."
-                prompt = f'{user_prompt}<|audio_1|>{speech_prompt}{prompt_suffix}{assistant_prompt}'
-
-                audio_arr = list(torch.unbind(audio_arr, dim=0))
-                inputs = processor(text=prompt, audios=audio_arr, return_tensors='pt').to('cuda:0')
-                generate_ids = model.generate(
-                    **inputs,
-                    max_new_tokens=1000,
-                    generation_config=generation_config,
-                )
-                generate_ids = generate_ids[:, inputs['input_ids'].shape[1] :]
-                results = processor.batch_decode(
-                    generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-                )[0]
-            elif "Qwen" in model_name:
-                audio_arr = list(torch.unbind(audio_arr, dim=0))
-                prompt = "<|audio_bos|><|AUDIO|><|audio_eos|>Detect the language and recognize the speech: <|en|>"
-                audio_inputs = processor(text=prompt, audios=audio_arr, sampling_rate=16000, return_tensors="pt", padding=True)
-                
-                output_ids = model.generate(**inputs, max_new_tokens=256, min_new_tokens=1, do_sample=False)
-                output_ids = output_ids[:, inputs.input_ids.size(1):]
-                results = processor.batch_decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-            elif "nvidia" in model_name:
-                if eval_set in ["wsj", "callhome", "switchboard", "chime6"]:
-                    audio_input = list(torch.unbind(audio_arr, dim=0))
-                else:
-                    audio_input = audio_fp
-                    
-                model.cfg.decoding.strategy = "greedy_batch"
-                model.change_decoding_strategy(model.cfg.decoding)
-
-                with torch.inference_mode(), torch.no_grad():
-                    if "canary" in model_name:
-                        results = model.transcribe(
-                            audio_input,
-                            batch_size=batch_size,
-                            verbose=False,
-                            pnc="no",
-                            num_workers=num_workers,
-                        )
-                    else:
-                        results = model.transcribe(
-                            audio_input,
-                            batch_size=batch_size,
-                            verbose=False,
-                            num_workers=num_workers,
-                        )
-                        
-                results = [result.text for result in results]
-
-            norm_pred_text = [
-                normalizer(results[i])
-                for i in range(len(results))
-                if norm_tgt_text[i] != ""
-                and norm_tgt_text[i] != "ignore time segment in scoring"
-            ]
-            # print(f"{norm_pred_text=}")
-            if wandb_log:
-                audio_arr = [
-                    audio_arr.numpy()[i] if "nvidia" not in model_name else audio_arr[i].cpu().numpy()
-                    for i in range(len(results))
-                    if norm_tgt_text[i] != ""
-                    and norm_tgt_text[i] != "ignore time segment in scoring"
-                ]
-            norm_tgt_text = [
-                norm_tgt_text[i]
-                for i in range(len(results))
-                if norm_tgt_text[i] != ""
-                and norm_tgt_text[i] != "ignore time segment in scoring"
-            ]
-            # print(f"{norm_tgt_text=}")
-
-            # break
-
-            references.extend(norm_tgt_text)
-            hypotheses.extend(norm_pred_text)
-
-            if wandb_log and (batch_idx + 1) // 10 == 1:
-                for i, text in enumerate(norm_pred_text):
-                    wer = (
-                        np.round(
-                            jiwer.wer(
-                                reference=norm_tgt_text[i],
-                                hypothesis=norm_pred_text[i],
-                            ),
-                            2,
-                        )
-                        * 100
-                    )
-                    measures = jiwer.compute_measures(
-                        truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
-                    )
-                    subs = measures["substitutions"]
-                    dels = measures["deletions"]
-                    ins = measures["insertions"]
-
-                    eval_table.add_data(
-                        eval_set,
-                        wandb.Audio(audio_arr[i], sample_rate=16000),
-                        norm_pred_text[i],
-                        norm_tgt_text[i],
-                        subs,
-                        dels,
-                        ins,
-                        wer,
-                    )
-
-                wandb.log({f"eval_table": eval_table})
-            elif bootstrap:
-                per_sample_wer.extend(
-                    [
-                        [
-                            jiwer.wer(
-                                reference=norm_tgt_text[i], hypothesis=norm_pred_text[i]
-                            ),
-                            len(norm_tgt_text[i]),
-                        ]
-                        for i in range(len(norm_pred_text))
-                    ]
-                )
-
-    avg_wer = jiwer.wer(references, hypotheses) * 100
-    avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
-    avg_subs = avg_measures["substitutions"]
-    avg_ins = avg_measures["insertions"]
-    avg_dels = avg_measures["deletions"]
-
-    if bootstrap:
-        with open(f"{log_dir}/{eval_set}_sample_wer.csv", "w") as f:
-            writer = csv.writer(f)
-            writer.writerow(["wer", "ref_length"])
-            for wer, length in per_sample_wer:
-                writer.writerow([wer, length])
-
-    print(
-        f"{eval_set} WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
-    )
-
-    if wandb_log:
-        wandb.run.summary["avg_wer"] = avg_wer
-        wandb.run.summary["avg_subs"] = avg_subs
-        wandb.run.summary["avg_ins"] = avg_ins
-        wandb.run.summary["avg_dels"] = avg_dels
-    else:
-        with open(f"{log_dir}/eval_results.txt", "a") as f:
-            f.write(
-                f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
-            )
-
-    return None
 
 
 def long_form_eval(
@@ -1857,23 +1913,118 @@ def long_form_eval(
         "kincaid46",
     ],
     log_dir: str,
-    n_mels: int = 80,
+    n_mels: int = DEFAULT_N_MELS,
     bootstrap: bool = False,
-    exp_name: Optional[str] = None,
     wandb_log: bool = False,
     wandb_log_dir: str = "wandb",
     eval_dir: str = "data/eval",
     hf_token: Optional[str] = None,
 ) -> None:
+    """Evaluate ASR model performance on long-form transcription tasks.
+
+    This evaluation function handles variable-length audio segments (typically longer
+    than 30 seconds) that require different processing than short-form evaluation.
+    It uses the model's built-in transcribe() method with beam search and timestamp
+    generation for optimal long-form performance.
+
+    Key differences from short-form evaluation:
+    - No mel-spectrogram preprocessing (handled internally by transcribe())
+    - Uses beam search decoding with best-of selection
+    - Processes full audio length without padding/trimming
+    - Enables timestamp generation for alignment verification
+    - Single-sample batch processing for stability
+
+    Args:
+        batch_size (int): Number of audio samples per batch (typically 1 for long-form)
+        num_workers (int): Number of worker processes for data loading
+        ckpt (str): Path to model checkpoint file
+        eval_set (Literal): Name of evaluation dataset (see supported datasets below)
+        log_dir (str): Directory for saving evaluation results and logs
+        n_mels (int, optional): Number of mel-spectrogram bins (unused in long-form).
+            Defaults to DEFAULT_N_MELS.
+        bootstrap (bool, optional): Enable bootstrap sampling for confidence intervals.
+            Defaults to False.
+        wandb_log (bool, optional): Enable Weights & Biases logging. Defaults to False.
+        wandb_log_dir (str, optional): Directory for WandB logs. Defaults to "wandb".
+        eval_dir (str, optional): Root directory for evaluation datasets.
+            Defaults to "data/eval".
+        hf_token (Optional[str], optional): HuggingFace token for private datasets.
+            Defaults to None.
+
+    Supported Datasets:
+        - tedlium: TED talks with longer audio segments
+        - meanwhile: Meanwhile podcast corpus for long-form evaluation
+        - rev16: Rev.com transcription corpus subset
+        - earnings21: Corporate earnings call transcripts (2021)
+        - earnings22: Corporate earnings call transcripts (2022)
+        - coraal: CORAAL long-form variant with extended segments
+        - kincaid46: Extended version of Kincaid corpus
+
+    Returns:
+        None: Results are logged to specified output destinations
+
+    Raises:
+        FileNotFoundError: If checkpoint file or required data not found
+        ValueError: If eval_set is not supported for long-form evaluation
+        RuntimeError: If CUDA not available (required for long-form)
+
+    Example:
+        >>> # Basic long-form evaluation
+        >>> long_form_eval(
+        ...     batch_size=1,
+        ...     num_workers=2,
+        ...     ckpt="models/whisper_large.pt",
+        ...     eval_set="tedlium",
+        ...     log_dir="long_form_results/"
+        ... )
+        >>>
+        >>> # With WandB logging and bootstrap sampling
+        >>> long_form_eval(
+        ...     batch_size=1,
+        ...     num_workers=4,
+        ...     ckpt="checkpoints/whisper_model.pt",
+        ...     eval_set="earnings21",
+        ...     log_dir="eval_logs/",
+        ...     bootstrap=True,
+        ...     wandb_log=True,
+        ...     wandb_log_dir="wandb_logs/",
+        ...     hf_token="hf_token_here"
+        ... )
+
+    Output Files:
+        - {log_dir}/eval_results.txt: Summary evaluation results
+        - {log_dir}/{eval_set}_sample_wer.csv: Per-sample WER (if bootstrap=True)
+
+    Metrics Computed:
+        - Word Error Rate (WER): Primary metric for long-form transcription
+        - Substitutions: Number of word substitution errors
+        - Insertions: Number of word insertion errors
+        - Deletions: Number of word deletion errors
+
+    Model Configuration:
+        The function uses optimized settings for long-form transcription:
+        - task="transcribe": Pure transcription without translation
+        - language="en": English language constraint
+        - without_timestamps=False: Enable timestamp generation
+        - beam_size=5: Beam search for better quality
+        - best_of=5: Multiple candidate selection
+
+    Note:
+        Long-form evaluation requires significantly more memory and compute time
+        compared to short-form evaluation. CUDA is mandatory for practical
+        performance. Batch size is typically set to 1 for memory efficiency.
+    """
+    # Prepare checkpoint
     if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
 
-    os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(wandb_log_dir, exist_ok=True)
-    os.makedirs(eval_dir, exist_ok=True)
+    # Create directories
+    for directory in [log_dir, wandb_log_dir, eval_dir]:
+        os.makedirs(directory, exist_ok=True)
 
     device = torch.device("cuda")
 
+    # Initialize dataset and dataloader
     dataset = EvalDataset(
         task="long_form_transcribe",
         eval_set=eval_set,
@@ -1889,67 +2040,32 @@ def long_form_eval(
         num_workers=num_workers,
     )
 
+    # Load model
     model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
     model.eval()
 
     normalizer = EnglishTextNormalizer()
+    hypotheses, references = [], []
+    per_sample_wer = [] if bootstrap else None
 
-    hypotheses = []
-    references = []
-    if bootstrap:
-        per_sample_wer = []
-
+    # Initialize wandb if needed
+    eval_table = None
     if wandb_log:
-        wandb_table_cols = [
-            "eval_set",
-            "audio",
-            "prediction",
-            "target",
-            "subs",
-            "dels",
-            "ins",
-            "wer",
-        ]
+        eval_table = WandBLogger.init_wandb(ckpt, eval_set, wandb_log_dir=wandb_log_dir)
 
-        run_id = wandb.util.generate_id()
-        if ckpt.split("/")[-3] == "ow_ckpts":
-            ow_or_w = "open-whisper"
-        elif ckpt.split("/")[-3] == "yodas":
-            ow_or_w = "yodas"
-        elif ckpt.split("/")[-3] == "owsm":
-            ow_or_w = "owsm"
-        else:
-            ow_or_w = "whisper"
-        exp_name = f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
-        model_sizes = ["tiny", "small", "base", "medium", "large"]
-        model_size = [model_size for model_size in model_sizes if model_size in ckpt][0]
-        config = {
-            "ckpt": "/".join(ckpt.split("/")[-2:]),
-            "model": ow_or_w,
-            "model_size": model_size,
-        }
-        wandb.init(
-            id=run_id,
-            resume="allow",
-            project="open_whisper",
-            entity="dogml",
-            job_type="evals",
-            name=exp_name,
-            dir=wandb_log_dir,
-            config=config,
-            tags=["eval", eval_set, ow_or_w, model_size],
-        )
-        eval_table = wandb.Table(columns=wandb_table_cols)
-        table_iter = 0
-
+    # Main evaluation loop
     with torch.no_grad():
         for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             _, audio_arr, _, text_y = batch
 
             norm_tgt_text = [normalizer(text) for text in text_y]
-            audio_arr = audio_arr.to(device)
-            print(f"{audio_arr.shape=}")
+            valid_texts = [text for text in norm_tgt_text if text]
 
+            if not valid_texts:
+                continue
+
+            # Run inference
+            audio_arr = audio_arr.to(device)
             options = dict(
                 task="transcribe",
                 language="en",
@@ -1959,66 +2075,30 @@ def long_form_eval(
             )
             results = model.transcribe(audio_arr[0], verbose=False, **options)
 
-            norm_pred_text = [
-                normalizer(results["text"])
-                for i in range(len(norm_tgt_text))
-                if norm_tgt_text[i] != ""
-            ]
-            if wandb_log:
-                audio_arr = [
-                    audio_arr.cpu().numpy()[i]
-                    for i in range(len(norm_tgt_text))
-                    if norm_tgt_text[i] != ""
-                ]
-            norm_tgt_text = [
-                norm_tgt_text[i]
-                for i in range(len(norm_tgt_text))
-                if norm_tgt_text[i] != ""
-            ]
+            norm_pred_text = [normalizer(results["text"]) for _ in valid_texts]
 
             print(f"{norm_pred_text=}")
-            print(f"{norm_tgt_text=}")
+            print(f"{valid_texts=}")
 
-            references.extend(norm_tgt_text)
+            references.extend(valid_texts)
             hypotheses.extend(norm_pred_text)
 
-            if wandb_log and not bootstrap:
-                for i, text in enumerate(norm_pred_text):
-                    wer = (
-                        np.round(
-                            jiwer.wer(
-                                reference=norm_tgt_text[i],
-                                hypothesis=norm_pred_text[i],
-                            ),
-                            2,
-                        )
-                        * 100
-                    )
-                    measures = jiwer.compute_measures(
-                        truth=norm_tgt_text[i], hypothesis=norm_pred_text[i]
-                    )
-                    subs = measures["substitutions"]
-                    dels = measures["deletions"]
-                    ins = measures["insertions"]
-
-                    eval_table.add_data(
-                        eval_set,
-                        wandb.Audio(audio_arr[i], sample_rate=16000),
-                        norm_pred_text[i],
-                        norm_tgt_text[i],
-                        subs,
-                        dels,
-                        ins,
-                        wer,
-                    )
-            elif bootstrap:
+            # Handle logging and bootstrap sampling
+            if wandb_log and eval_table and not bootstrap:
+                audio_arr_cpu = [
+                    audio_arr.cpu().numpy()[i] for i in range(len(valid_texts))
+                ]
+                _add_to_wandb_table(
+                    eval_table, eval_set, audio_arr_cpu, norm_pred_text, valid_texts
+                )
+            elif bootstrap and per_sample_wer is not None:
                 per_sample_wer.extend(
                     [
                         [
                             jiwer.wer(
-                                reference=norm_tgt_text[i], hypothesis=norm_pred_text[i]
+                                reference=valid_texts[i], hypothesis=norm_pred_text[i]
                             ),
-                            len(norm_tgt_text[i]),
+                            len(valid_texts[i]),
                         ]
                         for i in range(len(norm_pred_text))
                     ]
@@ -2026,414 +2106,181 @@ def long_form_eval(
             else:
                 wer = (
                     np.round(
-                        jiwer.wer(
-                            reference=norm_tgt_text,
-                            hypothesis=norm_pred_text,
-                        ),
-                        2,
+                        jiwer.wer(reference=valid_texts, hypothesis=norm_pred_text), 2
                     )
                     * 100
                 )
                 print(f"{wer=}")
-                # with open(f"{eval_set}_eval_results.txt", "a") as f:
-                #     f.write(norm_pred_text[0] + "\n")
-                #     f.write(norm_tgt_text[0] + "\n")
-                #     f.write("\n")
 
-                # break
+        if wandb_log and eval_table:
+            wandb.log({"eval_table": eval_table})
 
-        if wandb_log:
-            wandb.log({f"eval_table": eval_table})
-
+    # Calculate final metrics
     avg_wer = jiwer.wer(references, hypotheses) * 100
     avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
+
+    # Log results
+    _log_results(
+        eval_set,
+        avg_wer,
+        avg_measures,
+        log_dir,
+        wandb_log,
+        bootstrap=bootstrap,
+        per_sample_wer=per_sample_wer,
+    )
+
+
+def _add_to_wandb_table(eval_table, eval_set, audio_arr, norm_pred_text, norm_tgt_text):
+    """Add evaluation results to WandB table for detailed logging.
+
+    Computes per-sample metrics and adds audio examples with predictions and
+    ground truth to the WandB table for interactive visualization and analysis.
+
+    Args:
+        eval_table (wandb.Table): WandB table to add results to
+        eval_set (str): Name of the evaluation dataset
+        audio_arr (list): List of audio arrays for each sample
+        norm_pred_text (list): List of normalized predicted transcripts
+        norm_tgt_text (list): List of normalized ground truth transcripts
+
+    Note:
+        This function modifies the eval_table in place by adding new rows.
+        Each row contains the dataset name, audio sample, predictions, targets,
+        and detailed error metrics for analysis.
+    """
+    for i, pred_text in enumerate(norm_pred_text):
+        wer = (
+            np.round(jiwer.wer(reference=norm_tgt_text[i], hypothesis=pred_text), 2)
+            * 100
+        )
+        measures = jiwer.compute_measures(truth=norm_tgt_text[i], hypothesis=pred_text)
+
+        eval_table.add_data(
+            eval_set,
+            wandb.Audio(audio_arr[i], sample_rate=SAMPLE_RATE),
+            pred_text,
+            norm_tgt_text[i],
+            measures["substitutions"],
+            measures["deletions"],
+            measures["insertions"],
+            wer,
+        )
+
+
+def _log_results(
+    eval_set: str,
+    avg_wer: float,
+    avg_measures: Dict[str, int],
+    log_dir: str,
+    wandb_log: bool,
+    train_run_id: Optional[str] = None,
+    train_exp_name: Optional[str] = None,
+    current_step: Optional[int] = None,
+    bootstrap: bool = False,
+    per_sample_wer: Optional[list] = None,
+):
+    """Log evaluation results to multiple output destinations.
+
+    Handles comprehensive logging of evaluation metrics to console, files, and
+    WandB based on the evaluation configuration. Supports both standalone and
+    training-integrated evaluation logging.
+
+    Args:
+        eval_set (str): Name of the evaluation dataset
+        avg_wer (float): Average Word Error Rate as percentage
+        avg_measures (Dict[str, int]): Dictionary containing detailed error counts
+            with keys: "substitutions", "insertions", "deletions"
+        log_dir (str): Directory for saving log files
+        wandb_log (bool): Whether to log results to WandB
+        train_run_id (Optional[str], optional): Training run ID for linked evaluation.
+            Defaults to None.
+        train_exp_name (Optional[str], optional): Training experiment name for
+            file naming. Defaults to None.
+        current_step (Optional[int], optional): Current training step for timestamping.
+            Defaults to None.
+        bootstrap (bool, optional): Whether bootstrap sampling was used. Defaults to False.
+        per_sample_wer (Optional[list], optional): List of per-sample WER values and
+            reference lengths for bootstrap analysis. Defaults to None.
+
+    Output Destinations:
+        1. Console: Always prints summary metrics
+        2. Files: Writes to appropriate log files based on evaluation type
+        3. WandB: Logs metrics and summaries if wandb_log=True
+        4. Bootstrap CSV: Saves per-sample metrics if bootstrap=True
+
+    File Outputs:
+        - Standalone: {log_dir}/eval_results.txt
+        - Training-linked: {log_dir}/{train_exp_name}_{train_run_id}.txt
+        - Bootstrap: {log_dir}/{eval_set}_sample_wer.csv
+
+    WandB Outputs:
+        - Training-linked: Timestamped metrics with global_step
+        - Standalone: Summary metrics in run summary
+
+    Example:
+        >>> measures = {"substitutions": 45, "insertions": 12, "deletions": 8}
+        >>> _log_results(
+        ...     eval_set="librispeech_clean",
+        ...     avg_wer=5.2,
+        ...     avg_measures=measures,
+        ...     log_dir="results/",
+        ...     wandb_log=True,
+        ...     bootstrap=True,
+        ...     per_sample_wer=[(0.05, 20), (0.03, 15), ...]
+        ... )
+    """
     avg_subs = avg_measures["substitutions"]
     avg_ins = avg_measures["insertions"]
     avg_dels = avg_measures["deletions"]
 
-    if bootstrap:
+    print(
+        f"{eval_set} WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
+    )
+
+    # Save bootstrap results if needed
+    if bootstrap and per_sample_wer:
         with open(f"{log_dir}/{eval_set}_sample_wer.csv", "w") as f:
             writer = csv.writer(f)
             writer.writerow(["wer", "ref_length"])
-            for wer, length in per_sample_wer:
-                writer.writerow([wer, length])
+            writer.writerows(per_sample_wer)
 
-    if wandb_log:
-        wandb.run.summary["avg_wer"] = avg_wer
-        wandb.run.summary["avg_subs"] = avg_subs
-        wandb.run.summary["avg_ins"] = avg_ins
-        wandb.run.summary["avg_dels"] = avg_dels
-
-    print(
-        f"Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
-    )
-
-
-def ml_eval(
-    batch_size: int,
-    num_workers: int,
-    ckpt: str,
-    eval_set: Literal["multilingual_librispeech",],
-    log_dir: str,
-    lang: Optional[str] = None,
-    current_step: Optional[int] = None,
-    exp_name: Optional[str] = None,
-    wandb_log: bool = False,
-    wandb_run_id: Optional[str] = None,
-    wandb_log_dir: str = "wandb",
-    eval_dir: str = "data/eval",
-    hf_token: Optional[str] = None,
-):
-    if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
-        ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
-
-    os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(wandb_log_dir, exist_ok=True)
-    os.makedirs(eval_dir, exist_ok=True)
-
-    device = torch.device("cuda")
-
-    model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
-    model.eval()
-
-    normalizer = BasicTextNormalizer()
-
-    if lang is None:
-        if eval_set == "multilingual_librispeech":
-            langs = [
-                "german",
-                "dutch",
-                "spanish",
-                "french",
-                "italian",
-                "portuguese",
-                "polish",
-            ]
-    else:
-        langs = [lang]
-
-    if wandb_log:
-        wandb_table_cols = [
-            "eval_set",
-            "lang",
-            "audio",
-            "prediction",
-            "target",
-            "subs",
-            "dels",
-            "ins",
-            "wer",
-        ]
-        if wandb_run_id:
-            wandb_table_cols.append("run_id")
-            wandb.init(
-                id=wandb_run_id,
-                resume="allow",
-                project="open_whisper",
-                entity="dogml",
-                save_code=True,
-                settings=wandb.Settings(init_timeout=300, _service_wait=300),
-            )
-        else:
-            run_id = wandb.util.generate_id()
-            ow_or_w = "open-whisper" if ckpt.split("/")[-3] == "ow_ckpts" else "whisper"
-            exp_name = (
-                f"{eval_set}_eval" if ow_or_w == "whisper" else f"ow_{eval_set}_eval"
-            )
-            model_sizes = ["tiny", "small", "base", "medium", "large"]
-            model_size = [
-                model_size for model_size in model_sizes if model_size in ckpt
-            ][0]
-            config = {
-                "ckpt": "/".join(ckpt.split("/")[-2:]),
-                "model": ow_or_w,
-                "model_size": model_size,
+    # Log to wandb or files
+    if wandb_log and train_run_id is not None:
+        wandb.log(
+            {
+                f"eval/{eval_set}_wer": avg_wer,
+                f"eval/{eval_set}_subs": avg_subs,
+                f"eval/{eval_set}_ins": avg_ins,
+                f"eval/{eval_set}_dels": avg_dels,
+                "global_step": current_step,
             }
-            wandb.init(
-                id=run_id,
-                resume="allow",
-                project="open_whisper",
-                entity="dogml",
-                job_type="evals",
-                name=exp_name,
-                dir=wandb_log_dir,
-                config=config,
-                tags=[
-                    "eval",
-                    "multilingual",
-                    "all_langs" if lang is None else lang,
-                    eval_set,
-                    ow_or_w,
-                    model_size,
-                ],
-            )
-        eval_table = wandb.Table(columns=wandb_table_cols)
-        table_iter = 0
-
-    for lang in langs:
-        dataset = EvalDataset(
-            task="ml_transcribe",
-            eval_set=eval_set,
-            lang=lang,
-            hf_token=hf_token,
-            eval_dir=eval_dir,
         )
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            drop_last=False,
-            num_workers=num_workers,
-        )
-
-        hypotheses = []
-        references = []
-
-        with torch.no_grad():
-            for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-                _, audio_input, mel_spec, text_y = batch
-
-                norm_tgt_text = [normalizer(text) for text in text_y]
-                audio_input = audio_input.to(device)
-
-                options = dict(
-                    task="transcribe",
-                    language=lang,
-                    without_timestamps=True,
-                    beam_size=5,
-                    best_of=5,
-                )
-                results = model.transcribe(audio_input[0], **options)
-
-                norm_pred_text = [
-                    normalizer(results["text"])
-                    for i in range(len(norm_tgt_text))
-                    if norm_tgt_text[i] != ""
-                ]
-                if wandb_log:
-                    audio_arr = [
-                        audio_arr.numpy()[i]
-                        for i in range(len(norm_tgt_text))
-                        if norm_tgt_text[i] != ""
-                    ]
-                norm_tgt_text = [
-                    norm_tgt_text[i]
-                    for i in range(len(norm_tgt_text))
-                    if norm_tgt_text[i] != ""
-                ]
-
-                references.extend(norm_tgt_text)
-                hypotheses.extend(norm_pred_text)
-
-        avg_wer = jiwer.wer(references, hypotheses) * 100
-        avg_measures = jiwer.compute_measures(truth=references, hypothesis=hypotheses)
-        avg_subs = avg_measures["substitutions"]
-        avg_ins = avg_measures["insertions"]
-        avg_dels = avg_measures["deletions"]
-
-        if wandb_log:
-            if wandb_run_id:
-                wandb.log(
-                    {
-                        f"eval/{eval_set}_{lang}_wer": avg_wer,
-                        "custom_step": current_step,
-                    }
-                )
-                wandb.log(
-                    {
-                        f"eval/{eval_set}_{lang}_subs": avg_subs,
-                        "custom_step": current_step,
-                    }
-                )
-                wandb.log(
-                    {
-                        f"eval/{eval_set}_{lang}_ins": avg_ins,
-                        "custom_step": current_step,
-                    }
-                )
-                wandb.log(
-                    {
-                        f"eval/{eval_set}_{lang}_dels": avg_dels,
-                        "custom_step": current_step,
-                    }
-                )
-            else:
-                wandb.run.summary[f"avg_{lang}_wer"] = avg_wer
-                wandb.run.summary[f"avg_{lang}_subs"] = avg_subs
-                wandb.run.summary[f"avg_{lang}_ins"] = avg_ins
-                wandb.run.summary[f"avg_{lang}_dels"] = avg_dels
-        else:
-            if exp_name is not None and wandb_run_id is not None:
-                path = f"{log_dir}/training/{exp_name}/{wandb_run_id}/eval_results.txt"
-            else:
-                path = f"{log_dir}/eval_results.txt"
-            with open(path, "a") as f:
-                f.write(
-                    f"{eval_set} {lang} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
-                )
-
-        print(
-            f"Language: {lang}, Average WER: {avg_wer}, Average Subs: {avg_subs}, Average Ins: {avg_ins}, Average Dels: {avg_dels}"
-        )
-
-
-def translate_eval():
-    pass
-
-
-def lang_id_eval(
-    batch_size: int,
-    num_workers: int,
-    ckpt: str,
-    eval_set: Literal["fleurs",],
-    log_dir: str,
-    lang: Optional[str] = None,
-    wandb_log: bool = False,
-    wandb_log_dir: str = "wandb",
-    eval_dir: str = "data/eval",
-    cuda: bool = True,
-):
-    os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(wandb_log_dir, exist_ok=True)
-    os.makedirs(eval_dir, exist_ok=True)
-
-    device = torch.device("cuda") if cuda else torch.device("cpu")
-    tokenizer = get_tokenizer(multilingual=True)
-
-    if ckpt == "voxlingua107":
-        if cuda:
-            model = EncoderClassifier.from_hparams(
-                source="speechbrain/lang-id-voxlingua107-ecapa",
-                savedir="tmp",
-                run_opts={"device": "cuda"},
+    elif not wandb_log and train_run_id is not None:
+        with open(f"{log_dir}/{train_exp_name}_{train_run_id}.txt", "a") as f:
+            f.write(
+                f"Current step {current_step}, {eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
             )
-        else:
-            model = EncoderClassifier.from_hparams(
-                source="speechbrain/lang-id-voxlingua107-ecapa", savedir="tmp"
-            )
-    else:
-        if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
-            ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
-
-        model = load_model(name=ckpt, device=device, inference=True, in_memory=True)
-        model.eval()
-
-    dataset = EvalDataset(
-        task="lang_id", eval_set=eval_set, lang=lang, eval_dir=eval_dir
-    )
-    dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        drop_last=False,
-        num_workers=num_workers,
-    )
-
-    if wandb_log:
-        wandb.init(
-            id=wandb.util.generate_id(),
-            resume="allow",
-            project="open_whisper",
-            entity="dogml",
-            save_code=True,
-            settings=wandb.Settings(init_timeout=300, _service_wait=300),
+    elif wandb_log and train_run_id is None:
+        wandb.run.summary.update(
+            {
+                "avg_wer": avg_wer,
+                "avg_subs": avg_subs,
+                "avg_ins": avg_ins,
+                "avg_dels": avg_dels,
+            }
         )
-
-    correct_count = 0
-    true_positive = 0
-    true_negative = 0
-    false_positive = 0
-    false_negative = 0
-    total = 0
-    with torch.no_grad():
-        for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-            _, audio_arr, audio_input, lang_ids = batch
-
-            audio_input = audio_input.to(device)
-
-            if ckpt == "voxlingua107":
-                results = model.classify_batch(audio_arr)
-                pred_lang_ids = [res.split(": ")[0] for res in results[3]]
-                pred_lang_ids = [
-                    VOX_TO_FLEURS[lang_id] if lang_id in VOX_TO_FLEURS else lang_id
-                    for lang_id in pred_lang_ids
-                ]
-                print(f"{pred_lang_ids=}")
-            else:
-                results = detect_language(model, audio_input)
-
-                pred_lang_ids_str = tokenizer.decode(results[0])
-                pred_lang_ids = re.findall(r"<\|(.*?)\|>", pred_lang_ids_str)
-                pred_lang_ids = [
-                    OW_TO_FLEURS[lang_id] if lang_id in OW_TO_FLEURS else lang_id
-                    for lang_id in pred_lang_ids
-                ]
-                print(f"{pred_lang_ids=}")
-            print(f"{lang_ids=}")
-
-            for i in range(len(lang_ids)):
-                if lang_ids[i] == "en":
-                    if lang_ids[i] == pred_lang_ids[i]:
-                        true_positive += 1
-                        correct_count += 1
-                    else:
-                        false_negative += 1
-                else:
-                    if pred_lang_ids[i] != "en":
-                        true_negative += 1
-                        correct_count += 1
-                    else:
-                        false_positive += 1
-            total += len(lang_ids)
-            print(f"{correct_count=}, {total=}")
-            print(
-                f"{true_positive=}, {true_negative=}, {false_positive=}, {false_negative=}"
+    elif not wandb_log and train_run_id is None:
+        with open(f"{log_dir}/eval_results.txt", "a") as f:
+            f.write(
+                f"{eval_set} WER: {avg_wer}, Subs: {avg_subs}, Ins: {avg_ins}, Dels: {avg_dels}\n"
             )
-            print(f"Accuracy: {100 * (correct_count / total):.2f}")
-            if true_positive + false_positive != 0:
-                print(
-                    f"Precision: {100 * (true_positive / (true_positive + false_positive)):.2f}"
-                )
-            if true_positive + false_negative != 0:
-                print(
-                    f"Recall: {100 * (true_positive / (true_positive + false_negative)):.2f}"
-                )
-
-    accuracy = 100 * (correct_count / total)
-    precision = 100 * (true_positive / (true_positive + false_positive))
-    recall = 100 * (true_positive / (true_positive + false_negative))
-    print(f"Accuracy: {accuracy:.2f}")
-    print(f"Precision: {precision:.2f}")
-    print(f"Recall: {recall:.2f}")
-
-    with open(f"{log_dir}/{eval_set}_lang_id_accuracy.txt", "w") as f:
-        f.write(f"Accuracy: {accuracy}")
-        f.write(f"Precision: {precision}")
-        f.write(f"Recall: {recall}")
 
 
 if __name__ == "__main__":
     Fire(
         {
             "short_form_eval": short_form_eval,
-            "ml_eval": ml_eval,
             "long_form_eval": long_form_eval,
-            "hf_eval": hf_eval,
-            # "lang_id_eval": lang_id_eval,
         }
     )
-
-    # long_form_eval(batch_size=1, num_workers=12, ckpt="/weka/huongn/ow_ckpts/filtered/tagged_data/text_heurs_seg_edit_dist_0.7_edit_dist_0.5_long_tiny_15e4_440K_bs64_ebs512_16workers_5pass_TimestampOn_evalbs8_042525_9zd7k10y/latesttrain_00524288_tiny_ddp-train_grad-acc_fp16_non_ddp_inf.pt", eval_set="tedlium", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
-    # long_form_eval(batch_size=1, num_workers=1, ckpt="/weka/huongn/ow_ckpts/filtered/tagged_data/text_heurs_seg_edit_dist_0.7_edit_dist_0.5_long_tiny_15e4_440K_bs64_ebs512_16workers_5pass_TimestampOn_evalbs8_042525_9zd7k10y/latesttrain_00524288_tiny_ddp-train_grad-acc_fp16_non_ddp_inf.pt", eval_set="coraal", log_dir="/stage", wandb_log=False, wandb_log_dir="/stage", eval_dir="/weka/huongn/ow_eval", hf_token="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")
-    # short_form_eval(
-    #     batch_size=96,
-    #     num_workers=12,
-    #     # ckpt="/weka/huongn/whisper_ckpts/tiny.en.pt",
-    #     ckpt="/weka/huongn/ow_ckpts/filtered/tagged_data/text_heurs_seg_edit_dist_0.7_edit_dist_0.5_long_tiny_15e4_440K_bs64_ebs512_16workers_5pass_TimestampOn_evalbs8_042525_9zd7k10y/latesttrain_00524288_tiny_ddp-train_grad-acc_fp16_non_ddp_inf.pt",
-    #     eval_set="wsj",
-    #     log_dir="/stage",
-    #     wandb_log=False,
-    #     wandb_log_dir="/stage",
-    #     eval_dir="/weka/huongn/ow_eval",
-    #     hf_token="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",
-    # )
