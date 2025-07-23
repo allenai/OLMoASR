@@ -19,25 +19,15 @@ import io
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
-from torch.autograd import set_detect_anomaly
-from torch.profiler import (
-    profile,
-    ProfilerActivity,
-    record_function,
-    schedule,
-    tensorboard_trace_handler,
-)
 
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.amp import GradScaler, autocast
 
-import torch.multiprocessing as mp
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
     MixedPrecision,
@@ -46,7 +36,6 @@ from torch.distributed.fsdp import (
     StateDictType,
     sharded_grad_scaler,
     ShardingStrategy,
-    CPUOffload,
 )
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     BackwardPrefetch,
@@ -61,17 +50,14 @@ from torch.distributed.fsdp.wrap import (
 )
 
 import whisper
-from whisper import audio, DecodingOptions
+from whisper import audio
 from whisper.normalizers import EnglishTextNormalizer
 from whisper.tokenizer import get_tokenizer
 import whisper.tokenizer
-from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
-import open_whisper as ow
-from whisper.model import (
+from olmoasr.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
+import olmoasr
+from olmoasr.model import (
     ResidualAttentionBlock,
-    AudioEncoder,
-    TextDecoder,
-    MultiHeadAttention,
 )
 
 from scripts.eval.eval import EvalDataset
@@ -80,8 +66,13 @@ from for_logging import TRAIN_TABLE_COLS, EVAL_TABLE_COLS, VAL_TABLE_COLS
 from datasets import load_dataset
 import librosa
 
+# Number of examples to log to W&B tables for inspection
 WANDB_EXAMPLES = 8
+
+# Set W&B service wait timeout to prevent hanging
 os.environ["WANDB__SERVICE_WAIT"] = "300"
+
+# Model parameter counts for different Whisper variants
 VARIANT_TO_PARAMS = {
     "tiny": 39 * 10**6,
     "base": 74 * 10**6,
@@ -90,6 +81,7 @@ VARIANT_TO_PARAMS = {
     "large": 1550 * 10**6,
 }
 
+# Peak FLOPS performance for different GPU hardware (FP16/BF16)
 HARDWARE_TO_FLOPS = {
     "H100": 900 * 10**12,
     "L40": 366 * 10**12,
@@ -102,9 +94,9 @@ class AudioTextDataset(Dataset):
     """Dataset for audio and transcript segments
 
     Attributes:
-        audio_files: List of audio file paths
-        transcript_files: List of transcript file paths
-        n_text_ctx: Number of text tokens
+        samples: List of sample dictionaries containing audio/transcript info
+        n_text_ctx: Number of text context tokens
+        n_head: Number of attention heads
     """
 
     def __init__(
@@ -120,20 +112,50 @@ class AudioTextDataset(Dataset):
     def __len__(self):
         return len(self.samples)
 
-    def __getitem__(
-        self, index
-    ) -> Tuple[str, str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        # not sure if putting it here is bad...
+    def __getitem__(self, index) -> Tuple[
+        str,
+        str,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        float,
+        float,
+        float,
+        float,
+    ]:
+        """Get a single sample from the dataset.
+
+        Returns:
+            Tuple containing:
+            - audio_file: path to audio file
+            - transcript_file: path to transcript file
+            - padded_audio_arr: raw audio array
+            - audio_input: mel spectrogram
+            - text_input: tokenized input text
+            - text_y: tokenized target text
+            - padding_mask: attention mask
+            - preproc_time: total preprocessing time
+            - audio_preproc_time: audio preprocessing time
+            - audio_load_time: audio loading time
+            - text_preproc_time: text preprocessing time
+        """
+        # Track total preprocessing time
         start_preproc = time.time()
         global tokenizer
+
+        # Extract sample data
         sample_dict = self.samples[index]
-        audio_file = sample_dict["audio_file"].replace("ow_seg", "ow_seg_long")
-        transcript_file = sample_dict["subtitle_file"].replace("ow_seg", "ow_seg_long")
+        audio_file = sample_dict["audio_file"]
+        transcript_file = sample_dict["subtitle_file"]
         transcript_string = sample_dict["seg_content"]
         ts_mode = sample_dict["ts_mode"]
         only_no_ts_mode = sample_dict["only_no_ts_mode"]
         norm_end = sample_dict["norm_end"]
-        # new_norm_end is temp fix for text segs w/ > 30s -> current don't know why issue occurs
+
+        # Process text first to potentially update norm_end for audio processing
+        # new_norm_end is temp fix for text segs w/ > 30s -> edge case, bad data
         (
             text_input,
             text_y,
@@ -150,14 +172,18 @@ class AudioTextDataset(Dataset):
             only_no_ts_mode,
         )
 
+        # Update norm_end based on text processing results
         if timestamp_mode is True:
-            norm_end = None
+            norm_end = None  # Use full 30s audio for timestamp mode
         elif timestamp_mode is False and (new_norm_end != norm_end):
-            norm_end = new_norm_end
+            norm_end = new_norm_end  # Use adjusted end time
 
+        # Process audio with potentially updated norm_end
         audio_input, padded_audio_arr, audio_preproc_time, audio_load_time = (
             self.preprocess_audio(audio_file, norm_end)
         )
+
+        # Calculate total preprocessing time
         end_preproc = time.time()
         preproc_time = end_preproc - start_preproc
 
@@ -177,37 +203,66 @@ class AudioTextDataset(Dataset):
 
     def preprocess_audio(
         self, audio_file: str, norm_end: Optional[Union[str, int]]
-    ) -> Tuple[str, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, float, float]:
         """Preprocesses the audio data for the model.
 
         Loads the audio file, pads or trims the audio data, and computes the log mel spectrogram.
 
         Args:
             audio_file: The path to the audio file
+            norm_end: End time for audio trimming (in ms or timestamp string)
 
         Returns:
-            A tuple containing the name of audio file and the log mel spectrogram
+            A tuple containing:
+            - mel_spec: log mel spectrogram tensor
+            - audio_arr: processed audio array
+            - audio_preproc_time: time spent on audio preprocessing
+            - audio_load_time: time spent loading audio file
         """
         start_time = time.time()
+
+        # Load audio file and normalize from int16 to float32 range
         audio_arr = np.load(audio_file).astype(np.float32) / 32768.0
         audio_load_time = time.time() - start_time
-        if norm_end:
-            # number of samples to trim until
-            if isinstance(norm_end, str):
-                norm_end = ow.utils.convert_to_milliseconds(norm_end)
 
+        if norm_end:
+            # Convert timestamp string to milliseconds if needed
+            if isinstance(norm_end, str):
+                norm_end = olmoasr.utils.convert_to_milliseconds(norm_end)
+
+            # Calculate number of samples (16kHz sampling rate)
             length = norm_end * 16
-            # trim until end of text segment
+            # Trim audio to end of text segment, then pad to 30s if needed
             audio_arr = audio.pad_or_trim(audio_arr, length=length)
-            # pad w/ silence
-            audio_arr = audio.pad_or_trim(audio_arr)
+            audio_arr = audio.pad_or_trim(audio_arr)  # Pad with silence to 30s
         else:
-            # in case audio_arr isn't exactly 480K samples
+            # Ensure audio is exactly 480K samples (30s at 16kHz)
             audio_arr = audio.pad_or_trim(audio_arr)
+
+        # Compute log mel spectrogram for model input
         mel_spec = audio.log_mel_spectrogram(audio_arr)
         audio_preproc_time = time.time() - start_time
 
         return mel_spec, audio_arr, audio_preproc_time, audio_load_time
+
+    @staticmethod
+    def _convert_to_token_idx(
+        timestamp: Union[str, int], timestamp_begin: int
+    ) -> Optional[int]:
+        """Convert timestamp to token index.
+
+        Args:
+            timestamp: Timestamp in string or millisecond format
+            timestamp_begin: Starting token index for timestamps
+
+        Returns:
+            Token index or None if timestamp > 30s
+        """
+        ts_ms = olmoasr.utils.convert_to_milliseconds(timestamp)
+        if ts_ms > 30000:
+            return None
+        else:
+            return timestamp_begin + (ts_ms // 20)  # 20ms per token
 
     def preprocess_text(
         self,
@@ -217,20 +272,32 @@ class AudioTextDataset(Dataset):
         norm_end: Union[int, str],
         ts_mode: bool,
         only_no_ts_mode: bool,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool, Union[int, str], float]:
         """Preprocesses the text data for the model.
 
-        Reads in the transcript file and extracts the text data. Tokenizes the text data and pads it to the context length.
+        Reads transcript data, tokenizes it, and creates input/target sequences with optional timestamps.
 
         Args:
-            transcript_file: The path to the transcript file
-            tokenizer: The tokenizer to use for encoding the text data
+            transcript_string: The transcript content
+            transcript_file: Path to transcript file (for error reporting)
+            tokenizer: Whisper tokenizer instance
+            norm_end: End time for normalization
+            ts_mode: Whether to use timestamp mode
+            only_no_ts_mode: Whether to force no-timestamp mode
 
         Returns:
-            A tuple containing the transcript file, the input text tensor, the target text tensor, and the padding mask
+            A tuple containing:
+            - text_input: tokenized input sequence tensor
+            - text_y: tokenized target sequence tensor
+            - padding_mask: attention padding mask
+            - timestamp_mode: whether timestamps were used
+            - norm_end: potentially updated norm_end value
+            - text_preproc_time: preprocessing time
         """
         start_time = time.time()
-        reader = ow.utils.TranscriptReader(
+
+        # Parse transcript content
+        reader = olmoasr.utils.TranscriptReader(
             transcript_string=transcript_string,
             file_path=None,
             ext=transcript_file.split(".")[-1],
@@ -238,190 +305,59 @@ class AudioTextDataset(Dataset):
         transcript, *_ = reader.read()
         timestamp_mode = False
 
+        # Convert string timestamps to milliseconds
         if isinstance(norm_end, str):
-            norm_end = ow.utils.convert_to_milliseconds(norm_end)
+            norm_end = olmoasr.utils.convert_to_milliseconds(norm_end)
 
+        # Handle empty transcript case
         if not transcript:
-            if (
-                norm_end > 30000
-            ):  # can't rmb if this is a valid case but leaving in for now
-                next_start_token_idx = [tokenizer.timestamp_begin + (30000 // 20)]
-            else:
-                next_start_token_idx = [tokenizer.timestamp_begin + (norm_end // 20)]
-
-            if norm_end >= 30000:
-                tokens = (
-                    list(tokenizer.sot_sequence_including_notimestamps)
-                    + [tokenizer.no_speech]
-                    + [tokenizer.eot]
-                )
-            else:
-                if only_no_ts_mode is True:
-                    tokens = (
-                        list(tokenizer.sot_sequence_including_notimestamps)
-                        + tokenizer.encode("")
-                        + [tokenizer.eot]
-                    )
-                else:
-                    if np.random.rand() >= 0.5:
-                        tokens = (
-                            [tokenizer.sot_sequence[0]]
-                            + [tokenizer.timestamp_begin]
-                            + tokenizer.encode("")
-                            + next_start_token_idx
-                            + next_start_token_idx
-                            + [tokenizer.eot]
-                        )
-                        timestamp_mode = True
-                    else:
-                        tokens = (
-                            list(tokenizer.sot_sequence_including_notimestamps)
-                            + tokenizer.encode("")
-                            + [tokenizer.eot]
-                        )
-        else:
-            if norm_end > 30000:  # temp soln
-                if len(transcript) > 1:
-                    del transcript[list(transcript.keys())[-1]]
-                    norm_end = list(transcript.keys())[-1][1]
-                only_no_ts_mode = True
-
-            tokens = [
-                (tokenizer.encode(" " + text.strip()))
-                for i, (_, text) in enumerate(transcript.items())
-            ]
-
-            if only_no_ts_mode is True:
-                tokens = (
-                    list(tokenizer.sot_sequence_including_notimestamps)
-                    + list(chain(*tokens))
-                    + [tokenizer.eot]
-                )
-            else:
+            tokens = self._process_empty_transcript(
+                tokenizer, norm_end, only_no_ts_mode
+            )
+            if only_no_ts_mode is False and norm_end < 30000:
+                # 50% chance to use timestamp mode for empty transcripts
                 if np.random.rand() >= 0.5:
-                    if ts_mode is True:
+                    timestamp_mode = True
+        else:
+            # Handle non-empty transcript
+            tokens, timestamp_mode, norm_end = self._process_non_empty_transcript(
+                transcript, tokenizer, norm_end, ts_mode, only_no_ts_mode
+            )
 
-                        def convert_to_token_idx(timestamp, timestamp_begin):
-                            ts_ms = ow.utils.convert_to_milliseconds(timestamp)
-                            if ts_ms > 30000:
-                                return None
-                            else:
-                                return timestamp_begin + (ts_ms // 20)
+        # Create input/output sequences (teacher forcing style)
+        text_input = tokens[:-1]  # All tokens except last
+        text_y = tokens[1:]  # All tokens except first
 
-                        timestamp_begin = tokenizer.timestamp_begin
-                        sot_token = tokenizer.sot_sequence[0]
+        # Validate sequence lengths and token indices
+        self._validate_sequences(
+            text_input,
+            text_y,
+            tokens,
+            transcript_file,
+            timestamp_mode,
+            norm_end,
+            transcript_string,
+        )
 
-                        # Precompute start and end token indices
-                        token_ranges = []
-                        invalid = False
-
-                        for start, end in transcript.keys():
-                            start_idx = convert_to_token_idx(start, timestamp_begin)
-                            end_idx = convert_to_token_idx(end, timestamp_begin)
-
-                            # handling invalid timestamps (> 30s)
-                            if start_idx is None or end_idx is None:
-                                invalid = True
-                                break
-                            token_ranges.append((start_idx, end_idx))
-
-                        if invalid is True:
-                            # If any token range is None, skip this segment
-                            tokens = (
-                                list(tokenizer.sot_sequence_including_notimestamps)
-                                + list(chain(*tokens))
-                                + [tokenizer.eot]
-                            )
-                        else:
-                            # Build new_tokens using list comprehension
-                            new_tokens = [
-                                (
-                                    [sot_token] + [start] + tokens[i] + [end]
-                                    if i == 0
-                                    else [start] + tokens[i] + [end]
-                                )
-                                for i, (start, end) in enumerate(token_ranges)
-                            ]
-
-                            new_tokens = list(chain(*new_tokens))
-
-                            if (
-                                norm_end > 30000
-                            ):  # can't rmb if this is a valid case but leaving in for now
-                                next_start_token_idx = [
-                                    tokenizer.timestamp_begin + (30000 // 20)
-                                ]
-                            else:
-                                next_start_token_idx = [
-                                    tokenizer.timestamp_begin + (norm_end // 20)
-                                ]
-
-                            new_tokens.extend(next_start_token_idx + [tokenizer.eot])
-                            tokens = new_tokens
-                            timestamp_mode = True
-                    else:
-                        tokens = (
-                            list(tokenizer.sot_sequence_including_notimestamps)
-                            + list(chain(*tokens))
-                            + [tokenizer.eot]
-                        )
-                else:
-                    tokens = (
-                        list(tokenizer.sot_sequence_including_notimestamps)
-                        + list(chain(*tokens))
-                        + [tokenizer.eot]
-                    )
-
-        # offset
-        text_input = tokens[:-1]
-        text_y = tokens[1:]
-
-        if len(text_input) > self.n_text_ctx:
-            print(f"{transcript_file=}")
-            print(f"{timestamp_mode=}")
-            print(f"{norm_end=}")
-            print(f"{transcript_string=}")
-            print(f"{len(text_input)=}")
-            print(f"{text_input=}")
-
-        if len(text_y) > self.n_text_ctx:
-            print(f"{transcript_file=}")
-            print(f"{timestamp_mode=}")
-            print(f"{norm_end=}")
-            print(f"{transcript_string=}")
-            print(f"{len(text_y)=}")
-            print(f"{text_y=}")
-
-        if max(tokens) >= 51864:
-            print(f"{transcript_file=}")
-            print(f"{timestamp_mode=}")
-            print(f"{norm_end=}")
-            print(f"{transcript_string=}")
-            print("Invalid token index found:", max(tokens), "vs max allowed: 51863")
-
+        # Create attention mask (prevent attending to padding)
         padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
         padding_mask[:, len(text_input) :] = -np.inf
-        # causal_mask = (
-        #     torch.empty(self.n_text_ctx, self.n_text_ctx).fill_(-np.inf).triu_(1)
-        # )
-        # padding_mask = padding_mask + causal_mask
-        # padding_mask = padding_mask.unsqueeze(dim=0).repeat(self.n_head, 1, 1)[
-        #     :, : self.n_text_ctx, : self.n_text_ctx
-        # ]
 
+        # Pad sequences to context length
         text_input = np.pad(
             text_input,
             pad_width=(0, self.n_text_ctx - len(text_input)),
             mode="constant",
-            constant_values=51864,
+            constant_values=51864,  # Padding token
         )
         text_y = np.pad(
             text_y,
             pad_width=(0, self.n_text_ctx - len(text_y)),
             mode="constant",
-            constant_values=51864,
+            constant_values=51864,  # Padding token
         )
 
+        # Convert to tensors
         text_input = torch.tensor(text_input, dtype=torch.long)
         text_y = torch.tensor(text_y, dtype=torch.long)
         text_preproc_time = time.time() - start_time
@@ -435,24 +371,251 @@ class AudioTextDataset(Dataset):
             text_preproc_time,
         )
 
+    def _process_empty_transcript(
+        self,
+        tokenizer: whisper.tokenizer.Tokenizer,
+        norm_end: int,
+        only_no_ts_mode: bool,
+    ) -> List[int]:
+        """Process empty transcript case and return appropriate tokens."""
+        # Calculate next timestamp token for empty segments
+        if norm_end > 30000:
+            next_start_token_idx = [tokenizer.timestamp_begin + (30000 // 20)]
+        else:
+            next_start_token_idx = [tokenizer.timestamp_begin + (norm_end // 20)]
+
+        if norm_end >= 30000:
+            # Long segments get no-speech token
+            tokens = (
+                list(tokenizer.sot_sequence_including_notimestamps)
+                + [tokenizer.no_speech]
+                + [tokenizer.eot]
+            )
+        else:
+            if only_no_ts_mode is True:
+                # Force no-timestamp mode
+                tokens = (
+                    list(tokenizer.sot_sequence_including_notimestamps)
+                    + tokenizer.encode("")
+                    + [tokenizer.eot]
+                )
+            else:
+                # 50% chance for timestamp vs no-timestamp mode
+                if np.random.rand() >= 0.5:
+                    # Timestamp mode: <sot> <ts> <empty> <next_ts> <next_ts> <eot>
+                    tokens = (
+                        [tokenizer.sot_sequence[0]]
+                        + [tokenizer.timestamp_begin]
+                        + tokenizer.encode("")
+                        + next_start_token_idx
+                        + next_start_token_idx  # Duplicate for end timestamp
+                        + [tokenizer.eot]
+                    )
+                else:
+                    # No-timestamp mode
+                    tokens = (
+                        list(tokenizer.sot_sequence_including_notimestamps)
+                        + tokenizer.encode("")
+                        + [tokenizer.eot]
+                    )
+        return tokens
+
+    def _process_non_empty_transcript(
+        self,
+        transcript: Dict,
+        tokenizer: whisper.tokenizer.Tokenizer,
+        norm_end: int,
+        ts_mode: bool,
+        only_no_ts_mode: bool,
+    ) -> Tuple[List[int], bool, int]:
+        """Process non-empty transcript and return tokens, timestamp_mode, and updated norm_end."""
+        timestamp_mode = False
+
+        # Handle segments longer than 30s by truncating
+        if norm_end > 30000:
+            if len(transcript) > 1:
+                # Remove last segment and update end time
+                del transcript[list(transcript.keys())[-1]]
+                norm_end = list(transcript.keys())[-1][1]
+            only_no_ts_mode = True  # Force no timestamps for long segments
+
+        # Encode text content for each segment
+        tokens = [
+            tokenizer.encode(" " + text.strip())
+            for i, (_, text) in enumerate(transcript.items())
+        ]
+
+        if only_no_ts_mode is True:
+            # No-timestamp mode: concatenate all text tokens
+            tokens = (
+                list(tokenizer.sot_sequence_including_notimestamps)
+                + list(chain(*tokens))
+                + [tokenizer.eot]
+            )
+        else:
+            # 50% chance for timestamp vs no-timestamp mode
+            if np.random.rand() >= 0.5:
+                if ts_mode is True:
+                    # Build timestamp sequence
+                    tokens = self._build_timestamp_sequence(
+                        transcript, tokens, tokenizer, norm_end
+                    )
+                    if tokens is not None:
+                        timestamp_mode = True
+                    else:
+                        # Fallback to no-timestamp mode if timestamp processing failed
+                        tokens = (
+                            list(tokenizer.sot_sequence_including_notimestamps)
+                            + list(
+                                chain(
+                                    *[
+                                        tokenizer.encode(" " + text.strip())
+                                        for _, text in transcript.items()
+                                    ]
+                                )
+                            )
+                            + [tokenizer.eot]
+                        )
+                else:
+                    # No-timestamp mode explicitly chosen
+                    tokens = (
+                        list(tokenizer.sot_sequence_including_notimestamps)
+                        + list(chain(*tokens))
+                        + [tokenizer.eot]
+                    )
+            else:
+                # No-timestamp mode (50% chance)
+                tokens = (
+                    list(tokenizer.sot_sequence_including_notimestamps)
+                    + list(chain(*tokens))
+                    + [tokenizer.eot]
+                )
+
+        return tokens, timestamp_mode, norm_end
+
+    def _build_timestamp_sequence(
+        self,
+        transcript: Dict,
+        text_tokens: List[List[int]],
+        tokenizer: whisper.tokenizer.Tokenizer,
+        norm_end: int,
+    ) -> Optional[List[int]]:
+        """Build sequence with timestamps. Returns None if timestamps are invalid."""
+        timestamp_begin = tokenizer.timestamp_begin
+        sot_token = tokenizer.sot_sequence[0]
+
+        # Convert all timestamps to token indices
+        token_ranges = []
+        for start, end in transcript.keys():
+            start_idx = self._convert_to_token_idx(start, timestamp_begin)
+            end_idx = self._convert_to_token_idx(end, timestamp_begin)
+
+            # Check for invalid timestamps (> 30s)
+            if start_idx is None or end_idx is None:
+                return None  # Signal to use no-timestamp mode
+            token_ranges.append((start_idx, end_idx))
+
+        # Build sequence: <sot> <start_ts> <text> <end_ts> <start_ts> <text> <end_ts> ...
+        new_tokens = []
+        for i, (start_ts, end_ts) in enumerate(token_ranges):
+            if i == 0:
+                # First segment includes SOT token
+                new_tokens.extend([sot_token, start_ts] + text_tokens[i] + [end_ts])
+            else:
+                # Subsequent segments just have timestamps around text
+                new_tokens.extend([start_ts] + text_tokens[i] + [end_ts])
+
+        # Add final timestamp for end of audio
+        if norm_end > 30000:
+            next_start_token_idx = tokenizer.timestamp_begin + (30000 // 20)
+        else:
+            next_start_token_idx = tokenizer.timestamp_begin + (norm_end // 20)
+
+        new_tokens.extend([next_start_token_idx, tokenizer.eot])
+        return new_tokens
+
+    def _validate_sequences(
+        self,
+        text_input: List[int],
+        text_y: List[int],
+        tokens: List[int],
+        transcript_file: str,
+        timestamp_mode: bool,
+        norm_end: Union[int, str],
+        transcript_string: str,
+    ) -> None:
+        """Validate sequence lengths and token indices, print warnings if issues found."""
+        # Check for sequences exceeding context length
+        if len(text_input) > self.n_text_ctx:
+            print(
+                f"WARNING: text_input length {len(text_input)} exceeds context {self.n_text_ctx}"
+            )
+            print(f"{transcript_file=}")
+            print(f"{timestamp_mode=}")
+            print(f"{norm_end=}")
+            print(f"{transcript_string=}")
+            print(f"{len(text_input)=}")
+            print(f"{text_input=}")
+
+        if len(text_y) > self.n_text_ctx:
+            print(
+                f"WARNING: text_y length {len(text_y)} exceeds context {self.n_text_ctx}"
+            )
+            print(f"{transcript_file=}")
+            print(f"{timestamp_mode=}")
+            print(f"{norm_end=}")
+            print(f"{transcript_string=}")
+            print(f"{len(text_y)=}")
+            print(f"{text_y=}")
+
+        # Check for invalid token indices (should be < vocab size)
+        if max(tokens) >= 51864:
+            print(f"ERROR: Invalid token index found in {transcript_file}")
+            print(f"{timestamp_mode=}")
+            print(f"{norm_end=}")
+            print(f"{transcript_string=}")
+            print("Invalid token index found:", max(tokens), "vs max allowed: 51863")
+
 
 def init_tokenizer(worker_id: int):
+    """Initialize tokenizer in each dataloader worker process.
+
+    Sets up a global tokenizer instance for the worker process. This is called
+    automatically by PyTorch's DataLoader for each worker.
+
+    Args:
+        worker_id: The ID of the worker process (provided by DataLoader)
+    """
     global tokenizer
     tokenizer = get_tokenizer(multilingual=False)
 
 
 def setup(rank: int) -> None:
-    """Initializes the distributed process group
+    """Initializes the distributed process group for FSDP training.
+
+    Sets the CUDA device for the current process and initializes the NCCL
+    process group for distributed training with FSDP.
 
     Args:
-        rank: The rank of the current process
-        world_size: The total number of processes
+        rank: The local rank of the current process (GPU device ID)
     """
     torch.cuda.set_device(rank)
     dist.init_process_group("nccl")
 
 
-def open_dicts_file(samples_dicts_file) -> List[Dict]:
+def open_dicts_file(samples_dicts_file: str) -> List[Dict]:
+    """Load sample dictionaries from compressed files.
+
+    Supports loading JSONL data from either gzip (.gz) or zstandard (.zst)
+    compressed files. Each line should contain a JSON object representing
+    a training sample.
+
+    Args:
+        samples_dicts_file: Path to the compressed JSONL file
+
+    Returns:
+        List of dictionaries, each containing sample metadata and file paths
+    """
     if samples_dicts_file.endswith(".gz"):
         with gzip.open(samples_dicts_file, "rt") as f:
             samples_dicts = [json.loads(line.strip()) for line in f]
@@ -478,23 +641,23 @@ def prepare_dataloader(
     num_workers: int,
     prefetch_factor: int,
     persistent_workers: bool,
-) -> Tuple[DistributedSampler, DataLoader]:
-    """Prepares the dataloader for the dataset
+) -> Tuple[DataLoader, DistributedSampler]:
+    """Prepares the distributed dataloader for FSDP training.
 
-    Prepares the distributed sampler and the dataloader for the dataset for DDP training
+    Creates a DistributedSampler and DataLoader configured for distributed training.
+    The sampler ensures each process gets a different subset of the data.
 
     Args:
-        dataset: The dataset to use
-        rank: The rank of the current process
-        world_size: The total number of processes
-        batch_size: The batch size
-        pin_memory: Whether to pin memory
-        shuffle: Whether to shuffle the data
-        num_workers: The number of workers
-        persistent_workers: Whether to use persistent workers
+        dataset: The dataset to create a dataloader for
+        batch_size: Number of samples per batch per process
+        pin_memory: Whether to pin memory for faster GPU transfer
+        shuffle: Whether to shuffle data at each epoch
+        num_workers: Number of worker processes for data loading
+        prefetch_factor: Number of samples loaded in advance by each worker
+        persistent_workers: Whether to keep workers alive between epochs
 
     Returns:
-        A tuple containing the distributed sampler and the dataloader
+        A tuple containing (dataloader, distributed_sampler)
     """
     sampler = DistributedSampler(
         dataset,
@@ -529,29 +692,26 @@ def prepare_data(
     num_workers: int = 0,
     prefetch_factor: int = 2,
     persistent_workers: bool = True,
-) -> Tuple[DataLoader, DataLoader]:
-    """Prepares the data for training
+) -> Tuple[DataLoader, DistributedSampler]:
+    """Prepares the training dataset and dataloader for FSDP training.
 
-    Given the list of audio and transcript files, prepares the distributed sampler and dataloader for training and validation
-    If subset is not None, only uses a subset of the data
+    Creates an AudioTextDataset from sample dictionaries and sets up a distributed
+    dataloader for training. Each sample dictionary should contain audio file paths,
+    transcript information, and processing metadata.
 
     Args:
-        rank: The rank of the current process
-        world_size: The total number of processes
-        audio_files_train: The list of audio files for training
-        transcript_files_train: The list of transcript files for training
-        train_val_split: The ratio of training to validation data
-        train_batch_size: The batch size for training
-        val_batch_size: The batch size for validation
-        n_text_ctx: The number of text tokens
-        pin_memory: Whether to pin memory
-        shuffle: Whether to shuffle the data
-        num_workers: The number of workers
-        persistent_workers: Whether to use persistent workers
-        subset: The subset of the data to use
+        samples_dicts: List of dictionaries containing sample metadata
+        train_batch_size: Number of samples per batch per process
+        n_text_ctx: Maximum number of text context tokens
+        n_head: Number of attention heads (passed to dataset)
+        pin_memory: Whether to pin memory for faster GPU transfer
+        shuffle: Whether to shuffle data at each epoch
+        num_workers: Number of worker processes for data loading
+        prefetch_factor: Number of samples loaded in advance by each worker
+        persistent_workers: Whether to keep workers alive between epochs
 
     Returns:
-        A tuple containing the dataloaders for training and validation
+        A tuple containing (train_dataloader, train_sampler)
     """
     audio_text_dataset = AudioTextDataset(
         samples=samples_dicts,
@@ -611,19 +771,24 @@ def prepare_sched(
     eff_batch_size: int,
     optimizer: torch.optim.Optimizer,
 ) -> Tuple[LambdaLR, int, int, int]:
-    """Prepares the scheduler for training
+    """Prepares the learning rate scheduler for FSDP training.
 
-    Prepares the LambdaLR scheduler for training
+    Creates a LambdaLR scheduler with linear warmup and cosine decay. Also calculates
+    gradient accumulation steps needed to achieve the effective batch size.
 
     Args:
-        train_dataloader: The training dataloader
-        world_size: The total number of processes
-        train_batch_size: The batch size for training
-        eff_batch_size: The effective train batch size
-        optimizer: The optimizer for training
+        train_steps: Total number of training steps
+        world_size: The total number of processes (GPUs)
+        train_batch_size: The batch size per process
+        eff_batch_size: The effective global batch size
+        optimizer: The optimizer to attach the scheduler to
 
     Returns:
-        A tuple containing the scheduler, the number of steps over which to accumulate gradients, the number of warmup steps, and the total number of steps
+        A tuple containing:
+        - scheduler: The learning rate scheduler
+        - accumulation_steps: Number of gradient accumulation steps
+        - warmup_steps: Number of warmup steps (0.2% of total)
+        - train_steps: Total number of training steps (unchanged)
     """
     if eff_batch_size <= (world_size * train_batch_size):
         accumulation_steps = 1
@@ -668,30 +833,36 @@ def setup_wandb(
     train_batch_size: int,
     hardware: str,
     wandb_tags: List[str],
-) -> Tuple[Optional[str], List[str], wandb.Artifact, wandb.Artifact, bool, bool]:
-    """Sets up the Weights and Biases logging
+) -> str:
+    """Sets up Weights and Biases logging for FSDP training.
+
+    Initializes W&B with comprehensive training configuration and defines
+    custom metrics for tracking training progress, efficiency, and validation.
 
     Args:
-        run_id: The run ID
-        exp_name: The experiment name
-        job_type: The type of job
-        subset: The subset of the data
-        model_variant: The variant of the model
-        lr: The learning rate
-        betas: The betas for the Adam optimizer
-        eps: The epsilon value
-        weight_decay: The weight decay
-        train_batch_size: The batch size for training
-        total_steps: The total number of steps
-        warmup_steps: The number of warmup steps
-        accumulation_steps: The number of steps over which to accumulate gradients
-        train_val_split: The ratio of training to validation data
-        world_size: The total number of processes
-        num_workers: The number of workers
+        run_id: Existing run ID to resume (None for new run)
+        exp_name: Experiment name for organization
+        job_type: Type of job for W&B tracking
+        model_variant: Whisper model variant being trained
+        model_dims: Model dimension configuration
+        train_steps: Total number of training steps
+        epoch_steps: Number of steps per epoch
+        warmup_steps: Number of learning rate warmup steps
+        accumulation_steps: Number of gradient accumulation steps
+        world_size: Total number of processes (GPUs)
+        num_workers: Number of dataloader worker processes
+        prefetch_factor: Dataloader prefetch factor
+        lr: Learning rate
+        betas: AdamW optimizer beta parameters
+        eps: AdamW optimizer epsilon value
+        weight_decay: L2 regularization weight decay
+        eff_batch_size: Effective global batch size
+        train_batch_size: Batch size per process
+        hardware: Hardware type for FLOPS calculation
+        wandb_tags: List of tags for experiment organization
 
     Returns:
-        A tuple containing the run ID, the tags, the training results artifact, the validation results artifact,
-        a boolean indicating whether the training results artifact has been added, and a boolean indicating whether the validation results artifact has been added
+        The W&B run ID (generated if None was provided)
     """
     config = {
         "lr": lr,
@@ -930,7 +1101,7 @@ def load_ckpt(
         # scaler = GradScaler(init_scale=2**16)
         scaler = None
 
-    model = ow.model.Whisper(dims=train_state["dims"]).to(rank)
+    model = olmoasr.model.OLMoASR(dims=train_state["dims"]).to(rank)
     model_state = torch.load(
         model_state_file, map_location=map_location, weights_only=False
     )
@@ -984,23 +1155,47 @@ def load_ckpt(
     )
 
 
-def gen_pred(logits, text_y, tokenizer):
+def gen_pred(
+    logits: torch.Tensor, text_y: torch.Tensor, tokenizer: whisper.tokenizer.Tokenizer
+) -> Tuple[List[str], List[str], List[str]]:
+    """Generate predictions from model logits and decode them to text.
+
+    Takes model output logits and ground truth targets, converts logits to predictions
+    using argmax, then decodes both predictions and targets to text for evaluation.
+
+    Args:
+        logits: Model output logits of shape (batch_size, seq_len, vocab_size)
+        text_y: Ground truth target tokens of shape (batch_size, seq_len)
+        tokenizer: Whisper tokenizer for decoding tokens to text
+
+    Returns:
+        A tuple containing:
+        - microbatch_pred_text: List of normalized predicted text strings
+        - microbatch_unnorm_pred_text: List of raw predicted text (with timestamps)
+        - microbatch_tgt_text: List of ground truth text strings
+    """
+    # Convert logits to predictions via argmax
     probs = F.softmax(logits, dim=-1)
     pred = torch.argmax(probs, dim=-1)
 
-    # collecting data for logging
+    # Decode predictions to text
     microbatch_pred_text = []
     microbatch_unnorm_pred_text = []
     for pred_instance in pred.cpu().numpy():
+        # Decode with timestamps preserved
         pred_instance_text = tokenizer.decode_with_timestamps(list(pred_instance))
         microbatch_unnorm_pred_text.append(pred_instance_text)
-        pred_instance_text = ow.utils.remove_after_endoftext(pred_instance_text)
+        # Remove content after <|endoftext|> for evaluation
+        pred_instance_text = olmoasr.utils.remove_after_endoftext(pred_instance_text)
         microbatch_pred_text.append(pred_instance_text)
 
+    # Decode ground truth targets to text
     microbatch_tgt_text = []
     for text_y_instance in text_y.cpu().numpy():
+        # Remove padding tokens (51864) before decoding
         text_y_instance = list(filter(lambda token: token != 51864, text_y_instance))
         tgt_y_instance_text = tokenizer.decode_with_timestamps(list(text_y_instance))
+        # Ensure text ends with endoftext token for consistency
         tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
         tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
         microbatch_tgt_text.append(tgt_y_instance_text)
@@ -1008,11 +1203,36 @@ def gen_pred(logits, text_y, tokenizer):
     return microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text
 
 
-def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer):
+def calc_pred_wer(
+    batch_tgt_text: List[str],
+    batch_pred_text: List[str],
+    normalizer: EnglishTextNormalizer,
+) -> Tuple[List[Tuple[str, str]], float, int, int, int]:
+    """Calculate Word Error Rate (WER) and error statistics for predictions.
+
+    Normalizes target and predicted text, then computes WER and detailed error
+    counts (substitutions, deletions, insertions). Filters out empty references
+    to avoid division by zero in WER calculation.
+
+    Args:
+        batch_tgt_text: List of ground truth text strings
+        batch_pred_text: List of predicted text strings
+        normalizer: Text normalizer for consistent evaluation
+
+    Returns:
+        A tuple containing:
+        - norm_tgt_pred_pairs: List of (normalized_target, normalized_prediction) pairs
+        - train_wer: Word Error Rate as percentage (0-100)
+        - subs: Number of substitution errors
+        - dels: Number of deletion errors
+        - ins: Number of insertion errors
+    """
+    # Normalize all text for consistent evaluation
     norm_batch_tgt_text = [normalizer(text) for text in batch_tgt_text]
     norm_batch_pred_text = [normalizer(text) for text in batch_pred_text]
     norm_tgt_pred_pairs = list(zip(norm_batch_tgt_text, norm_batch_pred_text))
-    # no empty references - for WER calculation
+
+    # Filter out empty references to avoid WER calculation issues
     batch_tgt_text_full = [
         norm_batch_tgt_text[i]
         for i in range(len(norm_batch_tgt_text))
@@ -1024,12 +1244,15 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer):
         if len(norm_batch_tgt_text[i]) > 0
     ]
 
+    # Calculate WER and error statistics
     if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
+        # All references are empty - perfect match
         train_wer = 0.0
         subs = 0
         dels = 0
         ins = 0
     else:
+        # Calculate WER as percentage
         train_wer = (
             jiwer.wer(
                 reference=batch_tgt_text_full,
@@ -1037,6 +1260,7 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer):
             )
             * 100
         )
+        # Get detailed error counts
         measures = jiwer.compute_measures(
             truth=batch_tgt_text_full, hypothesis=batch_pred_text_full
         )
@@ -1054,38 +1278,62 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer):
 
 
 def log_tbl(
-    global_step,
-    train_table,
-    run_id,
-    batch_audio_files,
-    batch_audio_arr,
-    batch_text_files,
-    batch_pred_text,
-    batch_tgt_text,
-    batch_unnorm_pred_text,
-    norm_tgt_pred_pairs,
-):
+    global_step: int,
+    train_table: wandb.Table,
+    run_id: str,
+    batch_audio_files: List[str],
+    batch_audio_arr: List[np.ndarray],
+    batch_text_files: List[str],
+    batch_pred_text: List[str],
+    batch_tgt_text: List[str],
+    batch_unnorm_pred_text: List[str],
+    norm_tgt_pred_pairs: List[Tuple[str, str]],
+) -> None:
+    """Log training examples to Weights & Biases table.
+
+    Creates detailed logging entries for training samples including audio,
+    predictions, targets, and error statistics. Each sample gets its own
+    row in the W&B table for inspection.
+
+    Args:
+        global_step: Current training step number
+        train_table: W&B table to add data to
+        run_id: Unique identifier for the training run
+        batch_audio_files: List of audio file paths
+        batch_audio_arr: List of audio arrays for W&B Audio objects
+        batch_text_files: List of transcript file paths
+        batch_pred_text: List of normalized predicted text
+        batch_tgt_text: List of original target text
+        batch_unnorm_pred_text: List of raw predicted text (with timestamps)
+        norm_tgt_pred_pairs: List of (normalized_target, normalized_prediction) pairs
+    """
     for i, (
         tgt_text_instance,
         pred_text_instance,
     ) in enumerate(norm_tgt_pred_pairs):
+        # Calculate per-sample WER
         wer = np.round(
-            ow.utils.calculate_wer((tgt_text_instance, pred_text_instance)),
+            olmoasr.utils.calculate_wer((tgt_text_instance, pred_text_instance)),
             2,
         )
+
+        # Calculate detailed error statistics
         subs = 0
         dels = 0
         ins = 0
         if len(tgt_text_instance) == 0:
+            # Empty reference - only insertions possible
             subs = 0
             dels = 0
             ins = len(pred_text_instance.split())
         else:
+            # Non-empty reference - calculate all error types
             measures = jiwer.compute_measures(tgt_text_instance, pred_text_instance)
             subs = measures["substitutions"]
             dels = measures["deletions"]
             ins = measures["insertions"]
 
+        # Add row to W&B table with all relevant information
         train_table.add_data(
             run_id,
             batch_audio_files[i],
@@ -1106,6 +1354,7 @@ def log_tbl(
             wer,
         )
 
+    # Log the complete table to W&B
     wandb.log({f"train_table_{global_step}": train_table})
 
 
@@ -1153,36 +1402,69 @@ def train(
     eval_batch_size: int,
     run_id_dir: Optional[str],
     eval_on_gpu: bool,
-) -> Tuple[
-    int,
-    float,
-    torch.nn.Module,
-    torch.optim.Optimizer,
-    Optional[GradScaler],
-    LambdaLR,
-    Optional[bool],
-    Optional[bool],
-]:
-    """Training loop for 1 epoch
+) -> Tuple[int, int, int, FSDP, torch.optim.Optimizer, Optional[GradScaler], LambdaLR]:
+    """Main FSDP training loop with automatic mixed precision and distributed training.
+
+    Performs forward pass, backward pass, gradient accumulation, and optional validation/evaluation.
+    Includes comprehensive logging of training metrics, timing, and examples to W&B.
+    Handles checkpointing and supports both synchronous validation and asynchronous evaluation.
 
     Args:
-        rank: The rank of the current process
-        train_batch_size: The batch size for training
-        train_dataloader: The dataloader for training
-        scaler: The gradient scaler
-        model: The model to train
-        tokenizer: The tokenizer for encoding the text data
-        normalizer: The text normalizer
-        optimizer: The optimizer for training
-        scheduler: The scheduler for training
-        accumulation_steps: The number of steps over which to accumulate gradients
-        max_grad_norm: The maximum gradient norm
-        tags: The tags to use for logging
-        exp_name: The experiment name
+        rank: Global rank of the current process across all nodes
+        local_rank: Local rank within the current node (GPU device ID)
+        global_step: Current global training step across all processes
+        local_step: Current local step for this process
+        train_batch_size: Batch size per process for training
+        train_dataloader: DataLoader providing training batches
+        train_sampler: DistributedSampler for coordinating data across processes
+        train_steps: Total number of training steps to perform
+        epoch_steps: Number of steps per epoch
+        epoch: Current epoch number
+        scaler: Optional gradient scaler for mixed precision training (FSDP specific)
+        model: FSDP-wrapped model for distributed training
+        tokenizer: Whisper tokenizer for text processing
+        normalizer: Text normalizer for evaluation metrics
+        optimizer: Optimizer for parameter updates
+        scheduler: Learning rate scheduler
+        accumulation_steps: Number of gradient accumulation steps
+        max_grad_norm: Maximum gradient norm for clipping
+        model_dims: Model dimension configuration (for checkpointing)
+        model_variant: Model variant name (e.g., "base", "large")
+        run_val: Whether to run validation during training
+        val_freq: Frequency (in steps) for running validation
+        val_batch_size: Batch size for validation
+        val_num_workers: Number of workers for validation dataloader
+        val_cache_dir: Directory for caching validation datasets
+        val_wandb_log: Whether to log validation results to W&B
+        run_eval: Whether to run evaluation during training
+        run_id: Unique identifier for this training run
+        tags: List of tags for experiment tracking
+        exp_name: Experiment name for logging and checkpointing
+        log_dir: Directory for saving logs and results
+        ckpt_dir: Directory for saving model checkpoints
+        train_log_freq: Frequency (in steps) for detailed training logging
+        eval_freq: Frequency (in steps) for running evaluation
+        ckpt_freq: Frequency (in steps) for saving checkpoints
+        verbose: Whether to enable verbose model output
+        precision: Torch dtype for mixed precision training
+        eval_script_path: Path to evaluation script (for async eval)
+        eval_dir: Directory containing evaluation datasets
+        eval_wandb_log: Whether to log evaluation results to W&B
+        eval_batch_size: Batch size for evaluation
+        run_id_dir: Directory for storing run IDs
+        eval_on_gpu: Whether to run evaluation on GPU
 
     Returns:
-        A tuple containing the model, the optimizer, the gradient scaler, the scheduler, and a boolean indicating whether the training results artifact has been added
+        A tuple containing:
+        - global_step: Updated global step count
+        - local_step: Updated local step count
+        - epoch: Current epoch number
+        - model: The trained FSDP model
+        - optimizer: Updated optimizer state
+        - scaler: Updated gradient scaler state (if used)
+        - scheduler: Updated learning rate scheduler state
     """
+    # Initialize lists for collecting training examples for logging
     batch_pred_text = []
     batch_tgt_text = []
     batch_unnorm_pred_text = []
@@ -1190,24 +1472,31 @@ def train(
     batch_text_files = []
     batch_audio_arr = []
 
+    # Initialize training state
     total_loss = 0.0
-    model.train()
-    optimizer.zero_grad()
+    model.train()  # Set model to training mode
+    optimizer.zero_grad()  # Clear gradients from previous iteration
 
+    # Initialize W&B table for logging training examples (only on main process)
     if rank == 0:
         train_table = wandb.Table(columns=TRAIN_TABLE_COLS)
 
+    # Set epoch for distributed sampler to ensure proper data shuffling
     train_sampler.set_epoch(epoch)
-    start_dl = time.time()
+    start_dl = time.time()  # Start timing data loading
 
+    # Main training loop - iterate through batches
     for batch_idx, batch in enumerate(train_dataloader):
-        end_dl = time.time()
-        model.train()
+        end_dl = time.time()  # End data loading timing
+        model.train()  # Ensure model is in training mode
 
+        # Start timing for gradient accumulation step
         if batch_idx % accumulation_steps == 0 or accumulation_steps == 1:
             start_step = time.time()
 
+        # Forward pass with automatic mixed precision
         with autocast(device_type="cuda", dtype=precision):
+            # Unpack batch data from dataloader
             (
                 audio_files,
                 transcript_files,
@@ -1222,6 +1511,7 @@ def train(
                 text_preproc_time,
             ) = batch
 
+            # Move tensors to GPU and time the transfer
             start_data_to_gpu = time.time()
             audio_input = audio_input.to(local_rank)
             text_input = text_input.to(local_rank)
@@ -1229,26 +1519,28 @@ def train(
             padding_mask = padding_mask.to(local_rank)
             end_data_to_gpu = time.time()
 
+            # Forward pass through the FSDP model
             start_fwd = time.time()
             logits = model(audio_input, text_input, padding_mask, verbose)
             end_fwd = time.time()
 
+            # Calculate cross-entropy loss, ignoring padding tokens (51864)
             train_loss = F.cross_entropy(
-                logits.view(-1, logits.shape[-1]),
+                logits.view(-1, logits.shape[-1]),  # Flatten for loss calculation
                 text_y.view(-1),
-                ignore_index=51864,
+                ignore_index=51864,  # Padding token index
             )
-            train_loss = (
-                train_loss / accumulation_steps
-            )  # normalization of loss (gradient accumulation)
+            # Normalize loss for gradient accumulation
+            train_loss = train_loss / accumulation_steps
 
+        # Backward pass with optional gradient scaling for mixed precision
         start_bwd = time.time()
         if scaler is not None:
-            scaler.scale(train_loss).backward()  # might not need scaler
+            scaler.scale(train_loss).backward()  # Use sharded grad scaler for FSDP
         else:
-            train_loss.backward()
+            train_loss.backward()  # Standard backward pass
         end_bwd = time.time()
-        local_step += 1
+        local_step += 1  # Increment local step counter
 
         if rank == 0:
             wandb.log(
@@ -1631,9 +1923,28 @@ def train(
 
 
 class ValidationDataset(Dataset):
-    def __init__(
-        self: str, n_text_ctx: int, val_set: str, hf_token: str, cache_dir: str
-    ):
+    """Dataset for validation using HuggingFace speech recognition datasets.
+
+    Supports multiple validation datasets including TED-LIUM, VoxPopuli, Common Voice,
+    and AMI. Handles audio preprocessing (resampling, padding) and text tokenization
+    with proper formatting for Whisper model evaluation.
+
+    Attributes:
+        val_set: Name of the validation dataset
+        n_text_ctx: Maximum text context length
+        dataset: Loaded HuggingFace dataset
+    """
+
+    def __init__(self, n_text_ctx: int, val_set: str, hf_token: str, cache_dir: str):
+        """Initialize validation dataset.
+
+        Args:
+            n_text_ctx: Maximum number of text context tokens
+            val_set: Name of the HuggingFace dataset to use for validation
+            hf_token: HuggingFace authentication token
+            cache_dir: Directory for caching downloaded datasets
+        """
+        # Configuration mapping for supported validation datasets
         valset2config = {
             "LIUM/tedlium": {
                 "name": "release3",
@@ -1654,6 +1965,8 @@ class ValidationDataset(Dataset):
         }
         self.val_set = val_set
         self.n_text_ctx = n_text_ctx
+
+        # Load the specified dataset from HuggingFace
         self.dataset = load_dataset(
             path=val_set,
             name=valset2config[val_set]["name"],
@@ -1664,10 +1977,29 @@ class ValidationDataset(Dataset):
         )
 
     def __len__(self):
+        """Return the number of samples in the validation dataset."""
         return len(self.dataset)
 
     def __getitem__(self, index):
+        """Get a single validation sample.
+
+        Extracts audio and text from the dataset, handles dataset-specific field names,
+        and preprocesses both audio and text for model evaluation.
+
+        Args:
+            index: Index of the sample to retrieve
+
+        Returns:
+            Tuple containing:
+            - audio_arr: Raw audio array
+            - audio_input: Mel spectrogram tensor
+            - text_input: Tokenized input text tensor
+            - text_y: Tokenized target text tensor
+            - padding_mask: Attention padding mask
+        """
         global tokenizer
+
+        # Extract audio and text based on dataset format
         if self.val_set == "LIUM/tedlium":
             waveform = self.dataset[index]["audio"]["array"]
             sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
@@ -1677,13 +2009,13 @@ class ValidationDataset(Dataset):
         elif self.val_set == "facebook/voxpopuli":
             waveform = self.dataset[index]["audio"]["array"]
             sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-            text_y = self.dataset[index]["raw_text"]
+            text_y = self.dataset[index]["raw_text"]  # VoxPopuli uses 'raw_text'
             audio_arr, audio_input = self.preprocess_audio(waveform, sampling_rate)
             text_input, text_y, padding_mask = self.preprocess_text(text_y)
         elif self.val_set == "mozilla-foundation/common_voice_5_1":
             waveform = self.dataset[index]["audio"]["array"]
             sampling_rate = self.dataset[index]["audio"]["sampling_rate"]
-            text_y = self.dataset[index]["sentence"]
+            text_y = self.dataset[index]["sentence"]  # Common Voice uses 'sentence'
             audio_arr, audio_input = self.preprocess_audio(waveform, sampling_rate)
             text_input, text_y, padding_mask = self.preprocess_text(text_y)
         elif self.val_set == "distil-whisper/ami-sdm":
@@ -1695,17 +2027,55 @@ class ValidationDataset(Dataset):
 
         return audio_arr, audio_input, text_input, text_y, padding_mask
 
-    def preprocess_audio(self, waveform: np.ndarray, sampling_rate: int):
+    def preprocess_audio(
+        self, waveform: np.ndarray, sampling_rate: int
+    ) -> Tuple[np.ndarray, torch.Tensor]:
+        """Preprocess audio waveform for validation.
+
+        Resamples audio to 16kHz if needed, pads/trims to 30 seconds,
+        and computes log mel spectrogram for model input.
+
+        Args:
+            waveform: Raw audio waveform array
+            sampling_rate: Original sampling rate of the audio
+
+        Returns:
+            Tuple containing:
+            - audio_arr: Processed audio array (30s at 16kHz)
+            - audio_input: Log mel spectrogram tensor
+        """
+        # Resample to 16kHz if necessary (Whisper's expected sampling rate)
         if sampling_rate != 16000:
             waveform = librosa.resample(
                 waveform, orig_sr=sampling_rate, target_sr=16000
             )
+
+        # Pad or trim to exactly 30 seconds (480,000 samples at 16kHz)
         audio_arr = audio.pad_or_trim(waveform)
         audio_arr = audio_arr.astype(np.float32)
+
+        # Compute log mel spectrogram for model input
         audio_input = audio.log_mel_spectrogram(audio_arr)
         return audio_arr, audio_input
 
-    def preprocess_text(self, text: str):
+    def preprocess_text(
+        self, text: str
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Preprocess text for validation.
+
+        Tokenizes text using Whisper tokenizer, handles empty text with no-speech token,
+        and creates input/target sequences with proper padding and masking.
+
+        Args:
+            text: Ground truth transcript text
+
+        Returns:
+            Tuple containing:
+            - text_input: Tokenized input sequence tensor
+            - text_y: Tokenized target sequence tensor
+            - padding_mask: Attention padding mask tensor
+        """
+        # Handle empty text with special no-speech token
         if text.strip() == "":
             tokens = (
                 list(tokenizer.sot_sequence_including_notimestamps)
@@ -1713,18 +2083,22 @@ class ValidationDataset(Dataset):
                 + [tokenizer.eot]
             )
         else:
+            # Normal text tokenization with SOT and EOT tokens
             tokens = (
                 list(tokenizer.sot_sequence_including_notimestamps)
                 + tokenizer.encode(text)
                 + [tokenizer.eot]
             )
 
-        text_input = tokens[:-1]
-        text_y = tokens[1:]
+        # Create input/output sequences for teacher forcing
+        text_input = tokens[:-1]  # All tokens except last
+        text_y = tokens[1:]  # All tokens except first
 
+        # Create attention mask to prevent attending to padding
         padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
         padding_mask[:, len(text_input) :] = -np.inf
 
+        # Pad sequences to context length with padding token (51864)
         text_input = np.pad(
             text_input,
             pad_width=(0, self.n_text_ctx - len(text_input)),
@@ -1738,6 +2112,7 @@ class ValidationDataset(Dataset):
             constant_values=51864,
         )
 
+        # Convert to PyTorch tensors
         text_input = torch.tensor(text_input, dtype=torch.long)
         text_y = torch.tensor(text_y, dtype=torch.long)
 
@@ -1757,7 +2132,27 @@ def validate(
     n_text_ctx: int,
     cache_dir: str,
     wandb_log: bool,
-):
+) -> None:
+    """Run validation on multiple HuggingFace speech datasets.
+
+    Evaluates the FSDP model on validation sets including TED-LIUM, VoxPopuli,
+    Common Voice, and AMI. Computes validation loss and WER metrics, logging
+    results to W&B with detailed examples.
+
+    Args:
+        model: FSDP-wrapped model to validate
+        precision: Mixed precision dtype for autocast
+        tokenizer: Whisper tokenizer for text processing
+        normalizer: Text normalizer for WER calculation
+        rank: Global rank of current process
+        local_rank: Local rank (GPU device ID)
+        global_step: Current training step for logging
+        batch_size: Batch size for validation
+        num_workers: Number of dataloader workers
+        n_text_ctx: Maximum text context length
+        cache_dir: Directory for caching validation datasets
+        wandb_log: Whether to log detailed examples to W&B
+    """
     val_sets = [
         "LIUM/tedlium",
         "facebook/voxpopuli",
@@ -1811,7 +2206,7 @@ def validate(
                         text_y.view(-1),
                         ignore_index=51864,
                     )
-                        
+
                 print(f"Rank {rank}: Done forward pass")
 
                 dist.all_reduce(loss, op=dist.ReduceOp.SUM)
@@ -1849,7 +2244,7 @@ def validate(
                             pred_text_instance,
                         ) in enumerate(norm_tgt_pred_pairs):
                             wer = np.round(
-                                ow.utils.calculate_wer(
+                                olmoasr.utils.calculate_wer(
                                     (tgt_text_instance, pred_text_instance)
                                 ),
                                 2,
@@ -1883,7 +2278,7 @@ def validate(
                                 len(tgt_text_instance.split()),
                                 wer,
                             )
-                            
+
                     print(f"Rank {rank} reaching barrier")
                     dist.barrier()
                     print(f"Rank {rank} reaching barrier")
@@ -1940,8 +2335,32 @@ def run_async_eval(
     wandb_log: bool = False,
     cuda: bool = True,
 ) -> None:
+    """Launch asynchronous evaluation subprocess for FSDP training.
+
+    Starts evaluation in a separate process to avoid blocking training. Only
+    the main process (rank 0) launches the evaluation to prevent duplicate runs.
+
+    Args:
+        rank: Current process rank (only rank 0 launches eval)
+        exp_name: Name of the training experiment
+        eval_script_path: Path to the evaluation script
+        current_step: Current training step number
+        batch_size: Batch size for evaluation
+        num_workers: Number of worker processes for evaluation
+        ckpt: Path to the checkpoint file to evaluate
+        eval_set: Name of the evaluation dataset
+        train_run_id: Run ID of the training process (for logging)
+        log_dir: Directory for logging results
+        run_id_dir: Directory containing run IDs
+        eval_dir: Directory containing evaluation datasets
+        wandb_log: Whether to log results to Weights & Biases
+        cuda: Whether to use GPU for evaluation
+    """
+    # Get environment variables for evaluation process
     wandb_log_dir = os.getenv("WANDB_DIR")
     hf_token = os.getenv("HF_TOKEN")
+
+    # Build command line arguments for evaluation script
     cmd = [
         "python",
         eval_script_path,
@@ -1964,6 +2383,7 @@ def run_async_eval(
 
     print(f"{cmd=}")
 
+    # Only rank 0 launches evaluation to avoid duplicates
     if rank == 0:
         subprocess.Popen(cmd)
 
@@ -2021,34 +2441,60 @@ def main(
         "_HYBRID_SHARD_ZERO2",
     ] = "FULL_SHARD",
 ) -> None:
-    """Main function for training
+    """Main training function for FSDP Whisper model training with timestamps.
 
-    Conducts a training loop for the specified number of steps, with validation and evaluation (if run_eval is True)
+    Orchestrates the complete FSDP training pipeline including:
+    - Distributed training setup with FSDP sharding strategies
+    - Data loading from compressed JSONL files
+    - Model initialization with FSDP wrapping and activation checkpointing
+    - Training loop with gradient accumulation and mixed precision
+    - Periodic validation on HuggingFace datasets and asynchronous evaluation
+    - Comprehensive logging to Weights & Biases
+
+    Supports various FSDP sharding strategies, mixed precision training modes,
+    and resume functionality from previous training runs.
 
     Args:
-        model_variant: The variant of the model to use
-        exp_name: The name of the experiment
-        job_type: The type of job (e.g., training, evaluation)
-        filter: The filter to use for the dataset
-        run_id: The run ID to use for loading a checkpoint
-        rank: The rank of the current process
-        world_size: The total number of processes
-        lr: The learning rate
-        betas: The betas for the optimizer
-        eps: The epsilon for the optimizer
-        weight_decay: The weight decay for the optimizer
-        max_grad_norm: The maximum gradient norm
-        subset: The subset of the dataset to use
-        eff_size: The size of the efficientnet model
-        train_batch_size: The batch size for training
-        val_batch_size: The batch size for validation
-        eval_batch_size: The batch size for evaluation
-        train_val_split: The train-validation split
-        num_workers: The number of workers for the dataloader
-        pin_memory: Whether to pin memory for the dataloader
-        shuffle: Whether to shuffle the dataloader
-        persistent_workers: Whether to use persistent workers for the dataloader
-        run_eval: Whether to run evaluation
+        model_variant: Whisper model variant ("tiny", "base", "small", "medium", "large")
+        exp_name: Experiment name for logging and checkpoint organization
+        job_type: Type of job for W&B tracking (e.g., "training", "fine-tuning")
+        samples_dicts_dir: Directory containing compressed JSONL files with sample metadata
+        train_steps: Total number of training steps to perform
+        epoch_steps: Number of steps per epoch (for periodic evaluation/checkpointing)
+        ckpt_file_name: Specific checkpoint filename to resume from (optional)
+        ckpt_dir: Directory for saving and loading model checkpoints
+        log_dir: Directory for saving training logs and results
+        eval_dir: Directory containing evaluation datasets
+        val_cache_dir: Directory for caching validation datasets
+        run_id_dir: Directory for storing unique run identifiers
+        lr: Learning rate for AdamW optimizer
+        betas: Beta parameters for AdamW optimizer momentum
+        eps: Epsilon parameter for AdamW optimizer numerical stability
+        weight_decay: L2 regularization weight decay factor
+        max_grad_norm: Maximum gradient norm for gradient clipping
+        eff_batch_size: Effective global batch size across all processes
+        train_batch_size: Batch size per process for training
+        eval_batch_size: Batch size per process for evaluation
+        val_batch_size: Batch size per process for validation
+        num_workers: Number of worker processes for data loading
+        prefetch_factor: Number of samples prefetched by each worker
+        pin_memory: Whether to pin memory for faster GPU transfer
+        shuffle: Whether to shuffle training data each epoch
+        persistent_workers: Whether to keep workers alive between epochs
+        run_val: Whether to run periodic validation during training
+        val_freq: Frequency (in steps) for running validation
+        val_wandb_log: Whether to log validation results to W&B
+        run_eval: Whether to run periodic evaluation during training
+        train_log_freq: Frequency (in steps) for detailed training logging
+        eval_freq: Frequency (in steps) for running evaluation
+        ckpt_freq: Frequency (in steps) for saving checkpoints
+        verbose: Whether to enable verbose model output
+        precision: Mixed precision mode ("bfloat16", "float16", "pure_float16", "float32")
+        hardware: Hardware type for FLOPS calculation ("H100", "A100", "L40", "A6000")
+        eval_script_path: Path to evaluation script (for async evaluation)
+        eval_wandb_log: Whether to log evaluation results to W&B
+        eval_on_gpu: Whether to run evaluation on GPU (vs CPU)
+        sharding_strategy: FSDP sharding strategy ("FULL_SHARD", "SHARD_GRAD_OP", etc.)
     """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
@@ -2214,7 +2660,7 @@ def main(
             sharding_strategy=sharding_strategy,
         )
     else:
-        model = ow.model.Whisper(dims=model_dims).to(local_rank)
+        model = olmoasr.model.OLMoASR(dims=model_dims).to(local_rank)
 
         auto_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
