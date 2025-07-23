@@ -41,7 +41,7 @@ You can download the data from [OLMoASR-Pool HuggingFace](link).
 In the following subsections, we'll walk through how to setup, process the data, train a model and evaluate it.
 
 ### Setup
-To have full access, ensure you have `python >= 3.10` and a virtual environment. Then, run
+To have full access, ensure you have `python >= 3.10` and a virtual environment. Then, run:
 
 ```[shell]
 git clone https://github.com/allenai/OLMoASR.git
@@ -61,8 +61,36 @@ Once you've downloaded and organized your data, you'll need to follow the follow
 6. Perform audio-text language alignment using `scripts/data/filtering/assign_audio_lang_data.py` and `scripts/data/filtering/tag_audio_lang.py`
 7. Filter based on a specified configuration of conditions using `scripts/data/filtering/process_tagged_data.py`
 
+Your data should be a JSONL file where each line is in the following format:
+
+```
+{
+	"id": <str>, 
+	"seg_id": <str>, 
+	"subtitle_file": <str>, 
+	"audio_file": <str>, 
+	"timestamp": <str>, 
+	"mach_timestamp": <str>,
+	"seg_text": <str> , 
+	"mach_seg_text": <str>, 
+	"seg_content": <str>, 
+	"mach_seg_content": <str>, 
+	"edit_dist": <float>, 
+	"seg_edit_dist": <float>, 
+	"sim_score": <float>, 
+	"seg_sim_score": <float>, 
+	"audio_lang": <str>, 
+	"text_lang": <str>, 
+	"casing": <str>, 
+	"repeating_lines": <bool>, 
+	"length": <float>,
+	"num_words": <int>, 
+	"seg_num_words": <int>
+}
+```
+
 ### Training
-To enable distributed training, we use `torchrun`. Below is an example of a bash script you'll use to execute distributed training.
+Once you've processed your data, you are ready to train a model with it. To enable distributed training, we use `torchrun`. Below is an example of a bash script you'll use to execute distributed training:
 
 ```[shell]
 # REPLICAS - number of compute nodes
@@ -109,11 +137,16 @@ torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} ${SCRIPT
 You can go to `scripts/training` for a more detailed guide on the bash scripts that use `torchrun` to train.
 
 ### Evaluation
+To run evaluation, you'll have to acquire the evaluation sets first. With the exception of evaluation sets that need to be paid for, you can use `scripts/eval/get_eval_set.py` to download the dataset by just passing in the dataset name.
 
-
-### Inference
+After that, you can run `scripts/eval/eval.py` to run evaluation. Please visit `scripts/eval` for more information on the evaluation sets, and other scripts.
 
 ## Available Models
+OLMoASR is a series of ASR models trained on OLMoASR-Pool, a web-scale 3M hour audio-text dataset collected from the public internet. They can all perform English short and long-form speech recognition and produce sentence-level timestamps.
+
+Model checkpoints can be downloaded from [OLMoASR HuggingFace](link). 
+
+### Short-form Speech Recognition
 
 | Dataset                  | OLMoASR-tiny.en | OLMoASR-base.en | OLMoASR-small.en | OLMoASR-medium.en | OLMoASR-large.en | OLMoASR-large.en-v2 |
 |--------------------------|-------------|-------------|---------------|---------------|---------------|------------------|
@@ -133,7 +166,30 @@ You can go to `scripts/training` for a more detailed guide on the bash scripts t
 | Fleurs                   | 9.7         | 6.7         | 5.0           | 4.4           | 4.5           | 4.2              |
 | Average                  | 20.5        | 16.6        | 13.8          | 12.8          | 13.0          | 12.6             |
 
+### Long-form Speech Recognition
+
+| Dataset        | OLMoASR-tiny.en | OLMoASR-base.en | OLMoASR-small.en | OLMoASR-medium.en | OLMoASR-large.en | OLMoASR-large.en-v2 |
+|----------------|-------------|-------------|---------------|---------------|---------------|------------------|
+| TED-LIUM3      | 4.8         | 3.9         | 3.6           | 3.3           | 3.5           | 3.6              |
+| Meanwhile      | 12.6        | 10.2        | 7.4           | 6.9           | 8.8           | 10.0             |
+| Kincaid46      | 13.6        | 11.2        | 10.2          | 9.4           | 10.0          | 10.1             |
+| Rev16          | 14.0        | 12.0        | 11.5          | 12.5          | 11.5          | 11.1             |
+| Earnings-21    | 14.2        | 11.1        | 10.1          | 9.5           | 9.9           | 9.8              |
+| Earnings-22    | 20.0        | 15.6        | 14.0          | 13.5          | 13.5          | 13.5             |
+| CORAAL         | 30.2        | 26.1        | 23.4          | 21.9          | 22.4          | 22.1             |
+| Average        | 15.6        | 12.9        | 11.5          | 11.0          | 11.4          | 11.5             |
+
 ## Usage
+
+Currently, only Python usage is supported. CLI usage support is in development. To run transcription, you can run the code below:
+
+```
+import olmoasr
+
+model = olmoasr.load_model("medium", inference=True)
+result = model.transcribe("audio.mp3")
+print(result)
+```
 
 ## Team
 
