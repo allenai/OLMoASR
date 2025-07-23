@@ -38,14 +38,19 @@ from whisper import audio, DecodingOptions
 from whisper.normalizers import EnglishTextNormalizer
 from whisper.tokenizer import get_tokenizer
 import whisper.tokenizer
-from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
-import open_whisper as ow
+from olmoasr.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
+import olmoasr
 
 from scripts.eval.eval import EvalDataset
 from for_logging import TRAIN_TABLE_COLS, EVAL_TABLE_COLS
 
+# Number of examples to log to W&B tables for inspection
 WANDB_EXAMPLES = 8
+
+# Set W&B service wait timeout to prevent hanging
 os.environ["WANDB__SERVICE_WAIT"] = "300"
+
+# Model parameter counts for different Whisper variants
 VARIANT_TO_PARAMS = {
     "tiny": 39 * 10**6,
     "base": 74 * 10**6,
@@ -54,16 +59,21 @@ VARIANT_TO_PARAMS = {
     "large": 1550 * 10**6,
 }
 
+# Peak FLOPS performance for different GPU hardware (FP16/BF16)
 HARDWARE_TO_FLOPS = {"H100": 900 * 10**12, "L40": 366 * 10**12, "A100": 312 * 10**12}
 
 
 class AudioTextDataset(Dataset):
-    """Dataset for audio and transcript segments
+    """Dataset for OWSM (Open Whisper-style Speech Model) audio and transcript segments.
+
+    Processes audio-text pairs for OWSM training with special OWSM-style text formatting
+    including language tags (<eng><asr>) and timestamp tokens. Supports both timestamp
+    and no-timestamp training modes with random selection during training.
 
     Attributes:
-        audio_files: List of audio file paths
-        transcript_files: List of transcript file paths
-        n_text_ctx: Number of text tokens
+        samples: List of sample dictionaries containing audio/transcript metadata
+        n_text_ctx: Maximum number of text context tokens
+        n_head: Number of attention heads (for mask computation)
     """
 
     def __init__(
@@ -72,28 +82,73 @@ class AudioTextDataset(Dataset):
         n_text_ctx: int,
         n_head: int,
     ):
+        """Initialize the OWSM dataset.
+
+        Args:
+            samples: List of dictionaries with keys 'audio', 'text', 'key'
+            n_text_ctx: Maximum text context length for padding/truncation
+            n_head: Number of attention heads (used for attention mask creation)
+        """
         self.samples = samples
         self.n_text_ctx = n_text_ctx
         self.n_head = n_head
 
     def __len__(self):
+        """Return the number of samples in the dataset."""
         return len(self.samples)
 
-    def __getitem__(
-        self, index
-    ) -> Tuple[str, str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        # not sure if putting it here is bad...
+    def __getitem__(self, index) -> Tuple[
+        str,
+        str,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        float,
+        float,
+        float,
+        float,
+    ]:
+        """Get a single sample from the OWSM dataset.
+
+        Processes both audio and text for OWSM training, including special handling
+        for OWSM text format with language tags and timestamp extraction.
+
+        Args:
+            index: Index of the sample to retrieve
+
+        Returns:
+            Tuple containing:
+            - audio_file: Path to audio file
+            - transcript_file: Sample key/identifier
+            - padded_audio_arr: Raw audio array (30s)
+            - audio_input: Mel spectrogram tensor
+            - text_input: Tokenized input sequence
+            - text_y: Tokenized target sequence
+            - padding_mask: Attention padding mask
+            - preproc_time: Total preprocessing time
+            - audio_preproc_time: Audio preprocessing time
+            - audio_load_time: Audio loading time
+            - text_preproc_time: Text preprocessing time
+        """
+        # Track total preprocessing time for efficiency monitoring
         start_preproc = time.time()
         global tokenizer
+
+        # Extract sample metadata
         sample_dict = self.samples[index]
         audio_file = sample_dict["audio"]
-        transcript_string = sample_dict["text"]
+        transcript_string = sample_dict[
+            "text"
+        ]  # OWSM format: "<eng><asr>text<1.2><3.4>..."
         transcript_file = sample_dict["key"]
 
+        # Extract the final timestamp from OWSM format text (used for audio normalization)
         matches = re.findall(r"<([\d.]+)>", transcript_string)
-        norm_end = float(matches[-1])
+        norm_end = float(matches[-1]) if matches else 30.0
 
-        # new_norm_end is temp fix for text segs w/ > 30s -> current don't know why issue occurs
+        # Process text first (may affect audio processing if timestamp mode is used)
         (
             text_input,
             text_y,
@@ -107,12 +162,16 @@ class AudioTextDataset(Dataset):
             norm_end,
         )
 
+        # If timestamp mode is enabled, use full 30s audio regardless of text end time
         if timestamp_mode is True:
             norm_end = None
 
+        # Process audio with potentially updated norm_end
         audio_input, padded_audio_arr, audio_preproc_time, audio_load_time = (
             self.preprocess_audio(audio_file, norm_end)
         )
+
+        # Calculate total preprocessing time
         end_preproc = time.time()
         preproc_time = end_preproc - start_preproc
 
@@ -132,22 +191,34 @@ class AudioTextDataset(Dataset):
 
     def preprocess_audio(
         self, audio_file: str, norm_end: Optional[Union[str, int]]
-    ) -> Tuple[str, torch.Tensor]:
-        """Preprocesses the audio data for the model.
+    ) -> Tuple[torch.Tensor, np.ndarray, float, float]:
+        """Preprocesses audio data for OWSM training.
 
-        Loads the audio file, pads or trims the audio data, and computes the log mel spectrogram.
+        Loads audio using kaldiio (for Kaldi-format files), normalizes to float32,
+        pads or trims to 30 seconds, and computes log mel spectrogram.
 
         Args:
-            audio_file: The path to the audio file
+            audio_file: Path to the audio file (Kaldi format)
+            norm_end: End time for audio normalization (currently unused but kept for compatibility)
 
         Returns:
-            A tuple containing the name of audio file and the log mel spectrogram
+            A tuple containing:
+            - mel_spec: Log mel spectrogram tensor
+            - audio_arr: Processed audio array (30s at 16kHz)
+            - audio_preproc_time: Total audio preprocessing time
+            - audio_load_time: Time spent loading the audio file
         """
         start_time = time.time()
+
+        # Load audio using kaldiio (for Kaldi matrix format files)
         sampling_rate, audio_arr = load_mat(audio_file)
         audio_arr = audio_arr.astype(np.float32)
         audio_load_time = time.time() - start_time
+
+        # Pad or trim audio to exactly 30 seconds (480,000 samples at 16kHz)
         audio_arr = audio.pad_or_trim(audio_arr)
+
+        # Compute log mel spectrogram for model input
         mel_spec = audio.log_mel_spectrogram(audio_arr)
         audio_preproc_time = time.time() - start_time
 
@@ -159,57 +230,80 @@ class AudioTextDataset(Dataset):
         transcript_file: str,
         tokenizer: whisper.tokenizer.Tokenizer,
         norm_end: Union[int, str],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool]:
-        """Preprocesses the text data for the model.
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool, float]:
+        """Preprocesses OWSM-format text data for training.
 
-        Reads in the transcript file and extracts the text data. Tokenizes the text data and pads it to the context length.
+        Handles OWSM text format with language tags (<eng><asr>) and timestamp tokens.
+        Randomly chooses between timestamp and no-timestamp training modes (50/50 split).
+        Converts timestamp format from <1.23> to <|1.23|> for Whisper tokenizer compatibility.
 
         Args:
-            transcript_file: The path to the transcript file
-            tokenizer: The tokenizer to use for encoding the text data
+            transcript_string: OWSM format text: "<eng><asr>Hello world<1.2><3.4>"
+            transcript_file: Sample identifier for debugging
+            tokenizer: Whisper tokenizer for encoding text
+            norm_end: End time in milliseconds (used to detect 30s segments)
 
         Returns:
-            A tuple containing the transcript file, the input text tensor, the target text tensor, and the padding mask
+            A tuple containing:
+            - text_input: Tokenized input sequence tensor
+            - text_y: Tokenized target sequence tensor
+            - padding_mask: Attention padding mask tensor
+            - timestamp_mode: Whether timestamp mode was used
+            - text_preproc_time: Time spent preprocessing text
         """
         start_time = time.time()
         timestamp_mode = False
 
-        if (
-            re.sub(r"<\d+\.\d+>", "", transcript_string.split("<eng><asr>")[-1]).strip()
-            == ""
-            and norm_end == 30000.0
-        ):
+        # Check if this is an empty transcript (only timestamps, no text content)
+        text_content = re.sub(
+            r"<\d+\.\d+>", "", transcript_string.split("<eng><asr>")[-1]
+        ).strip()
+
+        if text_content == "" and norm_end == 30000.0:
+            # Empty 30s segment - use no-speech token
             tokens = (
                 list(tokenizer.sot_sequence_including_notimestamps)
                 + [tokenizer.no_speech]
                 + [tokenizer.eot]
             )
         elif np.random.rand() >= 0.5:
+            # 50% chance: Use timestamp mode
+            # Extract text after language tag: "<eng><asr>text<1.2><3.4>"
             s = transcript_string.split("<eng><asr>")[-1]
+            # Convert OWSM timestamp format <1.23> to Whisper format <|1.23|>
             s_modified = re.sub(r"<(\d+\.\d+)>", r"<|\1|>", s)
 
+            # Encode with timestamp tokens allowed
             tokens = tokenizer.encode(
                 s_modified, allowed_special=tokenizer.encoding.special_tokens_set
             )
+            # Add SOT token, duplicate last timestamp, and EOT token
             tokens = (
                 [tokenizer.sot_sequence[0]] + tokens + [tokens[-1]] + [tokenizer.eot]
             )
             timestamp_mode = True
         else:
+            # 50% chance: Use no-timestamp mode
+            # Extract text after language tag and remove all timestamp tokens
             s = transcript_string.split("<eng><asr>")[-1]
             s_cleaned = re.sub(r"<\d+\.\d+>", "", s)
 
+            # Standard no-timestamp tokenization
             tokens = (
                 list(tokenizer.sot_sequence_including_notimestamps)
                 + tokenizer.encode(s_cleaned)
                 + [tokenizer.eot]
             )
 
-        # offset
-        text_input = tokens[:-1]
-        text_y = tokens[1:]
+        # Create input/output sequences for teacher forcing (offset by 1)
+        text_input = tokens[:-1]  # All tokens except last
+        text_y = tokens[1:]  # All tokens except first
 
+        # Validation: Check for sequences exceeding context length
         if len(text_input) > self.n_text_ctx:
+            print(
+                f"WARNING: text_input length {len(text_input)} exceeds context {self.n_text_ctx}"
+            )
             print(f"{transcript_file=}")
             print(f"{timestamp_mode=}")
             print(f"{norm_end=}")
@@ -218,6 +312,9 @@ class AudioTextDataset(Dataset):
             print(f"{text_input=}")
 
         if len(text_y) > self.n_text_ctx:
+            print(
+                f"WARNING: text_y length {len(text_y)} exceeds context {self.n_text_ctx}"
+            )
             print(f"{transcript_file=}")
             print(f"{timestamp_mode=}")
             print(f"{norm_end=}")
@@ -225,36 +322,36 @@ class AudioTextDataset(Dataset):
             print(f"{len(text_y)=}")
             print(f"{text_y=}")
 
+        # Validation: Check for invalid token indices (should be < vocab size)
         if max(tokens) >= 51864:
-            print(f"{transcript_file=}")
+            print(f"ERROR: Invalid token index in {transcript_file}")
             print(f"{timestamp_mode=}")
             print(f"{norm_end=}")
             print(f"{transcript_string=}")
             print("Invalid token index found:", max(tokens), "vs max allowed: 51863")
 
+        # Create attention mask to prevent attending to padding tokens
         padding_mask = torch.zeros((self.n_text_ctx, self.n_text_ctx))
         padding_mask[:, len(text_input) :] = -np.inf
-        # causal_mask = (
-        #     torch.empty(self.n_text_ctx, self.n_text_ctx).fill_(-np.inf).triu_(1)
-        # )
-        # padding_mask = padding_mask + causal_mask
-        # padding_mask = padding_mask.unsqueeze(dim=0).repeat(self.n_head, 1, 1)[
-        #     :, : self.n_text_ctx, : self.n_text_ctx
-        # ]
 
+        # Note: Causal mask is handled by the model, not added here
+        # This is just padding mask to ignore padded positions
+
+        # Pad sequences to context length with padding token (51864)
         text_input = np.pad(
             text_input,
             pad_width=(0, self.n_text_ctx - len(text_input)),
             mode="constant",
-            constant_values=51864,
+            constant_values=51864,  # Padding token index
         )
         text_y = np.pad(
             text_y,
             pad_width=(0, self.n_text_ctx - len(text_y)),
             mode="constant",
-            constant_values=51864,
+            constant_values=51864,  # Padding token index
         )
 
+        # Convert to PyTorch tensors
         text_input = torch.tensor(text_input, dtype=torch.long)
         text_y = torch.tensor(text_y, dtype=torch.long)
         text_preproc_time = time.time() - start_time
@@ -269,22 +366,44 @@ class AudioTextDataset(Dataset):
 
 
 def init_tokenizer(worker_id: int):
+    """Initialize tokenizer in each dataloader worker process.
+
+    Sets up a global tokenizer instance for the worker process. This is called
+    automatically by PyTorch's DataLoader for each worker.
+
+    Args:
+        worker_id: The ID of the worker process (provided by DataLoader)
+    """
     global tokenizer
     tokenizer = get_tokenizer(multilingual=False)
 
 
 def setup(rank: int) -> None:
-    """Initializes the distributed process group
+    """Initializes the distributed process group for DDP training.
+
+    Sets the CUDA device for the current process and initializes the NCCL
+    process group for distributed training with DDP.
 
     Args:
-        rank: The rank of the current process
-        world_size: The total number of processes
+        rank: The local rank of the current process (GPU device ID)
     """
     torch.cuda.set_device(rank)
     dist.init_process_group("nccl")
 
 
-def open_dicts_file(samples_dicts_file) -> List[Dict]:
+def open_dicts_file(samples_dicts_file: str) -> List[Dict]:
+    """Load sample dictionaries from compressed OWSM dataset files.
+
+    Supports loading JSONL data from either gzip (.gz) or zstandard (.zst)
+    compressed files. Each line should contain a JSON object representing
+    an OWSM training sample with 'audio', 'text', and 'key' fields.
+
+    Args:
+        samples_dicts_file: Path to the compressed JSONL file
+
+    Returns:
+        List of dictionaries, each containing OWSM sample metadata
+    """
     if samples_dicts_file.endswith(".gz"):
         with gzip.open(samples_dicts_file, "rt") as f:
             samples_dicts = [json.loads(line.strip()) for line in f]
@@ -310,23 +429,23 @@ def prepare_dataloader(
     num_workers: int,
     prefetch_factor: int,
     persistent_workers: bool,
-) -> Tuple[DistributedSampler, DataLoader]:
-    """Prepares the dataloader for the dataset
+) -> Tuple[DataLoader, DistributedSampler]:
+    """Prepares the distributed dataloader for DDP training.
 
-    Prepares the distributed sampler and the dataloader for the dataset for DDP training
+    Creates a DistributedSampler and DataLoader configured for distributed training.
+    The sampler ensures each process gets a different subset of the data.
 
     Args:
-        dataset: The dataset to use
-        rank: The rank of the current process
-        world_size: The total number of processes
-        batch_size: The batch size
-        pin_memory: Whether to pin memory
-        shuffle: Whether to shuffle the data
-        num_workers: The number of workers
-        persistent_workers: Whether to use persistent workers
+        dataset: The dataset to create a dataloader for
+        batch_size: Number of samples per batch per process
+        pin_memory: Whether to pin memory for faster GPU transfer
+        shuffle: Whether to shuffle data at each epoch
+        num_workers: Number of worker processes for data loading
+        prefetch_factor: Number of samples loaded in advance by each worker
+        persistent_workers: Whether to keep workers alive between epochs
 
     Returns:
-        A tuple containing the distributed sampler and the dataloader
+        A tuple containing (dataloader, distributed_sampler)
     """
     sampler = DistributedSampler(
         dataset,
@@ -361,29 +480,26 @@ def prepare_data(
     num_workers: int = 0,
     prefetch_factor: int = 2,
     persistent_workers: bool = True,
-) -> Tuple[DataLoader, DataLoader]:
-    """Prepares the data for training
+) -> Tuple[DataLoader, DistributedSampler]:
+    """Prepares the OWSM training dataset and dataloader for DDP training.
 
-    Given the list of audio and transcript files, prepares the distributed sampler and dataloader for training and validation
-    If subset is not None, only uses a subset of the data
+    Creates an AudioTextDataset from OWSM sample dictionaries and sets up a distributed
+    dataloader for training. Each sample dictionary should contain 'audio', 'text', and 'key' fields
+    in OWSM format.
 
     Args:
-        rank: The rank of the current process
-        world_size: The total number of processes
-        audio_files_train: The list of audio files for training
-        transcript_files_train: The list of transcript files for training
-        train_val_split: The ratio of training to validation data
-        train_batch_size: The batch size for training
-        val_batch_size: The batch size for validation
-        n_text_ctx: The number of text tokens
-        pin_memory: Whether to pin memory
-        shuffle: Whether to shuffle the data
-        num_workers: The number of workers
-        persistent_workers: Whether to use persistent workers
-        subset: The subset of the data to use
+        samples_dicts: List of OWSM sample dictionaries
+        train_batch_size: Number of samples per batch per process
+        n_text_ctx: Maximum number of text context tokens
+        n_head: Number of attention heads (passed to dataset)
+        pin_memory: Whether to pin memory for faster GPU transfer
+        shuffle: Whether to shuffle data at each epoch
+        num_workers: Number of worker processes for data loading
+        prefetch_factor: Number of samples loaded in advance by each worker
+        persistent_workers: Whether to keep workers alive between epochs
 
     Returns:
-        A tuple containing the dataloaders for training and validation
+        A tuple containing (train_dataloader, train_sampler)
     """
     audio_text_dataset = AudioTextDataset(
         samples=samples_dicts,
@@ -411,19 +527,20 @@ def prepare_optim(
     eps: float,
     weight_decay: float,
 ) -> torch.optim.Optimizer:
-    """Prepares the optimizer for training
+    """Prepares the AdamW optimizer for DDP training.
 
-    Prepares the AdamW optimizer for training
+    Creates an AdamW optimizer with the specified hyperparameters for training
+    the DDP-wrapped model.
 
     Args:
-        model: The model to train
-        lr: The learning rate
-        betas: The betas for the Adam optimizer
-        eps: The epsilon value
-        weight_decay: The weight decay
+        model: The DDP-wrapped model to train
+        lr: Learning rate for the optimizer
+        betas: Beta parameters for AdamW momentum
+        eps: Epsilon value for numerical stability
+        weight_decay: L2 regularization weight decay factor
 
     Returns:
-        The optimizer for training
+        Configured AdamW optimizer
     """
     optimizer = AdamW(
         model.parameters(),
@@ -443,19 +560,24 @@ def prepare_sched(
     eff_batch_size: int,
     optimizer: torch.optim.Optimizer,
 ) -> Tuple[LambdaLR, int, int, int]:
-    """Prepares the scheduler for training
+    """Prepares the learning rate scheduler for DDP training.
 
-    Prepares the LambdaLR scheduler for training
+    Creates a LambdaLR scheduler with linear warmup and cosine decay. Also calculates
+    gradient accumulation steps needed to achieve the effective batch size.
 
     Args:
-        train_dataloader: The training dataloader
-        world_size: The total number of processes
-        train_batch_size: The batch size for training
-        eff_batch_size: The effective train batch size
-        optimizer: The optimizer for training
+        train_steps: Total number of training steps
+        world_size: The total number of processes (GPUs)
+        train_batch_size: The batch size per process
+        eff_batch_size: The effective global batch size
+        optimizer: The optimizer to attach the scheduler to
 
     Returns:
-        A tuple containing the scheduler, the number of steps over which to accumulate gradients, the number of warmup steps, and the total number of steps
+        A tuple containing:
+        - scheduler: The learning rate scheduler
+        - accumulation_steps: Number of gradient accumulation steps
+        - warmup_steps: Number of warmup steps (0.2% of total)
+        - train_steps: Total number of training steps (unchanged)
     """
     if eff_batch_size <= (world_size * train_batch_size):
         accumulation_steps = 1
@@ -500,45 +622,57 @@ def setup_wandb(
     train_batch_size: int,
     hardware: str,
     wandb_tags: List[str],
-) -> Tuple[Optional[str], List[str], wandb.Artifact, wandb.Artifact, bool, bool]:
-    """Sets up the Weights and Biases logging
+) -> str:
+    """Sets up Weights and Biases logging for DDP OWSM training.
+
+    Initializes W&B with comprehensive training configuration and defines
+    custom metrics for tracking training progress, efficiency, and evaluation.
 
     Args:
-        run_id: The run ID
-        exp_name: The experiment name
-        job_type: The type of job
-        subset: The subset of the data
-        model_variant: The variant of the model
-        lr: The learning rate
-        betas: The betas for the Adam optimizer
-        eps: The epsilon value
-        weight_decay: The weight decay
-        train_batch_size: The batch size for training
-        total_steps: The total number of steps
-        warmup_steps: The number of warmup steps
-        accumulation_steps: The number of steps over which to accumulate gradients
-        train_val_split: The ratio of training to validation data
-        world_size: The total number of processes
-        num_workers: The number of workers
+        run_id: Existing run ID to resume (None for new run)
+        exp_name: Experiment name for organization
+        job_type: Type of job for W&B tracking
+        model_variant: Whisper model variant being trained
+        model_dims: Model dimension configuration
+        train_steps: Total number of training steps
+        epoch_steps: Number of steps per epoch
+        warmup_steps: Number of learning rate warmup steps
+        accumulation_steps: Number of gradient accumulation steps
+        world_size: Total number of processes (GPUs)
+        num_workers: Number of dataloader worker processes
+        prefetch_factor: Dataloader prefetch factor
+        lr: Learning rate
+        betas: AdamW optimizer beta parameters
+        eps: AdamW optimizer epsilon value
+        weight_decay: L2 regularization weight decay
+        eff_batch_size: Effective global batch size
+        train_batch_size: Batch size per process
+        hardware: Hardware type for FLOPS calculation
+        wandb_tags: List of tags for experiment organization
 
     Returns:
-        A tuple containing the run ID, the tags, the training results artifact, the validation results artifact,
-        a boolean indicating whether the training results artifact has been added, and a boolean indicating whether the validation results artifact has been added
+        The W&B run ID (generated if None was provided)
     """
+    # Create comprehensive configuration dictionary for W&B tracking
     config = {
+        # Optimizer configuration
         "lr": lr,
         "betas": betas,
         "eps": eps,
         "weight_decay": weight_decay,
+        # Batch size configuration
         "eff_batch_size": eff_batch_size,
         "train_batch_size": train_batch_size,
+        # Training schedule
         "train_steps": train_steps,
         "epoch_steps": epoch_steps,
         "warmup_steps": warmup_steps,
         "accumulation_steps": accumulation_steps,
+        # Distributed training
         "world_size": world_size,
         "num_workers": num_workers,
         "prefetch_factor": prefetch_factor,
+        # Model configuration
         "model_variant": model_variant,
         "n_mels": model_dims.n_mels,
         "n_audio_ctx": model_dims.n_audio_ctx,
@@ -550,13 +684,16 @@ def setup_wandb(
         "n_text_state": model_dims.n_text_state,
         "n_text_head": model_dims.n_text_head,
         "n_text_layer": model_dims.n_text_layer,
+        # Performance metrics
         "model_params": VARIANT_TO_PARAMS[model_variant],
         "peak_flops": HARDWARE_TO_FLOPS[hardware],
     }
 
+    # Generate new run ID if not provided
     if run_id is None:
         run_id = wandb.util.generate_id()
 
+    # Initialize W&B with configuration
     wandb.init(
         id=run_id,
         resume="allow",
@@ -570,6 +707,7 @@ def setup_wandb(
         settings=wandb.Settings(init_timeout=300, _service_wait=300),
     )
 
+    # Define custom metrics for better visualization
     wandb.define_metric("global_step")
     wandb.define_metric("local_step")
     wandb.define_metric("train/*", step_metric="global_step")
@@ -727,7 +865,7 @@ def load_ckpt(
 
     ckpt = torch.load(ckpt_file, map_location=map_location, weights_only=False)
 
-    model = ow.model.Whisper(dims=ckpt["dims"]).to(rank)
+    model = olmoasr.model.OLMoASR(dims=ckpt["dims"]).to(rank)
     model = DDP(model, device_ids=[rank], output_device=rank)
 
     # if end at training step i, then start at step i+1 when resuming
@@ -770,23 +908,47 @@ def load_ckpt(
     )
 
 
-def gen_pred(logits, text_y, tokenizer):
+def gen_pred(
+    logits: torch.Tensor, text_y: torch.Tensor, tokenizer: whisper.tokenizer.Tokenizer
+) -> Tuple[List[str], List[str], List[str]]:
+    """Generate predictions from model logits and decode them to text for OWSM.
+
+    Takes model output logits and ground truth targets, converts logits to predictions
+    using argmax, then decodes both predictions and targets to text for evaluation.
+
+    Args:
+        logits: Model output logits of shape (batch_size, seq_len, vocab_size)
+        text_y: Ground truth target tokens of shape (batch_size, seq_len)
+        tokenizer: Whisper tokenizer for decoding tokens to text
+
+    Returns:
+        A tuple containing:
+        - microbatch_pred_text: List of normalized predicted text strings
+        - microbatch_unnorm_pred_text: List of raw predicted text (with timestamps)
+        - microbatch_tgt_text: List of ground truth text strings
+    """
+    # Convert logits to predictions via argmax
     probs = F.softmax(logits, dim=-1)
     pred = torch.argmax(probs, dim=-1)
 
-    # collecting data for logging
+    # Decode predictions to text
     microbatch_pred_text = []
     microbatch_unnorm_pred_text = []
     for pred_instance in pred.cpu().numpy():
+        # Decode with timestamps preserved
         pred_instance_text = tokenizer.decode_with_timestamps(list(pred_instance))
         microbatch_unnorm_pred_text.append(pred_instance_text)
-        pred_instance_text = ow.utils.remove_after_endoftext(pred_instance_text)
+        # Remove content after <|endoftext|> for evaluation
+        pred_instance_text = olmoasr.utils.remove_after_endoftext(pred_instance_text)
         microbatch_pred_text.append(pred_instance_text)
 
+    # Decode ground truth targets to text
     microbatch_tgt_text = []
     for text_y_instance in text_y.cpu().numpy():
+        # Remove padding tokens (51864) before decoding
         text_y_instance = list(filter(lambda token: token != 51864, text_y_instance))
         tgt_y_instance_text = tokenizer.decode_with_timestamps(list(text_y_instance))
+        # Ensure text ends with endoftext token for consistency
         tgt_y_instance_text = tgt_y_instance_text.split("<|endoftext|>")[0]
         tgt_y_instance_text = tgt_y_instance_text + "<|endoftext|>"
         microbatch_tgt_text.append(tgt_y_instance_text)
@@ -794,11 +956,36 @@ def gen_pred(logits, text_y, tokenizer):
     return microbatch_pred_text, microbatch_unnorm_pred_text, microbatch_tgt_text
 
 
-def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer):
+def calc_pred_wer(
+    batch_tgt_text: List[str],
+    batch_pred_text: List[str],
+    normalizer: EnglishTextNormalizer,
+) -> Tuple[List[Tuple[str, str]], float, int, int, int]:
+    """Calculate Word Error Rate (WER) and error statistics for OWSM predictions.
+
+    Normalizes target and predicted text, then computes WER and detailed error
+    counts (substitutions, deletions, insertions). Filters out empty references
+    to avoid division by zero in WER calculation.
+
+    Args:
+        batch_tgt_text: List of ground truth text strings
+        batch_pred_text: List of predicted text strings
+        normalizer: Text normalizer for consistent evaluation
+
+    Returns:
+        A tuple containing:
+        - norm_tgt_pred_pairs: List of (normalized_target, normalized_prediction) pairs
+        - train_wer: Word Error Rate as percentage (0-100)
+        - subs: Number of substitution errors
+        - dels: Number of deletion errors
+        - ins: Number of insertion errors
+    """
+    # Normalize all text for consistent evaluation
     norm_batch_tgt_text = [normalizer(text) for text in batch_tgt_text]
     norm_batch_pred_text = [normalizer(text) for text in batch_pred_text]
     norm_tgt_pred_pairs = list(zip(norm_batch_tgt_text, norm_batch_pred_text))
-    # no empty references - for WER calculation
+
+    # Filter out empty references to avoid WER calculation issues
     batch_tgt_text_full = [
         norm_batch_tgt_text[i]
         for i in range(len(norm_batch_tgt_text))
@@ -810,12 +997,15 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer):
         if len(norm_batch_tgt_text[i]) > 0
     ]
 
+    # Calculate WER and error statistics
     if len(batch_tgt_text_full) == 0 and len(batch_pred_text_full) == 0:
+        # All references are empty - perfect match
         train_wer = 0.0
         subs = 0
         dels = 0
         ins = 0
     else:
+        # Calculate WER as percentage
         train_wer = (
             jiwer.wer(
                 reference=batch_tgt_text_full,
@@ -823,6 +1013,7 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer):
             )
             * 100
         )
+        # Get detailed error counts
         measures = jiwer.compute_measures(
             truth=batch_tgt_text_full, hypothesis=batch_pred_text_full
         )
@@ -840,38 +1031,62 @@ def calc_pred_wer(batch_tgt_text, batch_pred_text, normalizer):
 
 
 def log_tbl(
-    global_step,
-    train_table,
-    run_id,
-    batch_audio_files,
-    batch_audio_arr,
-    batch_text_files,
-    batch_pred_text,
-    batch_tgt_text,
-    batch_unnorm_pred_text,
-    norm_tgt_pred_pairs,
-):
+    global_step: int,
+    train_table: wandb.Table,
+    run_id: str,
+    batch_audio_files: List[str],
+    batch_audio_arr: List[np.ndarray],
+    batch_text_files: List[str],
+    batch_pred_text: List[str],
+    batch_tgt_text: List[str],
+    batch_unnorm_pred_text: List[str],
+    norm_tgt_pred_pairs: List[Tuple[str, str]],
+) -> None:
+    """Log training examples to Weights & Biases table for OWSM training.
+
+    Creates detailed logging entries for training samples including audio,
+    predictions, targets, and error statistics. Each sample gets its own
+    row in the W&B table for inspection.
+
+    Args:
+        global_step: Current training step number
+        train_table: W&B table to add data to
+        run_id: Unique identifier for the training run
+        batch_audio_files: List of audio file paths
+        batch_audio_arr: List of audio arrays for W&B Audio objects
+        batch_text_files: List of sample keys/identifiers
+        batch_pred_text: List of normalized predicted text
+        batch_tgt_text: List of original target text
+        batch_unnorm_pred_text: List of raw predicted text (with timestamps)
+        norm_tgt_pred_pairs: List of (normalized_target, normalized_prediction) pairs
+    """
     for i, (
         tgt_text_instance,
         pred_text_instance,
     ) in enumerate(norm_tgt_pred_pairs):
+        # Calculate per-sample WER using OWSM utilities
         wer = np.round(
-            ow.utils.calculate_wer((tgt_text_instance, pred_text_instance)),
+            olmoasr.utils.calculate_wer((tgt_text_instance, pred_text_instance)),
             2,
         )
+
+        # Calculate detailed error statistics
         subs = 0
         dels = 0
         ins = 0
         if len(tgt_text_instance) == 0:
+            # Empty reference - only insertions possible
             subs = 0
             dels = 0
             ins = len(pred_text_instance.split())
         else:
+            # Non-empty reference - calculate all error types
             measures = jiwer.compute_measures(tgt_text_instance, pred_text_instance)
             subs = measures["substitutions"]
             dels = measures["deletions"]
             ins = measures["insertions"]
 
+        # Add row to W&B table with all relevant information
         train_table.add_data(
             run_id,
             batch_audio_files[i],
@@ -892,6 +1107,7 @@ def log_tbl(
             wer,
         )
 
+    # Log the complete table to W&B
     wandb.log({f"train_table_{global_step}": train_table})
 
 
@@ -937,35 +1153,68 @@ def train(
     run_id_dir: Optional[str],
     eval_on_gpu: bool,
 ) -> Tuple[
-    int,
-    float,
-    torch.nn.Module,
-    torch.optim.Optimizer,
-    GradScaler,
-    LambdaLR,
-    Optional[bool],
-    Optional[bool],
+    int, int, int, Optional[float], DDP, torch.optim.Optimizer, GradScaler, LambdaLR
 ]:
-    """Training loop for 1 epoch
+    """Main DDP training loop for OWSM with automatic mixed precision.
+
+    Performs forward pass, backward pass, gradient accumulation, and optional evaluation.
+    Includes comprehensive logging of training metrics, timing, and examples to W&B.
+    Handles checkpointing and supports both synchronous evaluation and asynchronous evaluation.
 
     Args:
-        rank: The rank of the current process
-        train_batch_size: The batch size for training
-        train_dataloader: The dataloader for training
-        scaler: The gradient scaler
-        model: The model to train
-        tokenizer: The tokenizer for encoding the text data
-        normalizer: The text normalizer
-        optimizer: The optimizer for training
-        scheduler: The scheduler for training
-        accumulation_steps: The number of steps over which to accumulate gradients
-        max_grad_norm: The maximum gradient norm
-        tags: The tags to use for logging
-        exp_name: The experiment name
+        rank: Global rank of the current process across all nodes
+        local_rank: Local rank within the current node (GPU device ID)
+        global_step: Current global training step across all processes
+        local_step: Current local step for this process
+        train_batch_size: Batch size per process for training
+        train_dataloader: DataLoader providing OWSM training batches
+        train_sampler: DistributedSampler for coordinating data across processes
+        train_steps: Total number of training steps to perform
+        epoch_steps: Number of steps per epoch
+        epoch: Current epoch number
+        scaler: Gradient scaler for mixed precision training
+        model: DDP-wrapped OWSM model for distributed training
+        tokenizer: Whisper tokenizer for text processing
+        normalizer: Text normalizer for evaluation metrics
+        optimizer: Optimizer for parameter updates
+        scheduler: Learning rate scheduler
+        accumulation_steps: Number of gradient accumulation steps
+        max_grad_norm: Maximum gradient norm for clipping
+        model_dims: Model dimension configuration (for checkpointing)
+        model_variant: Model variant name (e.g., "base", "large")
+        best_eval_wer: Current best evaluation WER (for comparison)
+        run_eval: Whether to run evaluation during training
+        eval_loaders: List of evaluation dataloaders (if not async)
+        run_id: Unique identifier for this training run
+        tags: List of tags for experiment tracking
+        exp_name: Experiment name for logging and checkpointing
+        log_dir: Directory for saving logs and results
+        ckpt_dir: Directory for saving model checkpoints
+        train_log_freq: Frequency (in steps) for detailed training logging
+        eval_freq: Frequency (in steps) for running evaluation
+        ckpt_freq: Frequency (in steps) for saving checkpoints
+        verbose: Whether to enable verbose model output
+        precision: Torch dtype for mixed precision training
+        async_eval: Whether to run evaluation asynchronously
+        eval_script_path: Path to evaluation script (for async eval)
+        eval_dir: Directory containing evaluation datasets
+        eval_wandb_log: Whether to log evaluation results to W&B
+        eval_batch_size: Batch size for evaluation
+        run_id_dir: Directory for storing run IDs
+        eval_on_gpu: Whether to run evaluation on GPU
 
     Returns:
-        A tuple containing the model, the optimizer, the gradient scaler, the scheduler, and a boolean indicating whether the training results artifact has been added
+        A tuple containing:
+        - global_step: Updated global step count
+        - local_step: Updated local step count
+        - epoch: Current epoch number
+        - best_eval_wer: Updated best evaluation WER (if evaluation was run)
+        - model: The trained DDP model
+        - optimizer: Updated optimizer state
+        - scaler: Updated gradient scaler state
+        - scheduler: Updated learning rate scheduler state
     """
+    # Initialize lists for collecting training examples for logging
     batch_pred_text = []
     batch_tgt_text = []
     batch_unnorm_pred_text = []
@@ -973,15 +1222,18 @@ def train(
     batch_text_files = []
     batch_audio_arr = []
 
+    # Initialize training state
     total_loss = 0.0
-    model.train()
-    optimizer.zero_grad()
+    model.train()  # Set model to training mode
+    optimizer.zero_grad()  # Clear gradients from previous iteration
 
+    # Initialize W&B table for logging training examples (only on main process)
     if rank == 0:
         train_table = wandb.Table(columns=TRAIN_TABLE_COLS)
 
+    # Set epoch for distributed sampler to ensure proper data shuffling
     train_sampler.set_epoch(epoch)
-    start_dl = time.time()
+    start_dl = time.time()  # Start timing data loading
 
     for batch_idx, batch in enumerate(train_dataloader):
         end_dl = time.time()
@@ -1579,8 +1831,16 @@ def run_async_eval(
     wandb_log: bool = False,
     cuda: bool = True,
 ) -> None:
+    """Launch asynchronous evaluation subprocess for DDP OWSM training.
+
+    Starts evaluation in a separate process to avoid blocking training. Only
+    the main process (rank 0) launches the evaluation to prevent duplicate runs.
+    """
+    # Get environment variables for evaluation process
     wandb_log_dir = os.getenv("WANDB_DIR")
     hf_token = os.getenv("HF_TOKEN")
+
+    # Build command line arguments for evaluation script
     cmd = [
         "python",
         eval_script_path,
@@ -1603,12 +1863,17 @@ def run_async_eval(
 
     print(f"{cmd=}")
 
+    # Only rank 0 launches evaluation to avoid duplicates
     if rank == 0:
         subprocess.Popen(cmd)
 
 
 def cleanup():
-    """Cleanup function for the distributed training"""
+    """Cleanup function for distributed DDP training.
+
+    Clears GPU memory cache and destroys the distributed process group
+    to properly shut down distributed training.
+    """
     torch.cuda.empty_cache()
     dist.destroy_process_group()
 
@@ -1650,34 +1915,55 @@ def main(
     eval_wandb_log: bool = False,
     eval_on_gpu: bool = True,
 ) -> None:
-    """Main function for training
+    """Main training function for DDP OWSM model training.
 
-    Conducts a training loop for the specified number of steps, with validation and evaluation (if run_eval is True)
+    Orchestrates the complete DDP training pipeline including:
+    - Distributed training setup with DDP wrapping
+    - Data loading from compressed OWSM JSONL files
+    - Model initialization with DDP wrapping
+    - Training loop with gradient accumulation and mixed precision
+    - Periodic evaluation (sync or async) on LibriSpeech datasets
+    - Comprehensive logging to Weights & Biases
+
+    Supports mixed precision training modes and resume functionality from previous runs.
+    Uses OWSM-specific text formatting with language tags and timestamp processing.
 
     Args:
-        model_variant: The variant of the model to use
-        exp_name: The name of the experiment
-        job_type: The type of job (e.g., training, evaluation)
-        filter: The filter to use for the dataset
-        run_id: The run ID to use for loading a checkpoint
-        rank: The rank of the current process
-        world_size: The total number of processes
-        lr: The learning rate
-        betas: The betas for the optimizer
-        eps: The epsilon for the optimizer
-        weight_decay: The weight decay for the optimizer
-        max_grad_norm: The maximum gradient norm
-        subset: The subset of the dataset to use
-        eff_size: The size of the efficientnet model
-        train_batch_size: The batch size for training
-        val_batch_size: The batch size for validation
-        eval_batch_size: The batch size for evaluation
-        train_val_split: The train-validation split
-        num_workers: The number of workers for the dataloader
-        pin_memory: Whether to pin memory for the dataloader
-        shuffle: Whether to shuffle the dataloader
-        persistent_workers: Whether to use persistent workers for the dataloader
-        run_eval: Whether to run evaluation
+        model_variant: Whisper model variant ("tiny", "base", "small", "medium", "large")
+        exp_name: Experiment name for logging and checkpoint organization
+        job_type: Type of job for W&B tracking (e.g., "training", "fine-tuning")
+        samples_dicts_dir: Directory containing compressed OWSM JSONL files
+        train_steps: Total number of training steps to perform
+        epoch_steps: Number of steps per epoch (for periodic evaluation/checkpointing)
+        ckpt_file_name: Specific checkpoint filename to resume from (optional)
+        ckpt_dir: Directory for saving and loading model checkpoints
+        log_dir: Directory for saving training logs and results
+        eval_dir: Directory containing evaluation datasets
+        run_id_dir: Directory for storing unique run identifiers
+        lr: Learning rate for AdamW optimizer
+        betas: Beta parameters for AdamW optimizer momentum
+        eps: Epsilon parameter for AdamW optimizer numerical stability
+        weight_decay: L2 regularization weight decay factor
+        max_grad_norm: Maximum gradient norm for gradient clipping
+        eff_batch_size: Effective global batch size across all processes
+        train_batch_size: Batch size per process for training
+        eval_batch_size: Batch size per process for evaluation
+        num_workers: Number of worker processes for data loading
+        prefetch_factor: Number of samples prefetched by each worker
+        pin_memory: Whether to pin memory for faster GPU transfer
+        shuffle: Whether to shuffle training data each epoch
+        persistent_workers: Whether to keep workers alive between epochs
+        run_eval: Whether to run periodic evaluation during training
+        train_log_freq: Frequency (in steps) for detailed training logging
+        eval_freq: Frequency (in steps) for running evaluation
+        ckpt_freq: Frequency (in steps) for saving checkpoints
+        verbose: Whether to enable verbose model output
+        precision: Mixed precision mode ("bfloat16", "float16", "float32")
+        hardware: Hardware type for FLOPS calculation ("H100", "A100", "L40")
+        async_eval: Whether to run evaluation asynchronously (vs blocking)
+        eval_script_path: Path to evaluation script (for async evaluation)
+        eval_wandb_log: Whether to log evaluation results to W&B
+        eval_on_gpu: Whether to run evaluation on GPU (vs CPU)
     """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
@@ -1812,7 +2098,7 @@ def main(
             model_variant=model_variant,
         )
     else:
-        model = ow.model.Whisper(dims=model_dims).to(local_rank)
+        model = olmoasr.model.OLMoASR(dims=model_dims).to(local_rank)
         model = DDP(model, device_ids=[local_rank], output_device=local_rank)
 
         # optimizer and scheduler instantiation
