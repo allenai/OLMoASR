@@ -1,4 +1,4 @@
-datasets==2.21.0
+datasets==4.0.0
 transformers
 fire
 jiwer
