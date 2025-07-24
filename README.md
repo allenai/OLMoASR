@@ -134,7 +134,7 @@ torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} ${SCRIPT
       --eval_on_gpu=${EVAL_ON_GPU}" # whether to run async eval on GPU or CPU
 ```
 
-You can go to `scripts/training` for a more detailed guide on the bash scripts that use `torchrun` to train.
+You can go to `scripts/training` for a more detailed guide on the bash scripts that use `torchrun` to train and some example training scripts.
 
 ### Evaluation
 To run evaluation, you'll have to acquire the evaluation sets first. With the exception of evaluation sets that need to be paid for, you can use `scripts/eval/get_eval_set.py` to download the dataset by just passing in the dataset name.
@@ -191,8 +191,13 @@ result = model.transcribe("audio.mp3")
 print(result)
 ```
 
-## Team
+## Team and Acknowledgements
+Team (* = equal contrib): Huong Ngo, Matt Deitke, Martijn Bartelds, Sarah Pratt,
+Josh Gardner*, Matt Jordan*, Ludwig Schmidt*
+
+Code is developed with the assistance of OpenAI's Whisper code. We are grateful to Ai2 and UW for resource support, OpenAI for open-sourcing a portion of their code and making their pre-trained checkpoints available, and Jong Wook Kim for clarifications throughout the project.
 
 ## License
 
 ## Citing
+Coming soon.
