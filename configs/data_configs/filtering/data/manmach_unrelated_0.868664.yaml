@@ -1,5 +1,0 @@
-name: manmach_unrelated_0.868664
-pipeline:
-  - fxn: filter_unrelated
-    threshold: 0.868664
-    comparison: ge

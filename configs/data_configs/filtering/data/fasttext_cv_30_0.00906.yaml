@@ -1,6 +1,0 @@
-name: fasttext_cv_30_0.00906
-pipeline:
-  - fxn: filter_fasttext
-    threshold: 0.00906
-    comparison: ge
-    eval_set: commonvoice

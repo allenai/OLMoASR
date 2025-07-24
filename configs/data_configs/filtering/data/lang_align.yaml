@@ -1,3 +1,0 @@
-name: lang_align
-pipeline:
-  - fxn: lang_align

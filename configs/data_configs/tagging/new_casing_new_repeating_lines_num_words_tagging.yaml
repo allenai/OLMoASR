@@ -1,5 +1,0 @@
-name: new_casing_new_repeating_lines_num_words_tagging
-pipeline:
-  - tag: casing
-  - tag: repeating_lines
-  - tag: num_words

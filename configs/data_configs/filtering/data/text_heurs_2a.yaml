@@ -1,3 +1,0 @@
-name: text_heurs_2a
-pipeline:
-  - fxn: has_proper_capitalization_and_punctuation

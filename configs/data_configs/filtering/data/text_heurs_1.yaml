@@ -1,6 +1,0 @@
-name: text_heurs_1
-pipeline:
-  - fxn: has_comma_period
-  - fxn: has_mixed_case
-  - fxn: has_no_repeats
-  - fxn: modify_text

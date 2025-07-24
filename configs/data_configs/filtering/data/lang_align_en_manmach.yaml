@@ -1,3 +1,0 @@
-name: lang_align_en_manmach
-pipeline:
-  - fxn: lang_align
