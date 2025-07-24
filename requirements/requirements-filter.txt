@@ -1,6 +1,5 @@
 fire
 jiwer
-pysrt
 regex
 torch
 torchaudio

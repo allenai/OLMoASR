@@ -1,7 +1,6 @@
 datasets==2.21.0
 fire
 jiwer
-pysrt
 regex
 scipy
 torch

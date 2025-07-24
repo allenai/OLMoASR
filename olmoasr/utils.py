@@ -6,7 +6,6 @@ import numpy as np
 import tarfile
 import gzip
 import json
-import pysrt
 import webvtt
 import jiwer
 from whisper.tokenizer import get_tokenizer
@@ -244,47 +243,6 @@ class TranscriptReader:
 
             for caption in captions:
                 transcript[(caption.start, caption.end)] = caption.text
-
-        elif file_type == "srt":
-            if self.file_path is not None:
-                subs = pysrt.open(self.file_path)
-            else:
-                if self.transcript_string is None:
-                    raise ValueError(
-                        "transcript_string cannot be None when file_path is not provided"
-                    )
-                subs = pysrt.from_string(self.transcript_string)
-
-            if len(subs) == 0:
-                return transcript, "", ""
-
-            transcript_start = self._format_timestamp(
-                subs[0].start.hours,
-                subs[0].start.minutes,
-                subs[0].start.seconds,
-                subs[0].start.milliseconds,
-            )
-            transcript_end = self._format_timestamp(
-                subs[-1].end.hours,
-                subs[-1].end.minutes,
-                subs[-1].end.seconds,
-                subs[-1].end.milliseconds,
-            )
-
-            for sub in subs:
-                start = self._format_timestamp(
-                    sub.start.hours,
-                    sub.start.minutes,
-                    sub.start.seconds,
-                    sub.start.milliseconds,
-                )
-                end = self._format_timestamp(
-                    sub.end.hours,
-                    sub.end.minutes,
-                    sub.end.seconds,
-                    sub.end.milliseconds,
-                )
-                transcript[(start, end)] = sub.text
 
         return transcript, transcript_start, transcript_end
 

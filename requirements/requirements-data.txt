@@ -1,5 +1,4 @@
 fire
-pysrt
 regex
 torch
 torchaudio
@@ -22,6 +21,5 @@ librosa
 pydub
 jiwer
 tabulate
-Levenshtein
 soundfile
 datasets

@@ -55,14 +55,6 @@ except ImportError:
     TranscriptReader = None
 
 try:
-    import pysrt  # type: ignore
-
-    PYSRT_AVAILABLE = True
-except ImportError:
-    PYSRT_AVAILABLE = False
-    pysrt = None
-
-try:
     import webvtt  # type: ignore
 
     WEBVTT_AVAILABLE = True
@@ -201,10 +193,6 @@ def parse_subtitle_content(transcript_string: str) -> SubtitleContent:
             if not WEBVTT_AVAILABLE or webvtt is None:
                 raise ImportError("webvtt library is required but not available")
             return webvtt.from_string(transcript_string)
-        else:
-            if not PYSRT_AVAILABLE or pysrt is None:
-                raise ImportError("pysrt library is required but not available")
-            return pysrt.from_string(transcript_string)
     except Exception as e:
         raise ValueError(f"Failed to parse subtitle content: {e}")
 
@@ -223,13 +211,7 @@ def serialize_subtitle_content(subtitle_content: SubtitleContent) -> str:
         ValueError: If subtitle content type is not supported
     """
     try:
-        if PYSRT_AVAILABLE and hasattr(subtitle_content, "write_into"):
-            # Handle SRT content
-            string_buffer = StringIO()
-            subtitle_content.write_into(string_buffer)
-            string_buffer.seek(0)
-            return string_buffer.read()
-        elif WEBVTT_AVAILABLE and hasattr(subtitle_content, "content"):
+        if WEBVTT_AVAILABLE and hasattr(subtitle_content, "content"):
             # Handle WebVTT content
             return subtitle_content.content
         else:

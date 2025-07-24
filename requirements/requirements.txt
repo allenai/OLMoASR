@@ -5,7 +5,6 @@ langdetect
 librosa
 pandas
 pydub
-pysrt
 pytest
 regex
 scipy

@@ -72,14 +72,6 @@ except ImportError:
     WEBVTT_AVAILABLE = False
     webvtt = None
 
-try:
-    import pysrt  # type: ignore
-
-    PYSRT_AVAILABLE = True
-except ImportError:
-    PYSRT_AVAILABLE = False
-    pysrt = None
-
 # Constants for character classification
 LOWERCASE_LETTERS = set([chr(ord("a") + i) for i in range(26)])
 UPPERCASE_LETTERS = set(_.upper() for _ in LOWERCASE_LETTERS)
@@ -284,11 +276,7 @@ def parse_subtitle_content(content: str, subtitle_filename: str) -> Any:
     file_extension = os.path.splitext(subtitle_filename)[-1].lower()
 
     try:
-        if file_extension == ".srt":
-            if not PYSRT_AVAILABLE or pysrt is None:
-                raise ImportError("pysrt is required but not available")
-            return pysrt.from_string(content)
-        elif file_extension == ".vtt":
+        if file_extension == ".vtt":
             if not WEBVTT_AVAILABLE or webvtt is None:
                 raise ImportError("webvtt is required but not available")
             return webvtt.from_string(content)
