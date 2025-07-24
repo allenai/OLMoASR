@@ -62,7 +62,6 @@ EXP_NAME="${EXP_NAME}_${DATE}"
 
 echo "Final EXP_NAME: $EXP_NAME"
 
-# Run training directly without gantry
 torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} ${SCRIPT} \
     --model_variant=${MODEL_SIZE} \
     --exp_name=${EXP_NAME} \
