@@ -1782,6 +1782,10 @@ def short_form_eval(
     # Prepare checkpoint
     if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
+    
+    # get HF token
+    if hf_token is None:
+        hf_token = os.getenv("HF_TOKEN")
 
     # Create directories
     for directory in [log_dir, wandb_log_dir, eval_dir]:
@@ -2018,6 +2022,10 @@ def long_form_eval(
     if "inf" not in ckpt and ckpt.split("/")[-2] != "whisper_ckpts":
         ckpt = gen_inf_ckpt(ckpt, ckpt.replace(".pt", "_inf.pt"))
 
+    # get HF token
+    if hf_token is None:
+        hf_token = os.getenv("HF_TOKEN")
+        
     # Create directories
     for directory in [log_dir, wandb_log_dir, eval_dir]:
         os.makedirs(directory, exist_ok=True)
