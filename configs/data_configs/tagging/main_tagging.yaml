@@ -1,0 +1,6 @@
+name: super_tagging
+pipeline:
+  - tag: casing
+  - tag: repeating_lines
+  - tag: text_lang
+  - tag: edit_dist

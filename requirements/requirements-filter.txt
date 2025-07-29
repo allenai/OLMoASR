@@ -1,0 +1,15 @@
+fire
+jiwer
+regex
+torch
+torchaudio
+tqdm
+webvtt_py
+openai-whisper
+ray
+pandas
+pyarrow
+numpy
+speechbrain
+pycld2
+vllm==0.8.5

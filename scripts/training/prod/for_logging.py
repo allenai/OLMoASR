@@ -1,0 +1,44 @@
+TRAIN_TABLE_COLS = [
+    "run_id",
+    "audio_file",
+    "audio_input",
+    "transcript_file",
+    "pred_text",
+    "unnorm_pred_text (pre padding removal)",
+    "unnorm_pred_text",
+    "tgt_text",
+    "unnorm_tgt_text",
+    "substitutions",
+    "deletions",
+    "insertions",
+    "tgt_text_len",
+    "wer",
+]
+
+VAL_TABLE_COLS = [
+    "val_set",
+    "audio_input",
+    "pred_text",
+    "unnorm_pred_text (pre padding removal)",
+    "unnorm_pred_text",
+    "tgt_text",
+    "unnorm_tgt_text",
+    "substitutions",
+    "deletions",
+    "insertions",
+    "tgt_text_len",
+    "wer",
+]
+
+EVAL_TABLE_COLS = [
+    "run_id",
+    "corpi",
+    "audio_input",
+    "unnorm_pred_text",
+    "pred_text",
+    "tgt_text",
+    "substitutions",
+    "deletions",
+    "insertions",
+    "wer",
+]

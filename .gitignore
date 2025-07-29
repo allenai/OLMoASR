@@ -8,3 +8,5 @@ __pycache__
 wandb
 *.pex
 .pexing
+whisper
+*.out
