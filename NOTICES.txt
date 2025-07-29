@@ -1,0 +1,213 @@
+THIRD-PARTY SOFTWARE NOTICES AND INFORMATION
+
+This software incorporates components from the projects listed below. The original copyright notices and licenses under which we received such components are set forth below for informational purposes. We reserve all rights not expressly granted herein, whether by implication, estoppel, or otherwise.
+
+================================================================================
+
+1. black (25.1.0)
+   Copyright: Python Software Foundation
+   License: MIT License
+   Source: https://github.com/psf/black
+
+2. datasets (4.0.0)
+   Copyright: HuggingFace Inc.
+   License: Apache 2.0
+   Source: https://github.com/huggingface/datasets
+
+3. fastparquet (2024.11.0)
+   Copyright: Dask Development Team
+   License: Apache License 2.0
+   Source: https://github.com/dask/fastparquet/
+
+4. fire (0.7.0)
+   Copyright: Google Inc.
+   License: Apache Software License
+   Source: https://github.com/google/python-fire
+
+5. IPython (9.4.0)
+   Copyright: IPython Development Team
+   License: BSD-3-Clause
+   Source: https://github.com/ipython/ipython
+
+6. kaldiio (2.18.1)
+   Copyright: NTT Communication Science Laboratories
+   License: Unknown
+   Source: https://github.com/nttcslab-sp/kaldiio
+
+7. langdetect (1.0.9)
+   Copyright: Mimino666
+   License: MIT
+   Source: https://github.com/Mimino666/langdetect
+
+8. librosa (0.11.0)
+   Copyright: librosa development team
+   License: ISC
+   Source: https://github.com/librosa/librosa
+
+10. moviepy (2.2.1)
+    Copyright: Zulko
+    License: MIT License
+    Source: https://pypi.org/project/moviepy/
+
+11. mypy (1.17.0)
+    Copyright: Python Software Foundation
+    License: MIT
+    Source: https://github.com/python/mypy
+
+12. nemo_toolkit (2.3.2)
+    Copyright: NVIDIA Corporation
+    License: Apache License Version 2.0
+    Source: https://github.com/nvidia/nemo
+
+13. numpy (2.3.1)
+    Copyright: NumPy Developers
+    License: BSD-3-Clause
+    Source: https://pypi.org/project/numpy/
+
+14. openai-whisper (20250625)
+    Copyright: OpenAI
+    License: MIT
+    Source: https://github.com/openai/whisper
+
+15. pandas (2.3.1)
+    Copyright: pandas development team
+    License: BSD-2-Clause
+    Source: https://pypi.org/project/pandas/
+
+16. pyarrow (21.0.0)
+    Copyright: Apache Software Foundation
+    License: Apache Software License
+    Source: https://github.com/apache/arrow
+
+17. pycld2 (0.42)
+    Copyright: Rami Al-Rfou
+    License: Apache2
+    Source: https://github.com/aboSamoor/pycld2
+
+19. pytest (8.4.1)
+    Copyright: James Robert
+    License: MIT
+    Source: http://pydub.com
+
+18. pydub (0.25.1)
+    Copyright: Holger Krekel and others
+    License: MIT
+    Source: https://github.com/pytest-dev/pytest
+
+20. pytest-cov (6.2.1)
+    Copyright: pytest-cov contributors
+    License: MIT
+    Source: https://github.com/pytest-dev/pytest-cov
+
+21. ray (2.48.0)
+    Copyright: Ray Team
+    License: Apache 2.0
+    Source: https://github.com/ray-project/ray
+
+22. regex (2024.11.6)
+    Copyright: Matthew Barnett
+    License: Apache Software License
+    Source: https://github.com/mrabarnett/mrab-regex
+
+23. scipy (1.16.0)
+    Copyright: SciPy Developers
+    License: BSD-3-Clause
+    Source: https://pypi.org/project/scipy/
+
+24. soundfile (0.13.1)
+    Copyright: Bastian Bechtold
+    License: BSD-3-Clause
+    Source: https://github.com/bastibe/python-soundfile
+
+25. speechbrain (1.0.3)
+    Copyright: SpeechBrain Team
+    License: Apache Software License
+    Source: https://speechbrain.github.io/
+
+26. tabulate (0.9.0)
+    Copyright: Sergey Astanin
+    License: MIT
+    Source: https://github.com/astanin/python-tabulate
+
+27. tiktoken (0.9.0)
+    Copyright: OpenAI, Shantanu Jain
+    License: MIT License
+    Source: https://pypi.org/project/tiktoken/
+
+28. torch (2.7.1)
+    Copyright: PyTorch Team
+    License: BSD-3-Clause
+    Source: https://pytorch.org/
+
+29. torch-tb-profiler (0.4.3)
+    Copyright: PyTorch Team
+    License: BSD-3-Clause
+    Source: https://github.com/pytorch/kineto/tree/main/tb_plugin
+
+30. tqdm (4.67.1)
+    Copyright: tqdm developers
+    License: MPL-2.0 AND MIT
+    Source: https://pypi.org/project/tqdm/
+
+31. transformers (4.53.3)
+    Copyright: HuggingFace Inc.
+    License: Apache 2.0 License
+    Source: https://github.com/huggingface/transformers
+
+32. wandb (0.21.0)
+    Copyright: Weights and Biases, Inc.
+    License: MIT License
+    Source: https://github.com/wandb/wandb
+
+33. webdataset (1.0.2)
+    Copyright: webdataset contributors
+    License: BSD-3-Clause
+    Source: https://pypi.org/project/webdataset/
+
+34. webvtt_py (0.5.1)
+    Copyright: glut23
+    License: MIT
+    Source: https://github.com/glut23/webvtt-py
+
+35. yt-dlp (2025.7.21)
+    Copyright: yt-dlp contributors
+    License: The Unlicense (Public Domain)
+    Source: https://github.com/yt-dlp/yt-dlp
+
+36. jiwer (4.0.0)
+    Copyright: 8x8 Inc.
+    License: Apache License Version 2.0
+    Source: https://github.com/jitsi/jiwer
+
+37. pytest-xdist (3.8.0)
+    Copyright: Holger Krekel and contributors
+    License: MIT License
+    Source: https://github.com/pytest-dev/pytest-xdist
+
+38. seaborn (0.13.2)
+    Copyright: Michael L. Waskom
+    License: BSD-3-Clause
+    Source: https://github.com/mwaskom/seaborn
+
+39. torchaudio (2.7.1)
+    Copyright: PyTorch Team
+    License: BSD-2-Clause
+    Source: https://github.com/pytorch/audio
+
+40. vllm (0.9.2)
+    Copyright: vLLM Team
+    License: Apache License Version 2.0
+    Source: https://github.com/vllm-project/vllm
+
+41. zstandard (0.23.0)
+    Copyright: Gregory Szorc
+    License: BSD-3-Clause
+    Source: https://github.com/indygreg/python-zstandard
+
+================================================================================
+
+For packages with "Unknown" licenses, please verify the actual license terms 
+from the source repositories before distribution.
+
+This file was generated from dependency information and may require manual 
+verification of copyright holders and license details.
