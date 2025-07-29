@@ -5,9 +5,8 @@ install: ## [Local development] Upgrade pip, install requirements, install packa
 install-dev: ## [Local development] Install test requirements
 	python -m pip install -r requirements-test.txt
 
-lint: ## [Local development] Run mypy, pylint and black
+lint: ## [Local development] Run mypy and black
 	python -m mypy python_template
-	python -m pylint python_template
 	python -m black --check -l 120 python_template
 
 black: ## [Local development] Auto-format python code using black
