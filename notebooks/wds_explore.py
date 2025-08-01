@@ -26,8 +26,8 @@ from whisper import audio, DecodingOptions
 from whisper.normalizers import EnglishTextNormalizer
 from whisper.tokenizer import get_tokenizer
 import whisper.tokenizer
-from open_whisper.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
-import open_whisper as ow
+from olmoasr.config.model_dims import VARIANT_TO_DIMS, ModelDimensions
+import olmoasr as oa
 
 import webdataset as wds
 import tempfile
@@ -63,7 +63,7 @@ def preprocess_audio(audio_arr: np.ndarray) -> torch.Tensor:
     return mel_spec, audio_arr
 
 def preprocess_text(transcript_string: str, tokenizer: whisper.tokenizer.Tokenizer, n_text_ctx: int) -> Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]:
-    reader = ow.utils.TranscriptReader(transcript_string=transcript_string, ext="srt")
+    reader = oa.utils.TranscriptReader(transcript_string=transcript_string, ext="srt")
     transcript, *_ = reader.read()
     
     if not transcript:

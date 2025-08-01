@@ -41,11 +41,11 @@ except ImportError:
     cld2 = None
 
 try:
-    from open_whisper.utils import TranscriptReader  # type: ignore
+    from olmoasr.utils import TranscriptReader  # type: ignore
 
-    OPEN_WHISPER_AVAILABLE = True
+    OLMOASR_AVAILABLE = True
 except ImportError:
-    OPEN_WHISPER_AVAILABLE = False
+    OLMOASR_AVAILABLE = False
     TranscriptReader = None
 
 try:
@@ -154,8 +154,8 @@ def extract_manual_text(manual_content: str) -> str:
         ImportError: If required dependencies are not available
         ValueError: If content cannot be parsed
     """
-    if not OPEN_WHISPER_AVAILABLE or TranscriptReader is None:
-        raise ImportError("open_whisper.utils is required but not available")
+    if not OLMOASR_AVAILABLE or TranscriptReader is None:
+        raise ImportError("olmoasr.utils is required but not available")
 
     try:
         # Determine format based on content

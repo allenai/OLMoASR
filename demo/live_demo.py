@@ -10,7 +10,7 @@ from whisper.normalizers import EnglishTextNormalizer
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(device)
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-model_path = "/home/ubuntu/open_whisper/checkpoints/medium_hf_demo"
+model_path = "checkpoints/medium_hf_demo"
 
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
     model_path, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True

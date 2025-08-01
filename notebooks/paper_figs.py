@@ -526,7 +526,7 @@ plt.yticks(fontsize=16)
 plt.grid(True, linestyle="-", alpha=0.6)
 plt.tight_layout()
 plt.savefig(
-    "/Users/huongn/Desktop/open_whisper/logs/plots/robustness.pdf",
+    "logs/plots/robustness.pdf",
     bbox_inches="tight",
     dpi=300,
 )
@@ -562,7 +562,7 @@ plt.yticks(fontsize=16)
 plt.grid(True, linestyle="-", alpha=0.6)
 plt.tight_layout()
 plt.savefig(
-    "/Users/huongn/Desktop/open_whisper/logs/plots/owsm_olmoasr_robustness.pdf",
+    "logs/plots/owsm_olmoasr_robustness.pdf",
     bbox_inches="tight",
     dpi=300,
 )
@@ -711,7 +711,7 @@ ax.legend(fontsize=16, shadow=True, fancybox=True)
 ax.grid(True, linestyle="-", alpha=0.6)
 plt.tight_layout()
 plt.savefig(
-    "/Users/huongn/Desktop/open_whisper/logs/plots/qual_div.pdf",
+    "logs/plots/qual_div.pdf",
     bbox_inches="tight",
     dpi=300,
 )

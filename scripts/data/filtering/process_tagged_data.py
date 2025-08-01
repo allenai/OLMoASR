@@ -47,11 +47,11 @@ except ImportError:
     cld2 = None
 
 try:
-    from open_whisper.utils import TranscriptReader  # type: ignore
+    from olmoasr.utils import TranscriptReader  # type: ignore
 
-    OPEN_WHISPER_AVAILABLE = True
+    OLMOASR_AVAILABLE = True
 except ImportError:
-    OPEN_WHISPER_AVAILABLE = False
+    OLMOASR_AVAILABLE = False
     TranscriptReader = None
 
 try:

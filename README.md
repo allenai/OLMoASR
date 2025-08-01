@@ -41,7 +41,7 @@ You can download the data from [OLMoASR-Pool HuggingFace](link).
 In the following subsections, we'll walk through how to setup, process the data, train a model and evaluate it.
 
 ### Setup
-To have full access, ensure you have `python >= 3.10` and a virtual environment. Then, run:
+To have full access, ensure you have `python >= 3.8` and a virtual environment. Then, run:
 
 ```[shell]
 git clone https://github.com/allenai/OLMoASR.git

@@ -697,7 +697,7 @@ def setup_wandb(
     wandb.init(
         id=run_id,
         resume="allow",
-        project="open_whisper",
+        project="olmoasr",
         entity="dogml",
         config=config,
         save_code=True,

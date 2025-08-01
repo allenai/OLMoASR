@@ -48,7 +48,7 @@ from datasets import load_dataset
 import jiwer
 from whisper import audio, DecodingOptions
 from whisper.normalizers import EnglishTextNormalizer
-from open_whisper import load_model
+from olmoasr import load_model
 from fire import Fire
 from tqdm import tqdm
 from scripts.eval.get_eval_set import get_eval_set
@@ -1569,7 +1569,7 @@ class WandBLogger:
         wandb.init(
             id=run_id,
             resume="allow",
-            project="open_whisper",
+            project="olmoasr",
             entity="dogml",
             job_type="evals",
             name=exp_name if train_exp_name is None else train_exp_name,

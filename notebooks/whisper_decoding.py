@@ -1,7 +1,7 @@
 # %%
 import torch
 import torch.nn.functional as F
-from open_whisper import (
+from olmoasr import (
     load_audio,
     log_mel_spectrogram,
     pad_or_trim,
@@ -9,7 +9,7 @@ from open_whisper import (
     decoding,
     transcribe
 )
-from whisper import whisper
+import whisper
 
 # %%
 device = torch.device("cuda")

@@ -14,17 +14,17 @@ if __name__ == "__main__":
     REQUIREMENTS = _read_reqs("requirements.txt")
 
     setup(
-        name="open_whisper",
+        name="olmoasr",
         packages=find_packages(),
         include_package_data=True,
         version="1.0.0",
         license="MIT",
-        description="An open-source implementation of OpenAI's Whisper.",
+        description="Open Models and Data for Training Robust Speech Recognition Models",
         long_description=long_description,
         long_description_content_type="text/markdown",
         author="Huong Ngo",
-        author_email="hvn2002@uw.edu",
-        url="https://github.com/huongngo-8/open_whisper",
+        author_email="zoengo2002@gmail.com",
+        url="https://github.com/huongngo-8/olmoasr",
         data_files=[(".", ["README.md"])],
         keywords=["machine learning"],
         install_requires=REQUIREMENTS,

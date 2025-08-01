@@ -1,15 +1,15 @@
 # %%
 import torch
 import torch.nn.functional as F
-from open_whisper import (
+from olmoasr import (
     ModelDimensions,
     load_audio,
     log_mel_spectrogram,
     pad_or_trim,
-    Whisper,
+    OLMoASR,
     tokenizer,
 )
-from whisper import whisper
+import whisper
 
 # %%
 device = torch.device("cuda")
@@ -28,7 +28,7 @@ model.eval()
 
 # %%
 audio = load_audio(
-    "/home/ubuntu/open_whisper/data/eval/artie-bias-corpus/common_voice_en_12192.mp3"
+    "data/eval/artie-bias-corpus/common_voice_en_12192.mp3"
 )
 audio = pad_or_trim(audio)
 audio_input = log_mel_spectrogram(audio).to(device)

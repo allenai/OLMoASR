@@ -1,9 +1,9 @@
-"""Main entry point for the open_whisper package."""
+"""Main entry point for the olmoasr package."""
 import io
 import os
 from typing import Optional, Union
 import torch
-from open_whisper import (
+from olmoasr import (
     model,
     inf_model,
     preprocess,
@@ -11,8 +11,8 @@ from open_whisper import (
 )
 # from whisper import audio, decoding, transcribe
 from whisper import audio, decoding
-from open_whisper import transcribe
-from open_whisper.model import ModelDimensions, Whisper
+from olmoasr import transcribe
+from olmoasr.model import ModelDimensions, OLMoASR
 from whisper.audio import load_audio, log_mel_spectrogram, pad_or_trim
 
 
@@ -22,7 +22,7 @@ def load_model(
     device: Optional[Union[str, torch.device]] = None,
     inference: bool = False,
     in_memory: bool = False,
-) -> Whisper:
+) -> OLMoASR:
     """
     Load a Whisper ASR model
 
@@ -40,8 +40,8 @@ def load_model(
 
     Returns
     -------
-    model : Whisper
-        The Whisper ASR model instance
+    model : OLMoASR
+        The OLMoASR model instance
     """
 
     if device is None:
@@ -59,9 +59,9 @@ def load_model(
 
     dims = ModelDimensions(**checkpoint["dims"])
     if inference:
-        model = inf_model.Whisper(dims)
+        model = inf_model.OLMoASR(dims)
     else:
-        model = model.Whisper(dims)
+        model = model.OLMoASR(dims)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     if alignment_heads is not None:

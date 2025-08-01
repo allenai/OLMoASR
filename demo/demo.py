@@ -10,13 +10,13 @@ from whisper.normalizers import EnglishTextNormalizer
 from whisper import audio, DecodingOptions
 from whisper.tokenizer import get_tokenizer
 from whisper.decoding import detect_language
-from open_whisper import load_model
+from olmoasr import load_model
 from bs4 import BeautifulSoup
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-hf_model_path = "/home/ubuntu/open_whisper/checkpoints/medium_hf_demo"
-olmoasr_ckpt = "/home/ubuntu/open_whisper/checkpoints/open_whisper/eval_latesttrain_00524288_medium_fsdp-train_grad-acc_bfloat16_inf.pt"
+hf_model_path = "checkpoints/medium_hf_demo"
+olmoasr_ckpt = "checkpoints/eval_latesttrain_00524288_medium_fsdp-train_grad-acc_bfloat16_inf.pt"
 
 hf_model = AutoModelForSpeechSeq2Seq.from_pretrained(
     hf_model_path, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
