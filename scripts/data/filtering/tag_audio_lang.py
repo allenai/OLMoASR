@@ -1,7 +1,7 @@
 """
 Audio language identification for transcript segments using SpeechBrain models.
 
-This script processes audio segments from transcript data and identifies the language
+This script processes audio segments and identifies the language
 of each segment using pre-trained language identification models. It assigns language
 tags to segments based on audio content analysis, processing all files in a directory
 as a unified dataset.
@@ -263,7 +263,7 @@ def process_data(
     num_workers: int = 4,
 ) -> None:
     """
-    Process audio language identification for transcript segments from a directory.
+    Process audio language identification from a directory.
 
     This function loads transcript data from all .jsonl.gz files in the input directory,
     processes the associated audio segments through a language identification model,
