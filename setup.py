@@ -24,7 +24,7 @@ if __name__ == "__main__":
         long_description_content_type="text/markdown",
         author="Huong Ngo",
         author_email="zoengo2002@gmail.com",
-        url="https://github.com/huongngo-8/olmoasr",
+        url="https://github.com/allenai/OLMoASR",
         data_files=[(".", ["README.md"])],
         keywords=["machine learning"],
         install_requires=REQUIREMENTS,
