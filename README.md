@@ -2,18 +2,21 @@
 This repository serves to illustrate the steps taken to train OLMoASR models, all the way from the initial data processing to evaluating the model.
 
 ## Contents
-- [Data](#data)
-- [Quickstart](#quickstart)
-  - [Setup](#setup)
-  - [Data Processing](#data-processing)
-  - [Training](#training)
-  - [Evaluation](#evaluation)
-  - [Inference](#inference)
-- [Available Models](#available-models)
-- [Usage](#usage)
-- [Team](#team)
-- [License](#license)
-- [Citing](#citing)
+- [OLMoASR: Open Models and Data for Training Robust Speech Recognition Models](#olmoasr-open-models-and-data-for-training-robust-speech-recognition-models)
+  - [Contents](#contents)
+  - [Data](#data)
+  - [Quickstart](#quickstart)
+    - [Setup](#setup)
+    - [Data Processing and Filtering](#data-processing-and-filtering)
+    - [Training](#training)
+    - [Evaluation](#evaluation)
+  - [Available Models](#available-models)
+    - [Short-form Speech Recognition](#short-form-speech-recognition)
+    - [Long-form Speech Recognition](#long-form-speech-recognition)
+  - [Usage](#usage)
+  - [Team and Acknowledgements](#team-and-acknowledgements)
+  - [License](#license)
+  - [Citing](#citing)
 
 ## Data
 Before starting the Quickstart tutorial, you'll need to download the data (audio-transcript pairs) and organize it in a directory structure as elaborated below to continue the data processing step:
@@ -51,41 +54,43 @@ pip install -e .
 
 We use `ffmpeg` in data processing and `wandb` to log training, so please ensure that you have those dependencies fulfilled.
 
-### Data Processing
+### Data Processing and Filtering
 Once you've downloaded and organized your data, you'll need to follow the following steps to process your data:
 1. Transform all your transcripts into JSONL format to be suitable for tagging and filtering using `scripts/data/processing/text_to_jsonl.py`
 2. Segment all your full-length audio files into 30s-long audio chunks using `olmoasr/preprocess.py`
 3. Perform document-level tagging using `scripts/data/filtering/data_tagger.py`
 4. Segment transcript files into 30s-long transcript chunks using `olmoasr/preprocess.py`
 5. Perform segment-level tagging using `scripts/data/filtering/data_tagger.py`
-6. Perform audio-text language alignment using `scripts/data/filtering/assign_audio_lang_data.py` and `scripts/data/filtering/tag_audio_lang.py`
+6. Perform audio-text language alignment using `scripts/data/filtering/assign_audio_lang_data.py`, `scripts/data/filtering/tag_audio_lang.py` and `scripts/data/filtering/data_tagger.py`
 7. Filter based on a specified configuration of conditions using `scripts/data/filtering/process_tagged_data.py`
+8. (Optional) Randomly subsample from filtered data mix to get training data
+
+Steps 2 and 3 can be performed concurrently if you have the available compute.
+Step 6 is technically a tagging task as well, but involves more complex steps than heuristics-based tagging.
 
 Your data should be a JSONL file where each line is in the following format:
 
 ```
 {
-	"id": <str>, 
-	"seg_id": <str>, 
-	"subtitle_file": <str>, 
-	"audio_file": <str>, 
-	"timestamp": <str>, 
-	"mach_timestamp": <str>,
-	"seg_text": <str> , 
-	"mach_seg_text": <str>, 
-	"seg_content": <str>, 
-	"mach_seg_content": <str>, 
-	"edit_dist": <float>, 
-	"seg_edit_dist": <float>, 
-	"sim_score": <float>, 
-	"seg_sim_score": <float>, 
-	"audio_lang": <str>, 
-	"text_lang": <str>, 
-	"casing": <str>, 
-	"repeating_lines": <bool>, 
-	"length": <float>,
-	"num_words": <int>, 
-	"seg_num_words": <int>
+	"id": <str>, # unique identifier for audio-transcript pair
+	"seg_id": <str>, # unique identifier for segment audio-transcript pair
+	"subtitle_file": <str>, # path where transcript file is located (segmented/unsegmented depending on which step of data processing you're at)
+	"audio_file": <str>, # path where audio file is located (segmented/unsegmented depending on which step of data processing you're at)
+	"timestamp": <str>, # start and end times of segment
+	"mach_timestamp": <str>, # optional - if you have an associated machine transcript, start and end times of associated machine transcript segment
+	"seg_text": <str> , # cleaned text in the transcript segment
+	"mach_seg_text": <str>, # optional - cleaned text in machine transcript segment
+	"seg_content": <str>, # raw text in the transcript segment
+	"mach_seg_content": <str>, # raw text in machine transcript segment
+	"edit_dist": <float>, # optional - document-level WER between machine and manually-uploaded transcript
+	"seg_edit_dist": <float>, # optional - segment-level WER between machine and manually-uploaded transcript
+	"audio_lang": <str>, # language in audio
+	"text_lang": <str>, # language in transcript
+	"casing": <str>, # optional - dominant casing of transcript
+	"repeating_lines": <bool>, # optional - presence of repeating lines in transcript
+	"length": <float>, # duration of audio
+	"num_words": <int>, # number of words in transcript (cleaned text)
+	"seg_num_words": <int> # number of words in transcript segment (cleaned text)
 }
 ```
 
@@ -137,7 +142,9 @@ torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} ${SCRIPT
 You can go to `scripts/training` for a more detailed guide on the bash scripts that use `torchrun` to train and some example training scripts.
 
 ### Evaluation
-To run evaluation, you'll have to acquire the evaluation sets first. With the exception of evaluation sets that need to be paid for, you can use `scripts/eval/get_eval_set.py` to download the dataset by just passing in the dataset name.
+To run evaluation, you'll have to acquire the evaluation sets first. With the exception of evaluation sets that need to be paid for and Artie Bias Corpus[^*], you can use `scripts/eval/get_eval_set.py` to download the dataset by just passing in the dataset name.
+
+[^*]: This dataset no longer exists online from the original source. If you'd like a copy of the evaluation set, please visit [OLMoASR HuggingFace](link)
 
 After that, you can run `scripts/eval/eval.py` to run evaluation. Please visit `scripts/eval` for more information on the evaluation sets, and other scripts.
 
