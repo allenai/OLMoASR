@@ -23,12 +23,12 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
 # Configuration for model download and conversion
-OLMOASR_REPO = "allenai/OLMoASR"  # Temporary model link as requested
+OLMOASR_REPO = "olmoasr/OLMoASR-small.en"  # Temporary model link as requested
 CHECKPOINT_FILENAME = (
-    "OLMoASR-medium.en.pt"  # Adjust based on actual filename in the repo
+    "latesttrain_00524288_small_ddp-train_grad-acc_fp16_non_ddp_inf.pt"  # Adjust based on actual filename in the repo
 )
 LOCAL_CHECKPOINT_DIR = "checkpoints"
-HF_MODEL_DIR = "checkpoints/medium_hf_converted"
+HF_MODEL_DIR = "checkpoints/small_hf_converted"
 
 
 def ensure_checkpoint_dir():
