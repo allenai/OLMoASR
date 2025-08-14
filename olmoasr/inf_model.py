@@ -362,7 +362,7 @@ class TextDecoder(nn.Module):
         return logits
 
 
-class Whisper(nn.Module):
+class OLMoASR(nn.Module):
     """
     This class is from OpenAI's Whisper repository.
     The original version can be found at: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/model.py#L221
