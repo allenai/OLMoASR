@@ -5,6 +5,12 @@ import re
 import librosa
 import torch
 import numpy as np
+import os
+import tempfile
+import subprocess
+import sys
+from pathlib import Path
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from whisper.normalizers import EnglishTextNormalizer
 from whisper import audio, DecodingOptions
@@ -15,19 +21,130 @@ from bs4 import BeautifulSoup
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-hf_model_path = "checkpoints/medium_hf_demo"
-olmoasr_ckpt = "checkpoints/eval_latesttrain_00524288_medium_fsdp-train_grad-acc_bfloat16_inf.pt"
 
-hf_model = AutoModelForSpeechSeq2Seq.from_pretrained(
-    hf_model_path, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
+# Configuration for model download and conversion
+OLMOASR_REPO = "allenai/OLMoASR"  # Temporary model link as requested
+CHECKPOINT_FILENAME = (
+    "OLMoASR-medium.en.pt"  # Adjust based on actual filename in the repo
 )
-hf_model.to(device).eval()
-processor = AutoProcessor.from_pretrained(hf_model_path)
+LOCAL_CHECKPOINT_DIR = "checkpoints"
+HF_MODEL_DIR = "checkpoints/medium_hf_converted"
 
-olmoasr_model = load_model(
-    name=olmoasr_ckpt, device=device, inference=True, in_memory=True
-)
-olmoasr_model.to(device).eval()
+
+def ensure_checkpoint_dir():
+    """Ensure the checkpoint directory exists."""
+    Path(LOCAL_CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
+    Path(HF_MODEL_DIR).mkdir(parents=True, exist_ok=True)
+
+
+def download_olmoasr_checkpoint():
+    """Download OLMoASR checkpoint from HuggingFace hub."""
+    ensure_checkpoint_dir()
+
+    local_checkpoint_path = os.path.join(LOCAL_CHECKPOINT_DIR, CHECKPOINT_FILENAME)
+
+    # Check if checkpoint already exists
+    if os.path.exists(local_checkpoint_path):
+        print(f"Checkpoint already exists at {local_checkpoint_path}")
+        return local_checkpoint_path
+
+    try:
+        print(f"Downloading checkpoint from {OLMOASR_REPO}")
+        downloaded_path = hf_hub_download(
+            repo_id=OLMOASR_REPO,
+            filename=CHECKPOINT_FILENAME,
+            local_dir=LOCAL_CHECKPOINT_DIR,
+            local_dir_use_symlinks=False,
+        )
+        print(f"Downloaded checkpoint to {downloaded_path}")
+        return downloaded_path
+    except Exception as e:
+        print(f"Error downloading checkpoint: {e}")
+
+
+def convert_checkpoint_to_hf(checkpoint_path):
+    """Convert OLMoASR checkpoint to HuggingFace format using subprocess."""
+    if os.path.exists(os.path.join(HF_MODEL_DIR, "config.json")):
+        print(f"HuggingFace model already exists at {HF_MODEL_DIR}")
+        return HF_MODEL_DIR
+
+    try:
+        print(f"Converting checkpoint {checkpoint_path} to HuggingFace format")
+
+        # Path to the conversion script
+        script_path = os.path.join(os.path.dirname(__file__), "convert_openai_to_hf.py")
+
+        # Run the conversion script using subprocess
+        cmd = [
+            sys.executable,
+            script_path,
+            "--checkpoint_path",
+            checkpoint_path,
+            "--pytorch_dump_folder_path",
+            HF_MODEL_DIR,
+            "--convert_preprocessor",
+            "True",
+        ]
+
+        print(f"Running conversion command: {' '.join(cmd)}")
+
+        # Execute the conversion script
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        print("Conversion output:")
+        print(result.stdout)
+
+        if result.stderr:
+            print("Conversion warnings/errors:")
+            print(result.stderr)
+
+        # Verify that the conversion was successful
+        if os.path.exists(os.path.join(HF_MODEL_DIR, "config.json")):
+            print(f"Model successfully converted and saved to {HF_MODEL_DIR}")
+            return HF_MODEL_DIR
+        else:
+            raise Exception("Conversion completed but config.json not found")
+
+    except subprocess.CalledProcessError as e:
+        print(f"Conversion script failed with return code {e.returncode}")
+        print(f"stdout: {e.stdout}")
+        print(f"stderr: {e.stderr}")
+        raise e
+    except Exception as e:
+        print(f"Error converting checkpoint: {e}")
+        raise e
+
+
+def initialize_models():
+    """Initialize both HuggingFace and OLMoASR models."""
+    # Download and convert HuggingFace model
+    checkpoint_path = download_olmoasr_checkpoint()
+    hf_model_path = convert_checkpoint_to_hf(checkpoint_path)
+    olmoasr_ckpt = checkpoint_path
+
+    # Load HuggingFace model
+    hf_model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        hf_model_path,
+        torch_dtype=torch_dtype,
+        low_cpu_mem_usage=True,
+        use_safetensors=True,
+    )
+    hf_model.to(device).eval()
+    processor = AutoProcessor.from_pretrained(hf_model_path)
+
+    # Load OLMoASR model
+    olmoasr_model = load_model(
+        name=olmoasr_ckpt, device=device, inference=True, in_memory=True
+    )
+    olmoasr_model.to(device).eval()
+
+    return hf_model, processor, olmoasr_model
+
+
+# Initialize models
+print("Initializing models...")
+hf_model, processor, olmoasr_model = initialize_models()
+print("Models initialized successfully!")
 
 normalizer = EnglishTextNormalizer()
 
@@ -113,7 +230,7 @@ def olmoasr_seq_transcribe(audio_file, timestamp_text, transcription_text):
     chunks, text = olmoasr_process_chunks(result["segments"])
     print(f"{chunks=}\n")
     print(f"{text=}\n")
-    
+
     # Edit components
     transSoup = BeautifulSoup(transcription_text, "html.parser")
     transText = transSoup.find(id="transcriptionText")
@@ -206,10 +323,18 @@ def olmoasr_process_chunks(chunks):
             break
     print(f"{processed_chunks=}\n")
     print(f"{processed_chunks_text=}\n")
-    print(re.search(r"\s*foreign\s*$", processed_chunks_text[-1]) if processed_chunks_text else None)
+    print(
+        re.search(r"\s*foreign\s*$", processed_chunks_text[-1])
+        if processed_chunks_text
+        else None
+    )
 
-    if processed_chunks_text and re.search(r"\s*foreign\s*$", processed_chunks_text[-1]):
-        processed_chunks_text[-1] = re.sub(r"\s*foreign\s*$", "", processed_chunks_text[-1])
+    if processed_chunks_text and re.search(
+        r"\s*foreign\s*$", processed_chunks_text[-1]
+    ):
+        processed_chunks_text[-1] = re.sub(
+            r"\s*foreign\s*$", "", processed_chunks_text[-1]
+        )
         processed_chunks[-1] = re.sub(r"foreign\s*<br>", "<br>", processed_chunks[-1])
     return "\n".join(processed_chunks), " ".join(processed_chunks_text)
 
@@ -232,10 +357,18 @@ def hf_process_chunks(chunks):
             break
     print(f"{processed_chunks=}\n")
     print(f"{processed_chunks_text=}\n")
-    print(re.search(r"\s*foreign\s*$", processed_chunks_text[-1]) if processed_chunks_text else None)
+    print(
+        re.search(r"\s*foreign\s*$", processed_chunks_text[-1])
+        if processed_chunks_text
+        else None
+    )
 
-    if processed_chunks_text and re.search(r"\s*foreign\s*$", processed_chunks_text[-1]):
-        processed_chunks_text[-1] = re.sub(r"\s*foreign\s*$", "", processed_chunks_text[-1])
+    if processed_chunks_text and re.search(
+        r"\s*foreign\s*$", processed_chunks_text[-1]
+    ):
+        processed_chunks_text[-1] = re.sub(
+            r"\s*foreign\s*$", "", processed_chunks_text[-1]
+        )
         processed_chunks[-1] = re.sub(r"foreign\s*<br>", "<br>", processed_chunks[-1])
     return "\n".join(processed_chunks), " ".join(processed_chunks_text)
 
@@ -280,10 +413,18 @@ def hf_seq_process_chunks(chunks):
             break
     print(f"{processed_chunks=}\n")
     print(f"{processed_chunks_text=}\n")
-    print(re.search(r"\s*foreign\s*$", processed_chunks_text[-1]) if processed_chunks_text else None)
+    print(
+        re.search(r"\s*foreign\s*$", processed_chunks_text[-1])
+        if processed_chunks_text
+        else None
+    )
 
-    if processed_chunks_text and re.search(r"\s*foreign\s*$", processed_chunks_text[-1]):
-        processed_chunks_text[-1] = re.sub(r"\s*foreign\s*$", "", processed_chunks_text[-1])
+    if processed_chunks_text and re.search(
+        r"\s*foreign\s*$", processed_chunks_text[-1]
+    ):
+        processed_chunks_text[-1] = re.sub(
+            r"\s*foreign\s*$", "", processed_chunks_text[-1]
+        )
         processed_chunks[-1] = re.sub(r"foreign\s*<br>", "<br>", processed_chunks[-1])
     return "\n".join(processed_chunks), " ".join(processed_chunks_text)
 

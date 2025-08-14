@@ -23,3 +23,7 @@ webdataset
 transformers
 IPython
 ray
+huggingface_hub
+beautifulsoup4
+gradio
+gradio-rich-textbox
