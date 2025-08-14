@@ -812,7 +812,7 @@ SOFTWARE.
 
 archspec
 0.2.3
-Other/Proprietary License
+Apache 2.0
 /Users/huongn/miniconda3/lib/python3.13/site-packages/archspec/json/LICENSE-APACHE
 
                                  Apache License
