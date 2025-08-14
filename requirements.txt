@@ -12,7 +12,6 @@ torch
 torchaudio
 tqdm
 webvtt_py
-yt-dlp
 wandb
 tiktoken
 seaborn
