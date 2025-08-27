@@ -196,6 +196,54 @@ import olmoasr
 model = olmoasr.load_model("medium", inference=True)
 result = model.transcribe("audio.mp3")
 print(result)
+# Result schema:
+{
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string"
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "seek": { "type": "integer" },
+          "start": { "type": "number" },
+          "end": { "type": "number" },
+          "text": { "type": "string" },
+          "tokens": {
+            "type": "array",
+            "items": { "type": "integer" }
+          },
+          "temperature": { "type": "number" },
+          "avg_logprob": { "type": "number" },
+          "compression_ratio": { "type": "number" },
+          "no_speech_prob": { "type": "number" }
+        },
+        "required": [
+          "id",
+          "seek",
+          "start",
+          "end",
+          "text",
+          "tokens",
+          "temperature",
+          "avg_logprob",
+          "compression_ratio",
+          "no_speech_prob"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "language": {
+      "type": "string"
+    }
+  },
+  "required": ["text", "segments", "language"],
+  "additionalProperties": false
+}
 ```
 
 ## Team and Acknowledgements
