@@ -139,7 +139,7 @@ torchrun --nnodes ${REPLICAS}:${REPLICAS} --nproc_per_node ${GPU_COUNT} ${SCRIPT
       --eval_on_gpu=${EVAL_ON_GPU}" # whether to run async eval on GPU or CPU
 ```
 
-You can go to `scripts/training` for a more detailed guide on the bash scripts that use `torchrun` to train and some example training scripts.
+You can go to `configs/job_configs/training` for a more detailed guide on the bash scripts that use `torchrun` to train and some example training scripts.
 
 ### Evaluation
 To run evaluation, you'll have to acquire the evaluation sets first. With the exception of evaluation sets that need to be paid for and Artie Bias Corpus[^*], you can use `scripts/eval/get_eval_set.py` to download the dataset by just passing in the dataset name.
@@ -149,7 +149,7 @@ To run evaluation, you'll have to acquire the evaluation sets first. With the ex
 After that, you can run `scripts/eval/eval.py` to run evaluation. Please visit `scripts/eval` for more information on the evaluation sets, and other scripts.
 
 ## Available Models
-OLMoASR is a series of ASR models trained on OLMoASR-Pool, a web-scale 3M hour audio-text dataset collected from the public internet. They can all perform English short and long-form speech recognition and produce sentence-level timestamps.
+OLMoASR is a series of ASR models trained on a randomly subsampled version of OLMoASR-Mix, a web-scale 1M hour audio-text dataset collected from the public internet. They can all perform English short and long-form speech recognition and produce sentence-level timestamps.
 
 Model checkpoints can be downloaded from [OLMoASR HuggingFace](link). 
 
