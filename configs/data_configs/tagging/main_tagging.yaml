@@ -1,4 +1,4 @@
-name: super_tagging
+name: main_tagging
 pipeline:
   - tag: casing
   - tag: repeating_lines
