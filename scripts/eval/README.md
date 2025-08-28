@@ -1,4 +1,4 @@
-## OpenWhisper Evaluation Suite
+## OLMoASR Evaluation Suite
 ### Datasets
 To get the evaluation set you want to perform evaluation with, run
 ```
