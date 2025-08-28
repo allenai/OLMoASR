@@ -3,9 +3,7 @@
 In this directory, you'll find the scripts to transform your raw data, train your model and evaluate it. 
 
 ### Data Processing
-You can refer to the `scripts/data` and `olmoasr` directory, where `olmoasr/preprocess.py` contains segmentation code, and `scripts/data/processing/*` houses scripts to organize a directory of transcript files into a JSONL file.
-
-Refer to `configs/job_configs/data/processing` for examples on how to execute this.
+You can refer to the `scripts/data` and `olmoasr` directory, where `olmoasr/preprocess.py` contains segmentation code, and `scripts/data/processing/text_to_jsonl.py` is a script to organize a directory of transcript files into a JSONL file.
 
 ### Filtering
 `scripts/data/filtering/*` contains scripts to filter your processed data
