@@ -38,7 +38,7 @@ shard_00000/
 └── ...
 ```
 
-You can download the data from [OLMoASR-Pool HuggingFace](link).
+You can download the data from [OLMoASR-Pool HuggingFace](https://huggingface.co/datasets/allenai/OLMoASR-Pool).
 
 ## Quickstart
 In the following subsections, we'll walk through how to setup, process the data, train a model and evaluate it.
@@ -144,14 +144,14 @@ You can go to `configs/job_configs/training` for a more detailed guide on the ba
 ### Evaluation
 To run evaluation, you'll have to acquire the evaluation sets first. With the exception of evaluation sets that need to be paid for and Artie Bias Corpus[^*], you can use `scripts/eval/get_eval_set.py` to download the dataset by just passing in the dataset name.
 
-[^*]: This dataset no longer exists online from the original source. If you'd like a copy of the evaluation set, please visit [OLMoASR HuggingFace](link)
+[^*]: This dataset no longer exists online from the original source. If you'd like a copy of the evaluation set, please visit [OLMoASR HuggingFace](https://huggingface.co/allenai/OLMoASR)
 
 After that, you can run `scripts/eval/eval.py` to run evaluation. Please visit `scripts/eval` for more information on the evaluation sets, and other scripts.
 
 ## Available Models
 OLMoASR is a series of ASR models trained on a randomly subsampled version of OLMoASR-Mix, a web-scale 1M hour audio-text dataset collected from the public internet. They can all perform English short and long-form speech recognition and produce sentence-level timestamps.
 
-Model checkpoints can be downloaded from [OLMoASR HuggingFace](link). 
+Model checkpoints can be downloaded from [OLMoASR HuggingFace](https://huggingface.co/allenai/OLMoASR). 
 
 ### Short-form Speech Recognition
 
