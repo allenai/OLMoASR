@@ -11,5 +11,5 @@ openai-whisper
 regex
 webvtt_py
 librosa
-wandb==0.18.7
+wandb==0.21.2
 nemo_toolkit[all]
