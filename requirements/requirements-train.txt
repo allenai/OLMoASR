@@ -7,7 +7,7 @@ torch
 torchaudio
 tqdm
 webvtt_py
-wandb==0.18.7
+wandb==0.21.2
 tiktoken
 numpy
 openai-whisper
